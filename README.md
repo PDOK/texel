@@ -20,6 +20,7 @@ go run . -s=[source gpkg] -t=[target gpkg] -r=[resolution for filtering]
 - [ ] decide if (MULTI)POINT|LINESTRING also are supported
 - [ ] when decide not to support (MULTI)POINT|LINESTRING do we copy the source tables or do nothing at all
 - [ ] build spatial indexed (RTREE for the generated tables)
+- [ ] usage of a CLI package
 
 ## Inspiration
 
