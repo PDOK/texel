@@ -2,7 +2,7 @@
 
 Sieves GeoPackage Polygon geometries.
 
-The reason for this application is to prerefine the POLYGON geometries in a geopackage used for vectortiles by filtering out geometries (based on the given resolution) smaller the pixels that are generated from the given vectoriles. By doing this specific artifacts regarding the rendering of vectortiles can be ommited.
+The reason for this application is to prerefine the POLYGON geometries in a geopackage used for vectortiles by filtering out geometries (based on the given resolution) smaller the pixels that are generated from the given vectoriles. By doing this specific artifacts regarding the rendering of vectortiles can be omitted.
 
 ## Usage
 
