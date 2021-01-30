@@ -66,7 +66,6 @@ func sieveFeatures(preSieve chan vlaklocaties, postSieve chan vlaklocaties, reso
 	for {
 		feature, hasMore := <-preSieve
 		if !hasMore {
-			log.Println("nothing")
 			break
 		} else {
 			if area(feature.geometry) > minArea {
@@ -163,7 +162,6 @@ func writeFeatures(postSieve chan vlaklocaties, kill chan bool, targetGeopackage
 	for {
 		feature, hasMore := <-postSieve
 		if !hasMore {
-			log.Println("no more")
 			break
 		} else {
 			sb, err := gpkg.NewBinary(28992, feature.geometry)
