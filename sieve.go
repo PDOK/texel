@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/gpkg"
@@ -17,25 +18,185 @@ type vlaklocaties struct {
 	geometry      geom.Polygon
 }
 
-func readFeatures(h *gpkg.Handle, preSieve chan vlaklocaties) {
-	// TODO -> loop over available tables with (multi)polygons
+type feature struct {
+	columns  map[string]interface{}
+	geometry geom.Polygon
+}
 
-	var rows *sql.Rows
-	// TODO -> dynamic query based on given table
-	query := `SELECT fid, identificatie, geom from vlaklocaties;`
-	rows, err := h.Query(query)
+type gpkgGeometryColumns struct {
+	tableName        string
+	columnName       string
+	geometryTypeName string
+	srsID            int
+}
 
+func filterGpkgGeometryColumns(h *gpkg.Handle, geometrytype string) []gpkgGeometryColumns {
+	var matches []gpkgGeometryColumns
+
+	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns WHERE upper(geometry_type_name) = upper('%v');`
+	rows, err := h.Query(fmt.Sprintf(query, geometrytype))
 	defer rows.Close()
 	if err != nil {
 		log.Printf("err during closing rows: %v - %v", query, err)
 	}
 
 	for rows.Next() {
+		var ggc gpkgGeometryColumns
+		err := rows.Scan(&ggc.tableName, &ggc.columnName, &ggc.geometryTypeName, &ggc.srsID)
+		if err != nil {
+			log.Fatal(err)
+		}
+		matches = append(matches, ggc)
+	}
+
+	return matches
+}
+
+func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSystem {
+	var srs gpkg.SpatialReferenceSystem
+	query := `SELECT srs_name, srs_id, organization, organization_coordsys_id, definition, description FROM gpkg_spatial_ref_sys WHERE srs_id = %v;`
+	rows, err := h.Query(fmt.Sprintf(query, id))
+	defer rows.Close()
+	if err != nil {
+		log.Printf("err during closing rows: %v - %v", query, err)
+	}
+
+	for rows.Next() {
+		var description *string
+		err := rows.Scan(&srs.Name, &srs.ID, &srs.Organization, &srs.OrganizationCoordsysID, &srs.Definition, &description)
+		if description != nil {
+			srs.Description = *description
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		// On first hit (and only) return
+		return srs
+	}
+	return srs
+}
+
+type column struct {
+	cid       int
+	name      string
+	ctype     string
+	notnull   int
+	dfltValue *int
+	pk        int
+}
+
+func getTableColumns(h *gpkg.Handle, table string) []column {
+	var columns []column
+	query := `PRAGMA table_info('%v');`
+	rows, err := h.Query(fmt.Sprintf(query, table))
+	defer rows.Close()
+	if err != nil {
+		log.Printf("err during closing rows: %v - %v", query, err)
+	}
+
+	for rows.Next() {
+		var column column
+		err := rows.Scan(&column.cid, &column.name, &column.ctype, &column.notnull, &column.dfltValue, &column.pk)
+		if err != nil {
+			log.Fatal(err)
+		}
+		columns = append(columns, column)
+	}
+	return columns
+}
+
+func buildCreateTableQuery(tablename string, columns []column) string {
+	create := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %v`, tablename)
+	var columnparts []string
+	for _, column := range columns {
+		columnpart := column.name + ` ` + column.ctype
+		if column.notnull == 1 {
+			columnpart = columnpart + ` NOT NULL`
+		}
+		if column.pk == 1 {
+			columnpart = columnpart + ` PRIMARY KEY`
+		}
+
+		columnparts = append(columnparts, columnpart)
+	}
+
+	query := create + `(` + strings.Join(columnparts, `, `) + `);`
+	return query
+}
+
+func buildTable(h *gpkg.Handle, table gpkgGeometryColumns, columns []column) error {
+
+	query := buildCreateTableQuery(table.tableName, columns)
+	log.Println(query)
+	_, err := h.Exec(query)
+	if err != nil {
+		log.Println("err:", err)
+		return err
+	}
+
+	err = h.AddGeometryTable(gpkg.TableDescription{
+		Name:          table.tableName,
+		ShortName:     table.tableName,
+		Description:   table.tableName,
+		GeometryField: table.columnName,
+		GeometryType:  gpkg.Polygon,
+		SRS:           int32(table.srsID),
+		Z:             gpkg.Prohibited,
+		M:             gpkg.Prohibited,
+	})
+	if err != nil {
+		log.Println("err:", err)
+		return err
+	}
+	return nil
+}
+
+func initTargetGeopackage(src *gpkg.Handle, trgt *gpkg.Handle) ([]string, error) {
+	tables := filterGpkgGeometryColumns(src, `POLYGON`)
+	var tablesOutput []string
+	for _, table := range tables {
+		srs := getSpatialReferenceSystem(src, table.srsID)
+		err := trgt.UpdateSRS(srs)
+		if err != nil {
+			return tablesOutput, err
+		}
+
+		columns := getTableColumns(src, table.tableName)
+		err = buildTable(trgt, table, columns)
+		if err != nil {
+			return tablesOutput, err
+		}
+		tablesOutput = append(tablesOutput, table.tableName)
+	}
+	return tablesOutput, nil
+}
+
+func readFeatures(h *gpkg.Handle, preSieve chan vlaklocaties, table string) {
+	// TODO -> loop over available tables with (multi)polygons
+
+	columns := getTableColumns(h, table)
+	var cnames []string
+	for _, column := range columns {
+		cnames = append(cnames, column.name)
+	}
+
+	var rows *sql.Rows
+	// TODO -> dynamic query based on given table
+	query := `SELECT ` + strings.Join(cnames, `, `) + ` FROM ` + table + `;`
+	log.Println(query)
+	rows, err := h.Query(query)
+	defer rows.Close()
+	if err != nil {
+		log.Printf("err during closing rows: %v - %v", query, err)
+	}
+
+	for rows.Next() {
+		// TODO -> fix this!!
 		var f int
 		var i string
 		var g interface{}
 
-		err := rows.Scan(&f, &i, &g)
+		err := rows.Scan(&f, &g, &i)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -88,72 +249,10 @@ func sieveFeatures(preSieve chan vlaklocaties, postSieve chan vlaklocaties, reso
 	close(postSieve)
 }
 
-func writeFeatures(postSieve chan vlaklocaties, kill chan bool, targetGeopackage string) {
-
-	h, err := gpkg.Open(targetGeopackage)
-	if err != nil {
-		log.Println("Open err:", err)
-		return
-	}
-	defer h.Close()
-
-	rd := gpkg.SpatialReferenceSystem{
-		Name:                   `epsg:28992`,
-		ID:                     28992,
-		Organization:           `epsg`,
-		OrganizationCoordsysID: 28992,
-		Definition: `PROJCS["Amersfoort / RD New", 
-		GEOGCS["Amersfoort", 
-		  DATUM["Amersfoort", 
-			SPHEROID["Bessel 1841", 6377397.155, 299.1528128, AUTHORITY["EPSG","7004"]], 
-			TOWGS84[565.2369, 50.0087, 465.658, -0.4068573303223975, -0.3507326765425626, 1.8703473836067956, 4.0812], 
-			AUTHORITY["EPSG","6289"]], 
-		  PRIMEM["Greenwich", 0.0, AUTHORITY["EPSG","8901"]], 
-		  UNIT["degree", 0.017453292519943295], 
-		  AXIS["Geodetic longitude", EAST], 
-		  AXIS["Geodetic latitude", NORTH], 
-		  AUTHORITY["EPSG","4289"]], 
-		PROJECTION["Oblique_Stereographic", AUTHORITY["EPSG","9809"]], 
-		PARAMETER["central_meridian", 5.387638888888891], 
-		PARAMETER["latitude_of_origin", 52.15616055555556], 
-		PARAMETER["scale_factor", 0.9999079], 
-		PARAMETER["false_easting", 155000.0], 
-		PARAMETER["false_northing", 463000.0], 
-		UNIT["m", 1.0], 
-		AXIS["Easting", EAST], 
-		AXIS["Northing", NORTH], 
-		AUTHORITY["EPSG","28992"]]`,
-		Description: `epsg:28992`,
-	}
-	err = h.UpdateSRS(rd)
-	if err != nil {
-		log.Println("updatesrs err:", err)
-	}
-
-	c := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS vlaklocaties (fid INTEGER NOT NULL PRIMARY KEY, identificatie TEXT, geometry %v);`, gpkg.Polygon.String())
-	_, err = h.Exec(c)
-	if err != nil {
-		log.Println("create err:", err)
-		return
-	}
-
-	err = h.AddGeometryTable(gpkg.TableDescription{
-		Name:          "vlaklocaties",
-		ShortName:     "vlaklocaties",
-		Description:   "vlaklocaties",
-		GeometryField: "geometry",
-		GeometryType:  gpkg.Polygon,
-		SRS:           28992,
-		Z:             gpkg.Prohibited,
-		M:             gpkg.Prohibited,
-	})
-	if err != nil {
-		log.Println("err:", err)
-	}
-
+func writeFeatures(postSieve chan vlaklocaties, kill chan bool, h *gpkg.Handle, table string) {
 	var ext *geom.Extent
 
-	stmt, err := h.Prepare(`INSERT INTO vlaklocaties(fid, identificatie, geometry) VALUES(?,?,?)`)
+	stmt, err := h.Prepare(`INSERT INTO ` + table + `(fid, identificatie, geom) VALUES(?,?,?)`)
 	if err != nil {
 		log.Println("err:", err)
 		return
@@ -187,7 +286,7 @@ func writeFeatures(postSieve chan vlaklocaties, kill chan bool, targetGeopackage
 			ext.AddGeometry(feature.geometry)
 		}
 	}
-	h.UpdateGeometryExtent("vlaklocaties", ext)
+	h.UpdateGeometryExtent(table, ext)
 
 	log.Println("killing")
 	kill <- true
@@ -200,28 +299,43 @@ func main() {
 	resolution := flag.Float64("r", 0.0, "resolution for sieving")
 	flag.Parse()
 
-	h, err := gpkg.Open(*sourceGeopackage)
+	srcHandle, err := gpkg.Open(*sourceGeopackage)
 	if err != nil {
 		log.Println("err:", err)
 		return
 	}
-	defer h.Close()
+	defer srcHandle.Close()
 
-	preSieve := make(chan vlaklocaties)
-	postSieve := make(chan vlaklocaties)
-	kill := make(chan bool)
+	trgHandle, err := gpkg.Open(*targetGeopackage)
+	if err != nil {
+		log.Println("Open err:", err)
+		return
+	}
+	defer trgHandle.Close()
 
-	go writeFeatures(postSieve, kill, *targetGeopackage)
-	go sieveFeatures(preSieve, postSieve, *resolution)
-	go readFeatures(h, preSieve)
-
-	for {
-		if <-kill {
-			break
-		}
+	tables, err := initTargetGeopackage(srcHandle, trgHandle)
+	if err != nil {
+		log.Println("err:", err)
+		return
 	}
 
-	close(kill)
+	for _, table := range tables {
+		preSieve := make(chan vlaklocaties)
+		postSieve := make(chan vlaklocaties)
+		kill := make(chan bool)
+
+		go writeFeatures(postSieve, kill, trgHandle, table)
+		go sieveFeatures(preSieve, postSieve, *resolution)
+		go readFeatures(srcHandle, preSieve, table)
+
+		for {
+			if <-kill {
+				break
+			}
+		}
+		close(kill)
+	}
+
 	log.Println("done")
 }
 
