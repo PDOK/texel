@@ -14,13 +14,16 @@ go run . -s=[source gpkg] -t=[target gpkg] -r=[resolution for filtering]
 
 ## TODO
 
-- [ ] loop over the available POLYGON tables in a GeoPackage
-- [ ] copy source SpatialReferenceSystem information
+- [x] loop over the available POLYGON tables in a GeoPackage
+- [x] copy source SpatialReferenceSystem information
+- [x] use chan(feature)
+- [ ] move table,column and column order -> struct with methodes
+- [ ] usage of a CLI package
+- [ ] improve error logging/messaging
 - [ ] decide on supporting MULTIPOLYGON
 - [ ] decide if (MULTI)POINT|LINESTRING also are supported
 - [ ] when decide not to support (MULTI)POINT|LINESTRING do we copy the source tables or do nothing at all
 - [ ] build spatial indexed (RTREE for the generated tables)
-- [ ] usage of a CLI package
 
 ## Inspiration
 
