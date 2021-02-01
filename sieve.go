@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/gpkg"
@@ -19,8 +20,25 @@ type vlaklocaties struct {
 }
 
 type feature struct {
-	columns  map[string]interface{}
+	//columns  map[string]interface{}
+	columns  []interface{}
 	geometry geom.Polygon
+}
+
+type sourceTableInfo struct {
+	name       string
+	columns    []column
+	geomcolumn string
+	srs        int
+}
+
+type column struct {
+	cid       int
+	name      string
+	ctype     string
+	notnull   int
+	dfltValue *int
+	pk        int
 }
 
 type gpkgGeometryColumns struct {
@@ -76,15 +94,6 @@ func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSyst
 	return srs
 }
 
-type column struct {
-	cid       int
-	name      string
-	ctype     string
-	notnull   int
-	dfltValue *int
-	pk        int
-}
-
 func getTableColumns(h *gpkg.Handle, table string) []column {
 	var columns []column
 	query := `PRAGMA table_info('%v');`
@@ -127,7 +136,6 @@ func buildCreateTableQuery(tablename string, columns []column) string {
 func buildTable(h *gpkg.Handle, table gpkgGeometryColumns, columns []column) error {
 
 	query := buildCreateTableQuery(table.tableName, columns)
-	log.Println(query)
 	_, err := h.Exec(query)
 	if err != nil {
 		log.Println("err:", err)
@@ -151,9 +159,9 @@ func buildTable(h *gpkg.Handle, table gpkgGeometryColumns, columns []column) err
 	return nil
 }
 
-func initTargetGeopackage(src *gpkg.Handle, trgt *gpkg.Handle) ([]string, error) {
+func initTargetGeopackage(src *gpkg.Handle, trgt *gpkg.Handle) ([]sourceTableInfo, error) {
 	tables := filterGpkgGeometryColumns(src, `POLYGON`)
-	var tablesOutput []string
+	var tablesOutput []sourceTableInfo
 	for _, table := range tables {
 		srs := getSpatialReferenceSystem(src, table.srsID)
 		err := trgt.UpdateSRS(srs)
@@ -166,23 +174,22 @@ func initTargetGeopackage(src *gpkg.Handle, trgt *gpkg.Handle) ([]string, error)
 		if err != nil {
 			return tablesOutput, err
 		}
-		tablesOutput = append(tablesOutput, table.tableName)
+		tablesOutput = append(tablesOutput, sourceTableInfo{name: table.tableName, geomcolumn: table.columnName, columns: columns, srs: table.srsID})
 	}
 	return tablesOutput, nil
 }
 
-func readFeatures(h *gpkg.Handle, preSieve chan vlaklocaties, table string) {
+func readFeatures(h *gpkg.Handle, preSieve chan feature, table sourceTableInfo) {
 	// TODO -> loop over available tables with (multi)polygons
 
-	columns := getTableColumns(h, table)
 	var cnames []string
-	for _, column := range columns {
+	for _, column := range table.columns {
 		cnames = append(cnames, column.name)
 	}
 
 	var rows *sql.Rows
 	// TODO -> dynamic query based on given table
-	query := `SELECT ` + strings.Join(cnames, `, `) + ` FROM ` + table + `;`
+	query := `SELECT ` + strings.Join(cnames, `, `) + ` FROM ` + table.name + `;`
 	log.Println(query)
 	rows, err := h.Query(query)
 	defer rows.Close()
@@ -190,29 +197,62 @@ func readFeatures(h *gpkg.Handle, preSieve chan vlaklocaties, table string) {
 		log.Printf("err during closing rows: %v - %v", query, err)
 	}
 
+	cols, err := rows.Columns()
+	if err != nil {
+		log.Println("err:", err)
+	}
+
 	for rows.Next() {
-		// TODO -> fix this!!
-		var f int
-		var i string
-		var g interface{}
-
-		err := rows.Scan(&f, &g, &i)
-		if err != nil {
-			log.Fatal(err)
+		vals := make([]interface{}, len(cols))
+		valPtrs := make([]interface{}, len(cols))
+		for i := 0; i < len(cols); i++ {
+			valPtrs[i] = &vals[i]
 		}
 
-		wkbgeom, err := gpkg.DecodeGeometry(g.([]byte))
-		if err != nil {
-			log.Fatal(err)
+		if err = rows.Scan(valPtrs...); err != nil {
+			log.Printf("err reading row values: %v", err)
+			return
 		}
+		var f feature
+		var c []interface{}
 
-		var p geom.Polygon
-		p = wkbgeom.Geometry.(geom.Polygon)
-
-		row := vlaklocaties{fid: f, identificatie: i, geometry: p}
-
-		preSieve <- row
-
+		for i, colName := range cols {
+			if vals[i] == nil {
+				continue
+			}
+			switch colName {
+			case table.geomcolumn:
+				wkbgeom, err := gpkg.DecodeGeometry(vals[i].([]byte))
+				if err != nil {
+					log.Fatal(err)
+				}
+				var p geom.Polygon
+				p = wkbgeom.Geometry.(geom.Polygon)
+				f.geometry = p
+			default:
+				// Grab any non-nil, non-id, non-bounding box, & non-geometry column as a tag
+				switch v := vals[i].(type) {
+				case []uint8:
+					asBytes := make([]byte, len(v))
+					for j := 0; j < len(v); j++ {
+						asBytes[j] = v[j]
+					}
+					c = append(c, string(asBytes))
+				case int64:
+					c = append(c, v)
+				case float64:
+					c = append(c, v)
+				case time.Time:
+					c = append(c, v)
+				case string:
+					c = append(c, v)
+				default:
+					log.Printf("unexpected type for sqlite column data: %v: %T", cols[i], v)
+				}
+			}
+			f.columns = c
+		}
+		preSieve <- f
 	}
 	err = rows.Err()
 	if err != nil {
@@ -222,7 +262,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan vlaklocaties, table string) {
 	close(preSieve)
 }
 
-func sieveFeatures(preSieve chan vlaklocaties, postSieve chan vlaklocaties, resolution float64) {
+func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution float64) {
 	minArea := resolution * resolution
 	for {
 		feature, hasMore := <-preSieve
@@ -238,7 +278,8 @@ func sieveFeatures(preSieve chan vlaklocaties, postSieve chan vlaklocaties, reso
 							newPolygon = append(newPolygon, interior)
 						}
 					}
-					postSieve <- vlaklocaties{fid: feature.fid, identificatie: feature.identificatie, geometry: newPolygon}
+					feature.geometry = newPolygon
+					postSieve <- feature
 				} else {
 					postSieve <- feature
 				}
@@ -249,10 +290,19 @@ func sieveFeatures(preSieve chan vlaklocaties, postSieve chan vlaklocaties, reso
 	close(postSieve)
 }
 
-func writeFeatures(postSieve chan vlaklocaties, kill chan bool, h *gpkg.Handle, table string) {
+func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, table sourceTableInfo) {
 	var ext *geom.Extent
 
-	stmt, err := h.Prepare(`INSERT INTO ` + table + `(fid, identificatie, geom) VALUES(?,?,?)`)
+	var columns []string
+	for _, column := range table.columns {
+		if column.ctype != `POLYGON` {
+			columns = append(columns, column.name)
+		}
+	}
+	columns = append(columns, table.geomcolumn)
+
+	log.Println(strings.Join(columns, `,`))
+	stmt, err := h.Prepare(`INSERT INTO ` + table.name + `(` + strings.Join(columns, `,`) + `) VALUES(?,?,?)`)
 	if err != nil {
 		log.Println("err:", err)
 		return
@@ -263,15 +313,19 @@ func writeFeatures(postSieve chan vlaklocaties, kill chan bool, h *gpkg.Handle, 
 		if !hasMore {
 			break
 		} else {
-			sb, err := gpkg.NewBinary(28992, feature.geometry)
+			sb, err := gpkg.NewBinary(int32(table.srs), feature.geometry)
 			if err != nil {
 				log.Println("err:", err)
 				continue
 			}
-			_, err = stmt.Exec(feature.fid, feature.identificatie, sb)
+
+			data := feature.columns
+			data = append(data, sb)
+
+			_, err = stmt.Exec(data...)
 			if err != nil {
-				log.Println("err:", err)
-				continue
+				log.Fatalln("stmt err:", err)
+				//continue
 			}
 		}
 
@@ -286,7 +340,7 @@ func writeFeatures(postSieve chan vlaklocaties, kill chan bool, h *gpkg.Handle, 
 			ext.AddGeometry(feature.geometry)
 		}
 	}
-	h.UpdateGeometryExtent(table, ext)
+	h.UpdateGeometryExtent(table.name, ext)
 
 	log.Println("killing")
 	kill <- true
@@ -319,9 +373,10 @@ func main() {
 		return
 	}
 
+	// Proces the tables sequential
 	for _, table := range tables {
-		preSieve := make(chan vlaklocaties)
-		postSieve := make(chan vlaklocaties)
+		preSieve := make(chan feature)
+		postSieve := make(chan feature)
 		kill := make(chan bool)
 
 		go writeFeatures(postSieve, kill, trgHandle, table)
