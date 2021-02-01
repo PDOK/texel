@@ -17,7 +17,7 @@ go run . -s=[source gpkg] -t=[target gpkg] -r=[resolution for filtering]
 - [x] loop over the available POLYGON tables in a GeoPackage
 - [x] copy source SpatialReferenceSystem information
 - [x] use chan(feature)
-- [ ] move table,column and column order -> struct with methodes
+- [x] move table,column and column order -> struct with methodes
 - [ ] usage of a CLI package
 - [ ] improve error logging/messaging
 - [ ] decide on supporting MULTIPOLYGON
