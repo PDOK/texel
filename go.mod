@@ -1,6 +1,6 @@
 module github.com/woutervisscher/sieve
 
-go 1.13
+go 1.15
 
 require (
 	github.com/go-spatial/geom v0.0.0-20210110002716-a43924ed9afb
