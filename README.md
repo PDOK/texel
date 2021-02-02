@@ -1,5 +1,9 @@
 # Sieve
 
+![GitHub license](https://img.shields.io/github/license/WouterVisscher/sieve)
+[![GitHub release](https://img.shields.io/github/release/WouterVisscher/sieve.svg)](https://github.com/WouterVisscher/sieve/releases)
+[![Go Report Card](https://goreportcard.com/badge/WouterVisscher/sieve)](https://goreportcard.com/report/WouterVisscher/sieve)
+
 Sieves GeoPackage Polygon geometries.
 
 The reason for this application is to prerefine the POLYGON geometries in a geopackage used for vectortiles by filtering out geometries (based on the given resolution) smaller then the pixels that are generated from the given vectoriles. By doing this specific artifacts regarding the rendering of vectortiles can be omitted.
