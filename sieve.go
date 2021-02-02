@@ -34,6 +34,7 @@ type table struct {
 	srs     gpkg.SpatialReferenceSystem
 }
 
+// geometryTypeFromString returns the numeric value of a gometry string
 func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
 	switch strings.ToUpper(geometrytype) {
 	case "GEOMETRY":
@@ -57,6 +58,8 @@ func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
 	}
 }
 
+// createSQL creates a CREATE statement on the given table and column information
+// used for creating feature tables in the target Geopackage
 func (t table) createSQL() string {
 	create := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %v`, t.name)
 	var columnparts []string
@@ -76,6 +79,8 @@ func (t table) createSQL() string {
 	return query
 }
 
+// selectSQL build a SELECT statement based on the table and columns
+// used for reading the source features
 func (t table) selectSQL() string {
 	var csql []string
 	for _, c := range t.columns {
@@ -85,6 +90,8 @@ func (t table) selectSQL() string {
 	return query
 }
 
+// insertSQL used for writing the features
+// build the INSERT statement based on the table and columns
 func (t table) insertSQL() string {
 	var csql, vsql []string
 	for _, c := range t.columns {
@@ -99,6 +106,7 @@ func (t table) insertSQL() string {
 	return query
 }
 
+// getSourceTableInfo collects the source table information
 func getSourceTableInfo(h *gpkg.Handle) []table {
 	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns WHERE upper(geometry_type_name) = upper('POLYGON');`
 	rows, err := h.Query(query)
@@ -126,6 +134,7 @@ func getSourceTableInfo(h *gpkg.Handle) []table {
 	return tables
 }
 
+// getSpatialReferenceSystem extracts this based on the given SRS id
 func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSystem {
 	var srs gpkg.SpatialReferenceSystem
 	query := `SELECT srs_name, srs_id, organization, organization_coordsys_id, definition, description FROM gpkg_spatial_ref_sys WHERE srs_id = %v;`
@@ -150,6 +159,7 @@ func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSyst
 	return srs
 }
 
+// getTableColumns collects the column information of a given table
 func getTableColumns(h *gpkg.Handle, table string) []column {
 	var columns []column
 	query := `PRAGMA table_info('%v');`
@@ -170,6 +180,7 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 	return columns
 }
 
+// buildTable creates a given destination table with the necessary gpkg_ information
 func buildTable(h *gpkg.Handle, t table) error {
 	query := t.createSQL()
 	_, err := h.Exec(query)
@@ -196,6 +207,7 @@ func buildTable(h *gpkg.Handle, t table) error {
 	return nil
 }
 
+// initTargetGeopackage creates the destination Geopackage
 func initTargetGeopackage(h *gpkg.Handle, tables []table) error {
 	for _, table := range tables {
 		err := h.UpdateSRS(table.srs)
@@ -211,6 +223,8 @@ func initTargetGeopackage(h *gpkg.Handle, tables []table) error {
 	return nil
 }
 
+// readFeatures reads the features from the given Geopackage table
+// and decodes the WKB geometry to a geom.Polygon
 func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 	rows, err := h.Query(t.selectSQL())
 	defer rows.Close()
@@ -282,6 +296,10 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 	close(preSieve)
 }
 
+// sieveFeatures sieves/filters the geometry against the given resolution
+// the two steps that are done are:
+// 1. filter features with a area smaller then the (resolution*resolution)
+// 2. removes interior rings with a area smaller then the (resolution*resolution)
 func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution float64) {
 	minArea := resolution * resolution
 
@@ -310,6 +328,7 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 	close(postSieve)
 }
 
+// writeFeatures writes the features processed by the sieveFeatures to the geopackages
 func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t table) {
 	var ext *geom.Extent
 	stmt, err := h.Prepare(t.insertSQL())
@@ -404,6 +423,7 @@ func main() {
 	log.Println("stop")
 }
 
+// calculate the area of a polygon
 func area(geom [][][2]float64) float64 {
 	interior := .0
 	if len(geom) > 1 {
@@ -414,6 +434,7 @@ func area(geom [][][2]float64) float64 {
 	return math.Abs(shoelace(geom[0]) - interior)
 }
 
+// https://en.wikipedia.org/wiki/Shoelace_formula
 func shoelace(pts [][2]float64) float64 {
 	sum := 0.
 	p0 := pts[len(pts)-1]
