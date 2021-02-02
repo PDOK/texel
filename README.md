@@ -20,7 +20,7 @@ go run . -s=[source gpkg] -t=[target gpkg] -r=[resolution for filtering]
 
 ```docker
 docker build -t pdok/sieve .
-docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve -s=./example/example.gpkg -t=./example/example-processed.gpkg -r=500
+docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve -s=./example/example.gpkg -t=./example/example-processed.gpkg -r=50001
 ```
 
 ## TODO

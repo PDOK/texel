@@ -400,7 +400,7 @@ func main() {
 		return
 	}
 
-	// Proces the tables sequential
+	// Process the tables sequential
 	for _, table := range tables {
 		log.Println(fmt.Sprintf(`processing: %s`, table.name))
 		preSieve := make(chan feature)
@@ -431,7 +431,7 @@ func area(geom [][][2]float64) float64 {
 			interior = interior + shoelace(i)
 		}
 	}
-	return math.Abs(shoelace(geom[0]) - interior)
+	return shoelace(geom[0]) - interior
 }
 
 // https://en.wikipedia.org/wiki/Shoelace_formula
@@ -442,5 +442,5 @@ func shoelace(pts [][2]float64) float64 {
 		sum += p0[1]*p1[0] - p0[0]*p1[1]
 		p0 = p1
 	}
-	return sum / 2
+	return math.Abs(sum / 2)
 }
