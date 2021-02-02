@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -283,6 +284,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 
 func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution float64) {
 	minArea := resolution * resolution
+
 	for {
 		feature, hasMore := <-preSieve
 		if !hasMore {
@@ -409,7 +411,7 @@ func area(geom [][][2]float64) float64 {
 			interior = interior + shoelace(i)
 		}
 	}
-	return (shoelace(geom[0]) * -1) - interior
+	return math.Abs(shoelace(geom[0]) - interior)
 }
 
 func shoelace(pts [][2]float64) float64 {
