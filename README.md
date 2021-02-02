@@ -16,6 +16,13 @@ go build .
 go run . -s=[source gpkg] -t=[target gpkg] -r=[resolution for filtering]
 ```
 
+## Docker
+
+```docker
+docker build -t pdok/sieve .
+docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve -s=./example/example.gpkg -t=./example/example-processed.gpkg -r=500
+```
+
 ## TODO
 
 - [x] loop over the available POLYGON tables in a GeoPackage
