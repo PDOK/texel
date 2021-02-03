@@ -14,7 +14,7 @@ import (
 
 type feature struct {
 	columns  []interface{}
-	geometry geom.Polygon
+	geometry geom.Geometry
 }
 
 type column struct {
@@ -108,7 +108,7 @@ func (t table) insertSQL() string {
 
 // getSourceTableInfo collects the source table information
 func getSourceTableInfo(h *gpkg.Handle) []table {
-	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns WHERE upper(geometry_type_name) = upper('POLYGON');`
+	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
 	rows, err := h.Query(query)
 	defer rows.Close()
 	if err != nil {
@@ -261,9 +261,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 				if err != nil {
 					log.Fatal(err)
 				}
-				var p geom.Polygon
-				p = wkbgeom.Geometry.(geom.Polygon)
-				f.geometry = p
+				f.geometry = wkbgeom.Geometry
 			default:
 				// Grab any non-nil, non-id, non-bounding box, & non-geometry column as a tag
 				switch v := vals[i].(type) {
@@ -308,20 +306,29 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 		if !hasMore {
 			break
 		} else {
-			if area(feature.geometry) > minArea {
-				if len(feature.geometry) > 1 {
-					var newPolygon geom.Polygon
-					newPolygon = append(newPolygon, feature.geometry[0])
-					for _, interior := range feature.geometry[1:] {
-						if shoelace(interior) > minArea {
-							newPolygon = append(newPolygon, interior)
+			switch gpkg.TypeForGeometry(feature.geometry) {
+			case gpkg.Polygon:
+				var p geom.Polygon
+				p = feature.geometry.(geom.Polygon)
+				if area(p) > minArea {
+					if len(p) > 1 {
+						var newPolygon geom.Polygon
+						newPolygon = append(newPolygon, p[0])
+						for _, interior := range p[1:] {
+							if shoelace(interior) > minArea {
+								newPolygon = append(newPolygon, interior)
+							}
 						}
+						feature.geometry = newPolygon
+						postSieve <- feature
+					} else {
+						postSieve <- feature
 					}
-					feature.geometry = newPolygon
-					postSieve <- feature
-				} else {
-					postSieve <- feature
 				}
+			case gpkg.MultiPolygon:
+				postSieve <- feature
+			default:
+				postSieve <- feature
 			}
 		}
 	}
