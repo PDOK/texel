@@ -23,6 +23,10 @@ docker build -t pdok/sieve .
 docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve -s=./example/example.gpkg -t=./example/example-processed.gpkg -r=50001
 ```
 
+With the docker example above processing the ```example.gpkg``` would result in the following.
+
+![](./images/with-interiors.jpg)  ![](./images/without-interiors.jpg)
+
 ## TODO
 
 - [x] loop over the available POLYGON tables in a GeoPackage
