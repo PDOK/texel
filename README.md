@@ -25,7 +25,7 @@ docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve -s=./e
 
 With the docker example above processing the ```example.gpkg``` would result in the following.
 
-![](./images/with-interiors.jpg)  ![](./images/without-interiors.jpg)
+![with interiors](./images/with-interiors.jpg)  ![without interiors](./images/without-interiors.jpg)
 
 ## TODO
 
