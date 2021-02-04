@@ -4,9 +4,17 @@
 [![GitHub release](https://img.shields.io/github/release/WouterVisscher/sieve.svg)](https://github.com/WouterVisscher/sieve/releases)
 [![Go Report Card](https://goreportcard.com/badge/WouterVisscher/sieve)](https://goreportcard.com/report/WouterVisscher/sieve)
 
-Sieves GeoPackage Polygon geometries.
+Sieves [GeoPackage](https://www.geopackage.org/) Polygon geometries.
 
-The reason for this application is to prerefine the POLYGON geometries in a geopackage used for vectortiles by filtering out geometries (based on the given resolution) smaller then the pixels that are generated from the given vectoriles. By doing this specific artifacts regarding the rendering of vectortiles can be omitted.
+The purpose of this application is to prerefine the (MULTI)POLYGON geometries in a geopackage used for vectortiles by filtering out geometries (based on the given resolution) smaller then the pixels that are generated from the given vectoriles. By doing this specific artifacts/errors regarding the rendering of vectortiles can be omitted.
+
+## Notes
+
+- It will take a Geopackage and writes a new Geopackage where all the (MULTI)POLYGON tables are sieve.
+  - All other geometrie tables are 'untouched' and copied as-is.
+  - Other none geometrie tables are not copied to the new geopackage.
+- The area of a POLYGON is used for determining if the geometries will be sieved, not the extent. So geometries with a extent larger then the given resolution but with a area smaller then that resolution will be sieved.
+- A MULTIPOLYGON will be spilt into seperated POLYGON's that will be sieved. So a MULTIPOLYGON contain parts smaller then the given resolution will 'lose' those parts.
 
 ## Usage
 
@@ -29,15 +37,8 @@ With the docker example above processing the ```example.gpkg``` would result in 
 
 ## TODO
 
-- [x] loop over the available POLYGON tables in a GeoPackage
-- [x] copy source SpatialReferenceSystem information
-- [x] use chan(feature)
-- [x] move table,column and column order -> struct with methodes
 - [ ] usage of a CLI package
 - [ ] improve error logging/messaging
-- [ ] decide on supporting MULTIPOLYGON
-- [ ] decide if (MULTI)POINT|LINESTRING also are supported
-- [ ] when decide not to support (MULTI)POINT|LINESTRING do we copy the source tables or do nothing at all
 - [ ] build spatial indexed (RTREE for the generated tables)
 
 ## Inspiration
