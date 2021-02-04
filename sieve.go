@@ -14,7 +14,7 @@ import (
 
 type feature struct {
 	columns  []interface{}
-	geometry geom.Polygon
+	geometry geom.Geometry
 }
 
 type column struct {
@@ -108,7 +108,7 @@ func (t table) insertSQL() string {
 
 // getSourceTableInfo collects the source table information
 func getSourceTableInfo(h *gpkg.Handle) []table {
-	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns WHERE upper(geometry_type_name) = upper('POLYGON');`
+	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
 	rows, err := h.Query(query)
 	defer rows.Close()
 	if err != nil {
@@ -261,9 +261,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 				if err != nil {
 					log.Fatal(err)
 				}
-				var p geom.Polygon
-				p = wkbgeom.Geometry.(geom.Polygon)
-				f.geometry = p
+				f.geometry = wkbgeom.Geometry
 			default:
 				// Grab any non-nil, non-id, non-bounding box, & non-geometry column as a tag
 				switch v := vals[i].(type) {
@@ -301,31 +299,62 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 // 1. filter features with a area smaller then the (resolution*resolution)
 // 2. removes interior rings with a area smaller then the (resolution*resolution)
 func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution float64) {
-	minArea := resolution * resolution
-
 	for {
 		feature, hasMore := <-preSieve
 		if !hasMore {
 			break
 		} else {
-			if area(feature.geometry) > minArea {
-				if len(feature.geometry) > 1 {
-					var newPolygon geom.Polygon
-					newPolygon = append(newPolygon, feature.geometry[0])
-					for _, interior := range feature.geometry[1:] {
-						if shoelace(interior) > minArea {
-							newPolygon = append(newPolygon, interior)
-						}
-					}
-					feature.geometry = newPolygon
-					postSieve <- feature
-				} else {
+			switch gpkg.TypeForGeometry(feature.geometry) {
+			case gpkg.Polygon:
+				var p geom.Polygon
+				p = feature.geometry.(geom.Polygon)
+				if p := polygonSieve(p, resolution); p != nil {
+					feature.geometry = p
 					postSieve <- feature
 				}
+			case gpkg.MultiPolygon:
+				var mp geom.MultiPolygon
+				mp = feature.geometry.(geom.MultiPolygon)
+				if mp := multiPolygonSieve(mp, resolution); mp != nil {
+					feature.geometry = mp
+					postSieve <- feature
+				}
+			default:
+				postSieve <- feature
 			}
 		}
 	}
 	close(postSieve)
+}
+
+// multiPolygonSieve will split it self into the seperated polygons that will be sieved before building a new MULTIPOLYGON
+func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) geom.MultiPolygon {
+	var sievedMultiPolygon geom.MultiPolygon
+	for _, p := range mp {
+		if sievedPolygon := polygonSieve(p, resolution); sievedPolygon != nil {
+			sievedMultiPolygon = append(sievedMultiPolygon)
+		}
+	}
+	return sievedMultiPolygon
+}
+
+// polygonSieve will sieve a given POLYGON
+func polygonSieve(p geom.Polygon, resolution float64) geom.Polygon {
+	minArea := resolution * resolution
+	if area(p) > minArea {
+		if len(p) > 1 {
+			var sievedPolygon geom.Polygon
+			sievedPolygon = append(sievedPolygon, p[0])
+			for _, interior := range p[1:] {
+				if shoelace(interior) > minArea {
+					sievedPolygon = append(sievedPolygon, interior)
+				}
+			}
+			return sievedPolygon
+		}
+		return p
+	}
+	return nil
 }
 
 // writeFeatures writes the features processed by the sieveFeatures to the geopackages
