@@ -327,7 +327,7 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 	close(postSieve)
 }
 
-// multiPolygonSieve will split it self into the seperated polygons that will be sieved before building a new MULTIPOLYGON
+// multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
 func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) geom.MultiPolygon {
 	var sievedMultiPolygon geom.MultiPolygon
 	for _, p := range mp {
