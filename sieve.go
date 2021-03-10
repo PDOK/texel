@@ -61,7 +61,7 @@ func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
 // createSQL creates a CREATE statement on the given table and column information
 // used for creating feature tables in the target Geopackage
 func (t table) createSQL() string {
-	create := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %v`, t.name)
+	create := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%v"`, t.name)
 	var columnparts []string
 	for _, column := range t.columns {
 		columnpart := column.name + ` ` + column.ctype
@@ -86,7 +86,7 @@ func (t table) selectSQL() string {
 	for _, c := range t.columns {
 		csql = append(csql, c.name)
 	}
-	query := `SELECT ` + strings.Join(csql, `,`) + ` FROM ` + t.name + `;`
+	query := `SELECT ` + strings.Join(csql, `,`) + ` FROM "` + t.name + `";`
 	return query
 }
 
@@ -102,7 +102,7 @@ func (t table) insertSQL() string {
 	}
 	csql = append(csql, t.gcolumn)
 	vsql = append(vsql, `?`)
-	query := `INSERT INTO ` + t.name + `(` + strings.Join(csql, `,`) + `) VALUES(` + strings.Join(vsql, `,`) + `)`
+	query := `INSERT INTO "` + t.name + `"(` + strings.Join(csql, `,`) + `) VALUES(` + strings.Join(vsql, `,`) + `)`
 	return query
 }
 
@@ -185,7 +185,7 @@ func buildTable(h *gpkg.Handle, t table) error {
 	query := t.createSQL()
 	_, err := h.Exec(query)
 	if err != nil {
-		log.Println("err:", err)
+		log.Println("error building table in target GeoPackage:", err)
 		return err
 	}
 
@@ -201,7 +201,7 @@ func buildTable(h *gpkg.Handle, t table) error {
 		M: gpkg.Prohibited,
 	})
 	if err != nil {
-		log.Println("err:", err)
+		log.Println("error adding geometry table in target GeoPackage:", err)
 		return err
 	}
 	return nil
@@ -409,14 +409,14 @@ func main() {
 
 	srcHandle, err := gpkg.Open(*sourceGeopackage)
 	if err != nil {
-		log.Println("err:", err)
+		log.Println("error opening source GeoPackage:", err)
 		return
 	}
 	defer srcHandle.Close()
 
 	trgHandle, err := gpkg.Open(*targetGeopackage)
 	if err != nil {
-		log.Println("Open err:", err)
+		log.Println("error opening target GeoPackage:", err)
 		return
 	}
 	defer trgHandle.Close()
@@ -425,7 +425,7 @@ func main() {
 
 	err = initTargetGeopackage(trgHandle, tables)
 	if err != nil {
-		log.Println("err:", err)
+		log.Println("error initialization the target GeoPackage:", err)
 		return
 	}
 
