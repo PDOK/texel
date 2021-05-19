@@ -1,8 +1,9 @@
 # Sieve
 
-![GitHub license](https://img.shields.io/github/license/WouterVisscher/sieve)
-[![GitHub release](https://img.shields.io/github/release/WouterVisscher/sieve.svg)](https://github.com/WouterVisscher/sieve/releases)
-[![Go Report Card](https://goreportcard.com/badge/WouterVisscher/sieve)](https://goreportcard.com/report/WouterVisscher/sieve)
+![GitHub license](https://img.shields.io/github/license/PDOK/sieve)
+[![GitHub release](https://img.shields.io/github/release/PDOK/sieve.svg)](https://github.com/PDOK/sieve/releases)
+[![Go Report Card](https://goreportcard.com/badge/PDOK/sieve)](https://goreportcard.com/report/PDOK/sieve)
+[![Docker Pulls](https://img.shields.io/docker/pulls/pdok/sieve.svg)](https://hub.docker.com/r/pdok/sieve)
 
 Sieves [GeoPackage](https://www.geopackage.org/) Polygon geometries.
 
@@ -11,8 +12,8 @@ The purpose of this application is to prerefine the (MULTI)POLYGON geometries in
 ## Notes
 
 - It will take a Geopackage and writes a new Geopackage where all the (MULTI)POLYGON tables are sieve.
-  - All other geometrie tables are 'untouched' and copied as-is.
-  - Other none geometrie tables are not copied to the new geopackage.
+  - All other geometry tables are 'untouched' and copied as-is.
+  - Other none geometry tables are not copied to the new geopackage.
 - The area of a POLYGON is used for determining if the geometries will be sieved, not the extent. So geometries with a extent larger then the given resolution but with a area smaller then that resolution will be sieved.
 - A MULTIPOLYGON will be spilt into seperated POLYGON's that will be sieved. So a MULTIPOLYGON contain parts smaller then the given resolution will 'lose' those parts.
 
