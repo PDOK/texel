@@ -252,9 +252,6 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 		var c []interface{}
 
 		for i, colName := range cols {
-			if vals[i] == nil {
-				continue
-			}
 			switch colName {
 			case t.gcolumn:
 				wkbgeom, err := gpkg.DecodeGeometry(vals[i].([]byte))
@@ -263,7 +260,6 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 				}
 				f.geometry = wkbgeom.Geometry
 			default:
-				// Grab any non-nil, non-id, non-bounding box, & non-geometry column as a tag
 				switch v := vals[i].(type) {
 				case []uint8:
 					asBytes := make([]byte, len(v))
@@ -278,6 +274,8 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 				case time.Time:
 					c = append(c, v)
 				case string:
+					c = append(c, v)
+				case nil:
 					c = append(c, v)
 				default:
 					log.Printf("unexpected type for sqlite column data: %v: %T", cols[i], v)
