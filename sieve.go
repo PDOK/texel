@@ -111,7 +111,7 @@ func getSourceTableInfo(h *gpkg.Handle) []table {
 	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
 	rows, err := h.Query(query)
 	if err != nil {
-		log.Printf("err during closing rows: %v - %v", query, err)
+		log.Printf("error during closing rows: %v - %v", query, err)
 	}
 	var tables []table
 
@@ -121,7 +121,7 @@ func getSourceTableInfo(h *gpkg.Handle) []table {
 		var srsID int
 		err := rows.Scan(&t.name, &t.gcolumn, &gtype, &srsID)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("error ready the source table information: %s", err)
 		}
 
 		t.columns = getTableColumns(h, t.name)
@@ -163,7 +163,7 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 		var column column
 		err := rows.Scan(&column.cid, &column.name, &column.ctype, &column.notnull, &column.dfltValue, &column.pk)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("error getting the column information: %s", err)
 		}
 		columns = append(columns, column)
 	}
@@ -176,8 +176,7 @@ func buildTable(h *gpkg.Handle, t table) error {
 	query := t.createSQL()
 	_, err := h.Exec(query)
 	if err != nil {
-		log.Println("error building table in target GeoPackage:", err)
-		return err
+		log.Fatalf("error building table in target GeoPackage: %s", err)
 	}
 
 	err = h.AddGeometryTable(gpkg.TableDescription{
@@ -219,12 +218,12 @@ func initTargetGeopackage(h *gpkg.Handle, tables []table) error {
 func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 	rows, err := h.Query(t.selectSQL())
 	if err != nil {
-		log.Printf("err during closing rows: %v", err)
+		log.Printf("err during closing rows: %s", err)
 	}
 
 	cols, err := rows.Columns()
 	if err != nil {
-		log.Println("err:", err)
+		log.Printf("error reading the columns: %s", err)
 	}
 
 	for rows.Next() {
@@ -235,8 +234,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 		}
 
 		if err = rows.Scan(valPtrs...); err != nil {
-			log.Printf("err reading row values: %v", err)
-			return
+			log.Fatalf("err reading row values: %v", err)
 		}
 		var f feature
 		var c []interface{}
@@ -246,7 +244,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 			case t.gcolumn:
 				wkbgeom, err := gpkg.DecodeGeometry(vals[i].([]byte))
 				if err != nil {
-					log.Fatal(err)
+					log.Fatalf("error decoding the geometry: %s", err)
 				}
 				f.geometry = wkbgeom.Geometry
 			default:
@@ -321,8 +319,7 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 	var ext *geom.Extent
 	stmt, err := h.Prepare(t.insertSQL())
 	if err != nil {
-		log.Println("Could not create a connection to the target GeoPackage:", err)
-		return
+		log.Fatalf("Could not create a connection to the target GeoPackage: %s", err)
 	}
 
 	for {
@@ -332,8 +329,7 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 		} else {
 			sb, err := gpkg.NewBinary(int32(t.srs.ID), feature.geometry)
 			if err != nil {
-				log.Fatalln("Could not create a binary geometry:", err)
-				return
+				log.Fatalf("Could not create a binary geometry: %s", err)
 			}
 
 			data := feature.columns
@@ -341,8 +337,7 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 
 			_, err = stmt.Exec(data...)
 			if err != nil {
-				log.Fatalln("Could a result summary from the prepared statement:", err)
-				return
+				log.Fatalf("Could a result summary from the prepared statement: %s", err)
 			}
 		}
 
@@ -370,15 +365,13 @@ func main() {
 
 	srcHandle, err := gpkg.Open(*sourceGeopackage)
 	if err != nil {
-		log.Println("error opening source GeoPackage:", err)
-		return
+		log.Fatalf("error opening source GeoPackage: %s", err)
 	}
 	defer srcHandle.Close()
 
 	trgHandle, err := gpkg.Open(*targetGeopackage)
 	if err != nil {
-		log.Println("error opening target GeoPackage:", err)
-		return
+		log.Fatalf("error opening target GeoPackage: %s", err)
 	}
 	defer trgHandle.Close()
 
@@ -386,8 +379,7 @@ func main() {
 
 	err = initTargetGeopackage(trgHandle, tables)
 	if err != nil {
-		log.Println("error initialization the target GeoPackage:", err)
-		return
+		log.Fatalf("error initialization the target GeoPackage: %s", err)
 	}
 
 	// Process the tables sequential
