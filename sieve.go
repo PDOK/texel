@@ -110,7 +110,6 @@ func (t table) insertSQL() string {
 func getSourceTableInfo(h *gpkg.Handle) []table {
 	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
 	rows, err := h.Query(query)
-	defer rows.Close()
 	if err != nil {
 		log.Printf("err during closing rows: %v - %v", query, err)
 	}
@@ -131,6 +130,7 @@ func getSourceTableInfo(h *gpkg.Handle) []table {
 
 		tables = append(tables, t)
 	}
+	defer rows.Close()
 	return tables
 }
 
@@ -138,24 +138,14 @@ func getSourceTableInfo(h *gpkg.Handle) []table {
 func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSystem {
 	var srs gpkg.SpatialReferenceSystem
 	query := `SELECT srs_name, srs_id, organization, organization_coordsys_id, definition, description FROM gpkg_spatial_ref_sys WHERE srs_id = %v;`
-	rows, err := h.Query(fmt.Sprintf(query, id))
-	defer rows.Close()
-	if err != nil {
-		log.Printf("err during closing rows: %v - %v", query, err)
+
+	row := h.QueryRow(fmt.Sprintf(query, id))
+	var description *string
+	row.Scan(&srs.Name, &srs.ID, &srs.Organization, &srs.OrganizationCoordsysID, &srs.Definition, &description)
+	if description != nil {
+		srs.Description = *description
 	}
 
-	for rows.Next() {
-		var description *string
-		err := rows.Scan(&srs.Name, &srs.ID, &srs.Organization, &srs.OrganizationCoordsysID, &srs.Definition, &description)
-		if description != nil {
-			srs.Description = *description
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-		// On first hit (and only) return
-		return srs
-	}
 	return srs
 }
 
@@ -164,7 +154,7 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 	var columns []column
 	query := `PRAGMA table_info('%v');`
 	rows, err := h.Query(fmt.Sprintf(query, table))
-	defer rows.Close()
+
 	if err != nil {
 		log.Printf("err during closing rows: %v - %v", query, err)
 	}
@@ -177,6 +167,7 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 		}
 		columns = append(columns, column)
 	}
+	defer rows.Close()
 	return columns
 }
 
@@ -227,7 +218,6 @@ func initTargetGeopackage(h *gpkg.Handle, tables []table) error {
 // and decodes the WKB geometry to a geom.Polygon
 func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 	rows, err := h.Query(t.selectSQL())
-	defer rows.Close()
 	if err != nil {
 		log.Printf("err during closing rows: %v", err)
 	}
@@ -290,6 +280,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 		log.Fatal(err)
 	}
 	close(preSieve)
+	defer rows.Close()
 }
 
 // sieveFeatures sieves/filters the geometry against the given resolution
@@ -325,42 +316,12 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 	close(postSieve)
 }
 
-// multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
-func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) geom.MultiPolygon {
-	var sievedMultiPolygon geom.MultiPolygon
-	for _, p := range mp {
-		if sievedPolygon := polygonSieve(p, resolution); sievedPolygon != nil {
-			sievedMultiPolygon = append(sievedMultiPolygon)
-		}
-	}
-	return sievedMultiPolygon
-}
-
-// polygonSieve will sieve a given POLYGON
-func polygonSieve(p geom.Polygon, resolution float64) geom.Polygon {
-	minArea := resolution * resolution
-	if area(p) > minArea {
-		if len(p) > 1 {
-			var sievedPolygon geom.Polygon
-			sievedPolygon = append(sievedPolygon, p[0])
-			for _, interior := range p[1:] {
-				if shoelace(interior) > minArea {
-					sievedPolygon = append(sievedPolygon, interior)
-				}
-			}
-			return sievedPolygon
-		}
-		return p
-	}
-	return nil
-}
-
 // writeFeatures writes the features processed by the sieveFeatures to the geopackages
 func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t table) {
 	var ext *geom.Extent
 	stmt, err := h.Prepare(t.insertSQL())
 	if err != nil {
-		log.Println("err:", err)
+		log.Println("Could not create a connection to the target GeoPackage:", err)
 		return
 	}
 
@@ -371,7 +332,8 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 		} else {
 			sb, err := gpkg.NewBinary(int32(t.srs.ID), feature.geometry)
 			if err != nil {
-				log.Fatalln("err:", err)
+				log.Fatalln("Could not create a binary geometry:", err)
+				return
 			}
 
 			data := feature.columns
@@ -379,7 +341,8 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 
 			_, err = stmt.Exec(data...)
 			if err != nil {
-				log.Fatalln("stmt err:", err)
+				log.Fatalln("Could a result summary from the prepared statement:", err)
+				return
 			}
 		}
 
@@ -387,7 +350,7 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 			ext, err = geom.NewExtentFromGeometry(feature.geometry)
 			if err != nil {
 				ext = nil
-				log.Println("err:", err)
+				log.Println("Failed to create new extent:", err)
 				continue
 			}
 		} else {
@@ -450,9 +413,42 @@ func main() {
 	log.Println("stop")
 }
 
+// multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
+func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) geom.MultiPolygon {
+	var sievedMultiPolygon geom.MultiPolygon
+	for _, p := range mp {
+		if sievedPolygon := polygonSieve(p, resolution); sievedPolygon != nil {
+			sievedMultiPolygon = append(sievedMultiPolygon, sievedPolygon)
+		}
+	}
+	return sievedMultiPolygon
+}
+
+// polygonSieve will sieve a given POLYGON
+func polygonSieve(p geom.Polygon, resolution float64) geom.Polygon {
+	minArea := resolution * resolution
+	if area(p) > minArea {
+		if len(p) > 1 {
+			var sievedPolygon geom.Polygon
+			sievedPolygon = append(sievedPolygon, p[0])
+			for _, interior := range p[1:] {
+				if shoelace(interior) > minArea {
+					sievedPolygon = append(sievedPolygon, interior)
+				}
+			}
+			return sievedPolygon
+		}
+		return p
+	}
+	return nil
+}
+
 // calculate the area of a polygon
 func area(geom [][][2]float64) float64 {
 	interior := .0
+	if geom == nil {
+		return 0.
+	}
 	if len(geom) > 1 {
 		for _, i := range geom[1:] {
 			interior = interior + shoelace(i)
@@ -464,6 +460,10 @@ func area(geom [][][2]float64) float64 {
 // https://en.wikipedia.org/wiki/Shoelace_formula
 func shoelace(pts [][2]float64) float64 {
 	sum := 0.
+	if len(pts) == 0 {
+		return 0.
+	}
+
 	p0 := pts[len(pts)-1]
 	for _, p1 := range pts {
 		sum += p0[1]*p1[0] - p0[0]*p1[1]
