@@ -39,7 +39,6 @@ With the docker example above processing the ```example.gpkg``` would result in 
 ## TODO
 
 - [ ] usage of a CLI package
-- [ ] improve error logging/messaging
 - [ ] build spatial indexed (RTREE for the generated tables)
 
 ## Inspiration

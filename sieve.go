@@ -314,7 +314,9 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 	close(postSieve)
 }
 
-// writeFeatures writes the features processed by the sieveFeatures to the geopackages
+// writeFeatures collects the processed features by the sieveFeatures and
+// creates a WKB binary from the geometry
+// The collected feature array, based on the pagesize, is then passed to the writeFeaturesArray
 func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t table, p int) {
 	var ext *geom.Extent
 	var err error
@@ -358,6 +360,7 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 	kill <- true
 }
 
+// writeFeaturesArray writes the features in the array the geopackages
 func writeFeaturesArray(features [][]interface{}, h *gpkg.Handle, t table) {
 	tx, err := h.Begin()
 	if err != nil {
@@ -372,7 +375,7 @@ func writeFeaturesArray(features [][]interface{}, h *gpkg.Handle, t table) {
 	for _, f := range features {
 		_, err = stmt.Exec(f...)
 		if err != nil {
-			log.Fatalf("Could a result summary from the prepared statement: %s", err)
+			log.Fatalf("Could not get a result summary from the prepared statement: %s", err)
 		}
 	}
 
