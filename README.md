@@ -22,14 +22,14 @@ The purpose of this application is to prerefine the (MULTI)POLYGON geometries in
 ```go
 go build .
 
-go run . -s=[source gpkg] -t=[target gpkg] -r=[resolution for filtering]
+go run . -s=[source GPKG] -t=[target GPKG] -r=[resolution for filtering] -p=[pagesize for writing to target GPKG]
 ```
 
 ## Docker
 
 ```docker
 docker build -t pdok/sieve .
-docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve -s=./example/example.gpkg -t=./example/example-processed.gpkg -r=50001
+docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve -s=./example/example.gpkg -t=./example/example-processed.gpkg -r=50001 -p=10
 ```
 
 With the docker example above processing the ```example.gpkg``` would result in the following.
