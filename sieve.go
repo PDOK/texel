@@ -315,16 +315,17 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 }
 
 // writeFeatures writes the features processed by the sieveFeatures to the geopackages
-func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t table) {
+func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t table, p int) {
 	var ext *geom.Extent
-	stmt, err := h.Prepare(t.insertSQL())
-	if err != nil {
-		log.Fatalf("Could not create a connection to the target GeoPackage: %s", err)
-	}
+	var err error
+
+	var features [][]interface{}
 
 	for {
 		feature, hasMore := <-postSieve
 		if !hasMore {
+			writeFeaturesArray(features, h, t)
+			features = nil
 			break
 		} else {
 			sb, err := gpkg.NewBinary(int32(t.srs.ID), feature.geometry)
@@ -334,10 +335,11 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 
 			data := feature.columns
 			data = append(data, sb)
+			features = append(features, data)
 
-			_, err = stmt.Exec(data...)
-			if err != nil {
-				log.Fatalf("Could a result summary from the prepared statement: %s", err)
+			if len(features)%p == 0 {
+				writeFeaturesArray(features, h, t)
+				features = nil
 			}
 		}
 
@@ -356,10 +358,33 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 	kill <- true
 }
 
+func writeFeaturesArray(features [][]interface{}, h *gpkg.Handle, t table) {
+	tx, err := h.Begin()
+	if err != nil {
+		log.Fatalf("Could not start a transaction: %s", err)
+	}
+
+	stmt, err := tx.Prepare(t.insertSQL())
+	if err != nil {
+		log.Fatalf("Could not prepare a statement: %s", err)
+	}
+
+	for _, f := range features {
+		_, err = stmt.Exec(f...)
+		if err != nil {
+			log.Fatalf("Could a result summary from the prepared statement: %s", err)
+		}
+	}
+
+	stmt.Close()
+	tx.Commit()
+}
+
 func main() {
 	log.Println("start")
 	sourceGeopackage := flag.String("s", "empty", "source geopackage")
 	targetGeopackage := flag.String("t", "empty", "target geopackage")
+	pageSize := flag.Int("p", 1000, "target geopackage")
 	resolution := flag.Float64("r", 0.0, "resolution for sieving")
 	flag.Parse()
 
@@ -389,7 +414,7 @@ func main() {
 		postSieve := make(chan feature)
 		kill := make(chan bool)
 
-		go writeFeatures(postSieve, kill, trgHandle, table)
+		go writeFeatures(postSieve, kill, trgHandle, table, *pageSize)
 		go sieveFeatures(preSieve, postSieve, *resolution)
 		go readFeatures(srcHandle, preSieve, table)
 
