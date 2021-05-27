@@ -111,7 +111,7 @@ func getSourceTableInfo(h *gpkg.Handle) []table {
 	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
 	rows, err := h.Query(query)
 	if err != nil {
-		log.Printf("error during closing rows: %v - %v", query, err)
+		log.Fatalf("error during closing rows: %v - %v", query, err)
 	}
 	var tables []table
 
@@ -156,7 +156,7 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 	rows, err := h.Query(fmt.Sprintf(query, table))
 
 	if err != nil {
-		log.Printf("err during closing rows: %v - %v", query, err)
+		log.Fatalf("err during closing rows: %v - %v", query, err)
 	}
 
 	for rows.Next() {
@@ -218,12 +218,12 @@ func initTargetGeopackage(h *gpkg.Handle, tables []table) error {
 func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 	rows, err := h.Query(t.selectSQL())
 	if err != nil {
-		log.Printf("err during closing rows: %s", err)
+		log.Fatalf("err during closing rows: %s", err)
 	}
 
 	cols, err := rows.Columns()
 	if err != nil {
-		log.Printf("error reading the columns: %s", err)
+		log.Fatalf("error reading the columns: %s", err)
 	}
 
 	for rows.Next() {
@@ -266,7 +266,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 				case nil:
 					c = append(c, v)
 				default:
-					log.Printf("unexpected type for sqlite column data: %v: %T", cols[i], v)
+					log.Fatalf("unexpected type for sqlite column data: %v: %T", cols[i], v)
 				}
 			}
 			f.columns = c
