@@ -286,17 +286,20 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
 // 1. filter features with a area smaller then the (resolution*resolution)
 // 2. removes interior rings with a area smaller then the (resolution*resolution)
 func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution float64) {
+	var preSieveCount, postSieveCount, nonPolygonCount, multiPolygonCount uint64
 	for {
 		feature, hasMore := <-preSieve
 		if !hasMore {
 			break
 		} else {
+			preSieveCount++
 			switch gpkg.TypeForGeometry(feature.geometry) {
 			case gpkg.Polygon:
 				var p geom.Polygon
 				p = feature.geometry.(geom.Polygon)
 				if p := polygonSieve(p, resolution); p != nil {
 					feature.geometry = p
+					postSieveCount++
 					postSieve <- feature
 				}
 			case gpkg.MultiPolygon:
@@ -304,14 +307,22 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 				mp = feature.geometry.(geom.MultiPolygon)
 				if mp := multiPolygonSieve(mp, resolution); mp != nil {
 					feature.geometry = mp
+					multiPolygonCount++
+					postSieveCount++
 					postSieve <- feature
 				}
 			default:
+				postSieveCount++
+				nonPolygonCount++
 				postSieve <- feature
 			}
 		}
 	}
 	close(postSieve)
+	log.Printf("total features: %d", preSieveCount)
+	log.Printf("of which non-polygons: %d", nonPolygonCount)
+	log.Printf("kept: %d", postSieveCount)
+	log.Printf("of which multipolygons: %d", multiPolygonCount)
 }
 
 // writeFeatures collects the processed features by the sieveFeatures and
@@ -375,7 +386,11 @@ func writeFeaturesArray(features [][]interface{}, h *gpkg.Handle, t table) {
 	for _, f := range features {
 		_, err = stmt.Exec(f...)
 		if err != nil {
-			log.Fatalf("Could not get a result summary from the prepared statement: %s", err)
+			var fid interface{} = "unknown"
+			if len(f) > 0 {
+				fid = f[0]
+			}
+			log.Fatalf("Could not get a result summary from the prepared statement for fid %s: %s", fid, err)
 		}
 	}
 
