@@ -449,7 +449,7 @@ func main() {
 		log.Println("")
 	}
 
-	log.Println("=== done seiving ===")
+	log.Println("=== done sieving ===")
 }
 
 // multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
