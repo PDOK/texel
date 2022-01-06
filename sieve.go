@@ -319,10 +319,13 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 		}
 	}
 	close(postSieve)
-	log.Printf("total features: %d", preSieveCount)
-	log.Printf("of which non-polygons: %d", nonPolygonCount)
-	log.Printf("kept: %d", postSieveCount)
-	log.Printf("of which multipolygons: %d", multiPolygonCount)
+
+	log.Printf("    total features: %d", preSieveCount)
+	log.Printf("      non-polygons: %d", nonPolygonCount)
+	if preSieveCount != nonPolygonCount {
+		log.Printf("     multipolygons: %d", multiPolygonCount)
+	}
+	log.Printf("              kept: %d", postSieveCount)
 }
 
 // writeFeatures collects the processed features by the sieveFeatures and
@@ -399,7 +402,7 @@ func writeFeaturesArray(features [][]interface{}, h *gpkg.Handle, t table) {
 }
 
 func main() {
-	log.Println("start")
+	log.Println("=== start sieving ===")
 	sourceGeopackage := flag.String("s", "empty", "source geopackage")
 	targetGeopackage := flag.String("t", "empty", "target geopackage")
 	pageSize := flag.Int("p", 1000, "target geopackage")
@@ -427,7 +430,7 @@ func main() {
 
 	// Process the tables sequential
 	for _, table := range tables {
-		log.Println(fmt.Sprintf(`processing: %s`, table.name))
+		log.Printf("  sieving %s", table.name)
 		preSieve := make(chan feature)
 		postSieve := make(chan feature)
 		kill := make(chan bool)
@@ -442,10 +445,11 @@ func main() {
 			}
 		}
 		close(kill)
-		log.Println(fmt.Sprintf(`finished: %s`, table.name))
+		log.Println(fmt.Sprintf(`  finished %s`, table.name))
+		log.Println("")
 	}
 
-	log.Println("stop")
+	log.Println("=== done seiving ===")
 }
 
 // multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON

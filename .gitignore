@@ -17,4 +17,5 @@
 # Geopackages
 *.gpkg
 
-!example/*
+example/*
+!example/example.gpkg
