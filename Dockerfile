@@ -1,7 +1,4 @@
-FROM golang:1.15-alpine AS build-env
-
-RUN apk update && apk upgrade && \
-   apk add --no-cache bash git pkgconfig gcc g++ libc-dev ca-certificates
+FROM golang:1.17-bullseye AS build-env
 
 ENV GO111MODULE=on
 ENV GOPROXY=https://proxy.golang.org
@@ -29,8 +26,10 @@ RUN go test ./... -covermode=atomic
 RUN go build -v -ldflags='-s -w -linkmode auto' -a -installsuffix cgo -o /sieve .
 
 # FROM scratch
-FROM golang:1.15-alpine
-RUN apk add --no-cache libspatialite
+FROM golang:1.17-bullseye
+RUN apt-get update && apt-get install -y \
+  libsqlite3-mod-spatialite \
+  && rm -rf /var/lib/apt/lists/*
 
 # important for time conversion
 ENV TZ Europe/Amsterdam
