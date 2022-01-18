@@ -10,12 +10,14 @@ ENV TZ Europe/Amsterdam
 
 WORKDIR /go/src/app
 
-ADD . /go/src/app
-
 # Because of how the layer caching system works in Docker, the go mod download
 # command will _ only_ be re-run when the go.mod or go.sum file change
 # (or when we add another docker instruction this line)
+COPY go.mod .
+COPY go.sum .
 RUN go mod download
+COPY . .
+
 # set crosscompiling fla 0/1 => disabled/enabled
 ENV CGO_ENABLED=1
 # compile linux only
