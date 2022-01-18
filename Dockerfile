@@ -28,6 +28,7 @@ RUN go build -v -ldflags='-s -w -linkmode auto' -a -installsuffix cgo -o /sieve 
 
 # FROM scratch
 FROM golang:1.15-alpine
+RUN apk add --no-cache libspatialite
 
 # important for time conversion
 ENV TZ Europe/Amsterdam
