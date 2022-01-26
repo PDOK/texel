@@ -9,4 +9,4 @@ require (
 
 require github.com/gdey/errors v0.0.0-20190426172550-8ebd5bc891fb // indirect
 
-replace github.com/go-spatial/geom => github.com/WouterVisscher/geom v0.0.0-20220111115236-8c2cc135b6cb
+replace github.com/go-spatial/geom => github.com/pdok/geom v0.0.0-20220126094349-4bbd2041904e
