@@ -54,7 +54,6 @@ interiors](./images/without-interiors.jpg)
 ## TODO
 
 - [ ] usage of a CLI package
-- [ ] build spatial indexed (RTREE for the generated tables)
 
 ## Inspiration
 
