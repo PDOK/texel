@@ -37,7 +37,7 @@ func main() {
 		&cli.Float64Flag{
 			Name:     RESOLUTION,
 			Aliases:  []string{"r"},
-			Usage:    "Resolution, the threshold area to determine if a features is sieved or not",
+			Usage:    "Resolution, the threshold area to determine if a feature is sieved or not",
 			Value:    0.0,
 			Required: false,
 			EnvVars:  []string{"SIEVE_RESOLUTION"},
