@@ -27,6 +27,9 @@ vector tiles can be omitted, and less data needs to be processed.
 - A MULTIPOLYGON will be split into separate POLYGONs that will be sieved. So
   a MULTIPOLYGON containing elements smaller then the given resolution will have
   those parts removed.
+- :warning: Spatialite lib is mandatory for running this application. This lib is needed for
+  creating the RTree triggers on the spatial tables for updating/maintaining the
+  RTree.
 
 ## Usage
 
@@ -52,10 +55,6 @@ the following.
 
 ![with interiors](./images/with-interiors.jpg)  ![without
 interiors](./images/without-interiors.jpg)
-
-## TODO
-
-- [ ] usage of a CLI package
 
 ## Inspiration
 
