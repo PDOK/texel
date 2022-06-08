@@ -53,7 +53,10 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-
+		_, err := os.Stat(c.String(SOURCE))
+		if os.IsNotExist(err) {
+			log.Fatalf("error opening source GeoPackage: %s", err)
+		}
 		srcHandle, err := gpkg.Open(c.String(SOURCE))
 		if err != nil {
 			log.Fatalf("error opening source GeoPackage: %s", err)
