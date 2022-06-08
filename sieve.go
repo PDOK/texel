@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"math"
@@ -399,57 +398,6 @@ func writeFeaturesArray(features [][]interface{}, h *gpkg.Handle, t table) {
 
 	stmt.Close()
 	tx.Commit()
-}
-
-func main() {
-	log.Println("=== start sieving ===")
-	sourceGeopackage := flag.String("s", "empty", "source geopackage")
-	targetGeopackage := flag.String("t", "empty", "target geopackage")
-	pageSize := flag.Int("p", 1000, "target geopackage")
-	resolution := flag.Float64("r", 0.0, "resolution for sieving")
-	flag.Parse()
-
-	srcHandle, err := gpkg.Open(*sourceGeopackage)
-	if err != nil {
-		log.Fatalf("error opening source GeoPackage: %s", err)
-	}
-	defer srcHandle.Close()
-
-	trgHandle, err := gpkg.Open(*targetGeopackage)
-	if err != nil {
-		log.Fatalf("error opening target GeoPackage: %s", err)
-	}
-	defer trgHandle.Close()
-
-	tables := getSourceTableInfo(srcHandle)
-
-	err = initTargetGeopackage(trgHandle, tables)
-	if err != nil {
-		log.Fatalf("error initialization the target GeoPackage: %s", err)
-	}
-
-	// Process the tables sequential
-	for _, table := range tables {
-		log.Printf("  sieving %s", table.name)
-		preSieve := make(chan feature)
-		postSieve := make(chan feature)
-		kill := make(chan bool)
-
-		go writeFeatures(postSieve, kill, trgHandle, table, *pageSize)
-		go sieveFeatures(preSieve, postSieve, *resolution)
-		go readFeatures(srcHandle, preSieve, table)
-
-		for {
-			if <-kill {
-				break
-			}
-		}
-		close(kill)
-		log.Println(fmt.Sprintf(`  finished %s`, table.name))
-		log.Println("")
-	}
-
-	log.Println("=== done sieving ===")
 }
 
 // multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
