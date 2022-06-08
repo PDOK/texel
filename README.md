@@ -10,23 +10,23 @@ Pulls](https://img.shields.io/docker/pulls/pdok/sieve.svg)](https://hub.docker.c
 Sieves [GeoPackage](https://www.geopackage.org/) Polygon geometries.
 
 The purpose of this application is to prerefine the (MULTI)POLYGON geometries in
-a geopackage used for vectortiles by filtering out geometries (based on the
-given resolution) smaller then the pixels that are generated from the given
+a geopackage used for vector tiles by filtering out geometries (based on the
+given resolution) smaller than the pixels that are generated from the given
 vectoriles. By doing this specific artifacts/errors regarding the rendering of
-vectortiles can be omitted.
+vector tiles can be omitted, and less data needs to be processed.
 
 ## Notes
 
 - It will take a Geopackage and writes a new Geopackage where all the
-  (MULTI)POLYGON tables are sieve.
-  - All other geometry tables are 'untouched' and copied as-is.
-  - Other none geometry tables are not copied to the new geopackage.
+  (MULTI)POLYGON tables are sieved.
+  - All other spatial tables are 'untouched' and copied as-is.
+  - Other not spatial tables are not copied to the new geopackage.
 - The area of a POLYGON is used for determining if the geometries will be
   sieved, not the extent. So geometries with a extent larger then the given
-  resolution but with a area smaller then that resolution will be sieved.
-- A MULTIPOLYGON will be spilt into seperated POLYGON's that will be sieved. So
-  a MULTIPOLYGON contain parts smaller then the given resolution will 'lose'
-  those parts.
+  resolution but with an area smaller then that resolution will be sieved.
+- A MULTIPOLYGON will be split into separate POLYGONs that will be sieved. So
+  a MULTIPOLYGON containing elements smaller then the given resolution will have
+  those parts removed.
 
 ## Usage
 
@@ -35,6 +35,8 @@ go build .
 
 go run . -s=[source GPKG] -t=[target GPKG] -r=[resolution for filtering] \
    -p=[pagesize for writing to target GPKG]
+
+go test .
 ```
 
 ## Docker
