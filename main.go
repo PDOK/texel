@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/go-spatial/geom/encoding/gpkg"
 	"github.com/urfave/cli/v2"
 )
 
@@ -54,21 +53,15 @@ func main() {
 
 	app.Action = func(c *cli.Context) error {
 
-		srcHandle, err := gpkg.Open(c.String(SOURCE))
-		if err != nil {
-			log.Fatalf("error opening source GeoPackage: %s", err)
-		}
-		defer srcHandle.Close()
+		source := SourceGeopackage{handle: openGeopackage(c.String(SOURCE))}
+		defer source.handle.Close()
 
-		trgHandle, err := gpkg.Open(c.String(TARGET))
-		if err != nil {
-			log.Fatalf("error opening target GeoPackage: %s", err)
-		}
-		defer trgHandle.Close()
+		target := TargetGeopackage{handle: openGeopackage(c.String(TARGET))}
+		defer target.handle.Close()
 
-		tables := getSourceTableInfo(srcHandle)
+		tables := source.GetTableInfo()
 
-		err = initTargetGeopackage(trgHandle, tables)
+		err := target.CreateTables(tables)
 		if err != nil {
 			log.Fatalf("error initialization the target GeoPackage: %s", err)
 		}
@@ -82,9 +75,9 @@ func main() {
 			postSieve := make(chan feature)
 			kill := make(chan bool)
 
-			go writeFeatures(postSieve, kill, trgHandle, table, c.Int(PAGESIZE))
+			go writeFeaturesToTarget(postSieve, kill, target, table, c.Int(PAGESIZE))
 			go sieveFeatures(preSieve, postSieve, c.Float64(RESOLUTION))
-			go readFeatures(srcHandle, preSieve, table)
+			go readFeaturesFromSource(source, preSieve, table)
 
 			for {
 				if <-kill {

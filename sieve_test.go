@@ -1,6 +1,8 @@
 package main
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestShoelace(t *testing.T) {
 	var tests = []struct {

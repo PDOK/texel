@@ -16,6 +16,8 @@ type feature struct {
 	geometry geom.Geometry
 }
 
+type features [][]interface{}
+
 type column struct {
 	cid       int
 	name      string
@@ -31,6 +33,172 @@ type table struct {
 	gcolumn string
 	gtype   gpkg.GeometryType
 	srs     gpkg.SpatialReferenceSystem
+}
+
+type Source interface {
+	ReadFeatures(table, chan feature)
+	GetTableInfo() []table
+}
+
+type SourceGeopackage struct {
+	handle *gpkg.Handle
+}
+
+func (source SourceGeopackage) ReadFeatures(t table, preSieve chan feature) {
+
+	rows, err := source.handle.Query(t.selectSQL())
+	if err != nil {
+		log.Fatalf("err during closing rows: %s", err)
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		log.Fatalf("error reading the columns: %s", err)
+	}
+
+	for rows.Next() {
+		vals := make([]interface{}, len(cols))
+		valPtrs := make([]interface{}, len(cols))
+		for i := 0; i < len(cols); i++ {
+			valPtrs[i] = &vals[i]
+		}
+
+		if err = rows.Scan(valPtrs...); err != nil {
+			log.Fatalf("err reading row values: %v", err)
+		}
+		var f feature
+		var c []interface{}
+
+		for i, colName := range cols {
+			switch colName {
+			case t.gcolumn:
+				wkbgeom, err := gpkg.DecodeGeometry(vals[i].([]byte))
+				if err != nil {
+					log.Fatalf("error decoding the geometry: %s", err)
+				}
+				f.geometry = wkbgeom.Geometry
+			default:
+				switch v := vals[i].(type) {
+				case []uint8:
+					asBytes := make([]byte, len(v))
+					for j := 0; j < len(v); j++ {
+						asBytes[j] = v[j]
+					}
+					c = append(c, string(asBytes))
+				case int64:
+					c = append(c, v)
+				case float64:
+					c = append(c, v)
+				case time.Time:
+					c = append(c, v)
+				case string:
+					c = append(c, v)
+				case nil:
+					c = append(c, v)
+				default:
+					log.Fatalf("unexpected type for sqlite column data: %v: %T", cols[i], v)
+				}
+			}
+			f.columns = c
+		}
+		preSieve <- f
+	}
+	err = rows.Err()
+	if err != nil {
+		log.Fatal(err)
+	}
+	close(preSieve)
+	defer rows.Close()
+}
+
+func (source SourceGeopackage) GetTableInfo() []table {
+	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
+	rows, err := source.handle.Query(query)
+	if err != nil {
+		log.Fatalf("error during closing rows: %v - %v", query, err)
+	}
+	var tables []table
+
+	for rows.Next() {
+		var t table
+		var gtype string
+		var srsID int
+		err := rows.Scan(&t.name, &t.gcolumn, &gtype, &srsID)
+		if err != nil {
+			log.Fatalf("error ready the source table information: %s", err)
+		}
+
+		t.columns = getTableColumns(source.handle, t.name)
+		t.gtype = geometryTypeFromString(gtype)
+		t.srs = getSpatialReferenceSystem(source.handle, srsID)
+
+		tables = append(tables, t)
+	}
+	defer rows.Close()
+	return tables
+}
+
+type Target interface {
+	CreateTables([]table) error
+	WriteFeatures(features, table)
+	UpdateGeometryExtent(string, *geom.Extent)
+}
+
+type TargetGeopackage struct {
+	handle *gpkg.Handle
+}
+
+func (target TargetGeopackage) CreateTables(tables []table) error {
+	for _, table := range tables {
+		err := target.handle.UpdateSRS(table.srs)
+		if err != nil {
+			return err
+		}
+
+		err = buildTable(target.handle, table)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (target TargetGeopackage) WriteFeatures(features features, t table) {
+	tx, err := target.handle.Begin()
+	if err != nil {
+		log.Fatalf("Could not start a transaction: %s", err)
+	}
+
+	stmt, err := tx.Prepare(t.insertSQL())
+	if err != nil {
+		log.Fatalf("Could not prepare a statement: %s", err)
+	}
+
+	for _, f := range features {
+		_, err = stmt.Exec(f...)
+		if err != nil {
+			var fid interface{} = "unknown"
+			if len(f) > 0 {
+				fid = f[0]
+			}
+			log.Fatalf("Could not get a result summary from the prepared statement for fid %s: %s", fid, err)
+		}
+	}
+
+	stmt.Close()
+	tx.Commit()
+}
+
+func (target TargetGeopackage) UpdateGeometryExtent(table string, ext *geom.Extent) {
+	target.handle.UpdateGeometryExtent(table, ext)
+}
+
+func openGeopackage(file string) *gpkg.Handle {
+	handle, err := gpkg.Open(file)
+	if err != nil {
+		log.Fatalf("error opening GeoPackage: %s", err)
+	}
+	return handle
 }
 
 // geometryTypeFromString returns the numeric value of a gometry string
@@ -105,34 +273,6 @@ func (t table) insertSQL() string {
 	return query
 }
 
-// getSourceTableInfo collects the source table information
-func getSourceTableInfo(h *gpkg.Handle) []table {
-	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
-	rows, err := h.Query(query)
-	if err != nil {
-		log.Fatalf("error during closing rows: %v - %v", query, err)
-	}
-	var tables []table
-
-	for rows.Next() {
-		var t table
-		var gtype string
-		var srsID int
-		err := rows.Scan(&t.name, &t.gcolumn, &gtype, &srsID)
-		if err != nil {
-			log.Fatalf("error ready the source table information: %s", err)
-		}
-
-		t.columns = getTableColumns(h, t.name)
-		t.gtype = geometryTypeFromString(gtype)
-		t.srs = getSpatialReferenceSystem(h, srsID)
-
-		tables = append(tables, t)
-	}
-	defer rows.Close()
-	return tables
-}
-
 // getSpatialReferenceSystem extracts this based on the given SRS id
 func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSystem {
 	var srs gpkg.SpatialReferenceSystem
@@ -196,88 +336,10 @@ func buildTable(h *gpkg.Handle, t table) error {
 	return nil
 }
 
-// initTargetGeopackage creates the destination Geopackage
-func initTargetGeopackage(h *gpkg.Handle, tables []table) error {
-	for _, table := range tables {
-		err := h.UpdateSRS(table.srs)
-		if err != nil {
-			return err
-		}
-
-		err = buildTable(h, table)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // readFeatures reads the features from the given Geopackage table
 // and decodes the WKB geometry to a geom.Polygon
-func readFeatures(h *gpkg.Handle, preSieve chan feature, t table) {
-	rows, err := h.Query(t.selectSQL())
-	if err != nil {
-		log.Fatalf("err during closing rows: %s", err)
-	}
-
-	cols, err := rows.Columns()
-	if err != nil {
-		log.Fatalf("error reading the columns: %s", err)
-	}
-
-	for rows.Next() {
-		vals := make([]interface{}, len(cols))
-		valPtrs := make([]interface{}, len(cols))
-		for i := 0; i < len(cols); i++ {
-			valPtrs[i] = &vals[i]
-		}
-
-		if err = rows.Scan(valPtrs...); err != nil {
-			log.Fatalf("err reading row values: %v", err)
-		}
-		var f feature
-		var c []interface{}
-
-		for i, colName := range cols {
-			switch colName {
-			case t.gcolumn:
-				wkbgeom, err := gpkg.DecodeGeometry(vals[i].([]byte))
-				if err != nil {
-					log.Fatalf("error decoding the geometry: %s", err)
-				}
-				f.geometry = wkbgeom.Geometry
-			default:
-				switch v := vals[i].(type) {
-				case []uint8:
-					asBytes := make([]byte, len(v))
-					for j := 0; j < len(v); j++ {
-						asBytes[j] = v[j]
-					}
-					c = append(c, string(asBytes))
-				case int64:
-					c = append(c, v)
-				case float64:
-					c = append(c, v)
-				case time.Time:
-					c = append(c, v)
-				case string:
-					c = append(c, v)
-				case nil:
-					c = append(c, v)
-				default:
-					log.Fatalf("unexpected type for sqlite column data: %v: %T", cols[i], v)
-				}
-			}
-			f.columns = c
-		}
-		preSieve <- f
-	}
-	err = rows.Err()
-	if err != nil {
-		log.Fatal(err)
-	}
-	close(preSieve)
-	defer rows.Close()
+func readFeaturesFromSource(source Source, preSieve chan feature, t table) {
+	source.ReadFeatures(t, preSieve)
 }
 
 // sieveFeatures sieves/filters the geometry against the given resolution
@@ -330,7 +392,7 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 // writeFeatures collects the processed features by the sieveFeatures and
 // creates a WKB binary from the geometry
 // The collected feature array, based on the pagesize, is then passed to the writeFeaturesArray
-func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t table, p int) {
+func writeFeaturesToTarget(postSieve chan feature, kill chan bool, target Target, t table, p int) {
 	var ext *geom.Extent
 	var err error
 
@@ -339,8 +401,7 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 	for {
 		feature, hasMore := <-postSieve
 		if !hasMore {
-			writeFeaturesArray(features, h, t)
-			features = nil
+			target.WriteFeatures(features, t)
 			break
 		} else {
 			sb, err := gpkg.NewBinary(int32(t.srs.ID), feature.geometry)
@@ -353,7 +414,7 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 			features = append(features, data)
 
 			if len(features)%p == 0 {
-				writeFeaturesArray(features, h, t)
+				target.WriteFeatures(features, t)
 				features = nil
 			}
 		}
@@ -369,35 +430,8 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, t tab
 			ext.AddGeometry(feature.geometry)
 		}
 	}
-	h.UpdateGeometryExtent(t.name, ext)
+	target.UpdateGeometryExtent(t.name, ext)
 	kill <- true
-}
-
-// writeFeaturesArray writes the features in the array the geopackages
-func writeFeaturesArray(features [][]interface{}, h *gpkg.Handle, t table) {
-	tx, err := h.Begin()
-	if err != nil {
-		log.Fatalf("Could not start a transaction: %s", err)
-	}
-
-	stmt, err := tx.Prepare(t.insertSQL())
-	if err != nil {
-		log.Fatalf("Could not prepare a statement: %s", err)
-	}
-
-	for _, f := range features {
-		_, err = stmt.Exec(f...)
-		if err != nil {
-			var fid interface{} = "unknown"
-			if len(f) > 0 {
-				fid = f[0]
-			}
-			log.Fatalf("Could not get a result summary from the prepared statement for fid %s: %s", fid, err)
-		}
-	}
-
-	stmt.Close()
-	tx.Commit()
 }
 
 // multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
