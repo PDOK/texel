@@ -172,10 +172,12 @@ func (source SourceGeopackage) GetTableInfo() []table {
 }
 
 type TargetGeopackage struct {
-	handle *gpkg.Handle
+	pagesize int
+	handle   *gpkg.Handle
 }
 
-func (target *TargetGeopackage) Init(file string) {
+func (target *TargetGeopackage) Init(file string, pagesize int) {
+	target.pagesize = pagesize
 	target.handle = openGeopackage(file)
 }
 
@@ -194,7 +196,26 @@ func (target TargetGeopackage) CreateTables(tables []table) error {
 	return nil
 }
 
-func (target TargetGeopackage) WriteFeatures(features features, t table) {
+func (target TargetGeopackage) WriteFeatures(t table, postSieve chan feature) {
+	var features []interface{}
+
+	for {
+		feature, hasMore := <-postSieve
+		if !hasMore {
+			target.writeFeatures(features, t)
+			break
+		} else {
+			features = append(features, feature)
+
+			if len(features)%target.pagesize == 0 {
+				target.writeFeatures(features, t)
+				features = nil
+			}
+		}
+	}
+}
+
+func (target TargetGeopackage) writeFeatures(features features, t table) {
 	tx, err := target.handle.Begin()
 	if err != nil {
 		log.Fatalf("Could not start a transaction: %s", err)

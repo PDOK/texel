@@ -15,5 +15,5 @@ type Source interface {
 }
 
 type Target interface {
-	WriteFeatures(features, table)
+	WriteFeatures(table, chan feature)
 }

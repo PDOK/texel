@@ -63,7 +63,7 @@ func main() {
 		defer source.handle.Close()
 
 		target := TargetGeopackage{}
-		target.Init(c.String(TARGET))
+		target.Init(c.String(TARGET), c.Int(PAGESIZE))
 		defer target.handle.Close()
 
 		tables := source.GetTableInfo()
@@ -77,12 +77,13 @@ func main() {
 
 		// Process the tables sequential
 		for _, table := range tables {
+
 			log.Printf("  sieving %s", table.name)
 			preSieve := make(chan feature)
 			postSieve := make(chan feature)
 			kill := make(chan bool)
 
-			go writeFeaturesToTarget(postSieve, kill, &target, table, c.Int(PAGESIZE))
+			go writeFeaturesToTarget(postSieve, kill, &target, table)
 			go sieveFeatures(preSieve, postSieve, c.Float64(RESOLUTION))
 			go readFeaturesFromSource(&source, preSieve, table)
 

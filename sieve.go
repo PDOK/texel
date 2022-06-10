@@ -63,24 +63,9 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 // writeFeatures collects the processed features by the sieveFeatures and
 // creates a WKB binary from the geometry
 // The collected feature array, based on the pagesize, is then passed to the writeFeaturesArray
-func writeFeaturesToTarget(postSieve chan feature, kill chan bool, target Target, t table, p int) {
-	var features []interface{}
+func writeFeaturesToTarget(postSieve chan feature, kill chan bool, target Target, t table) {
 
-	for {
-		feature, hasMore := <-postSieve
-		if !hasMore {
-			target.WriteFeatures(features, t)
-			break
-		} else {
-			features = append(features, feature)
-
-			if len(features)%p == 0 {
-				target.WriteFeatures(features, t)
-				features = nil
-			}
-		}
-	}
-
+	target.WriteFeatures(t, postSieve)
 	kill <- true
 }
 
