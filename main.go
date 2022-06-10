@@ -76,7 +76,11 @@ func main() {
 
 		// Process the tables sequential
 		for _, table := range tables {
-			Sieve(source, target, table, c.Float64(RESOLUTION))
+			log.Printf("  sieving %s", table.name)
+			source.table = table
+			target.table = table
+			Sieve(source, target, c.Float64(RESOLUTION))
+			log.Printf("  finised %s", table.name)
 		}
 
 		log.Println("=== done sieving ===")

@@ -69,6 +69,7 @@ func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
 }
 
 type SourceGeopackage struct {
+	table  table
 	handle *gpkg.Handle
 }
 
@@ -76,9 +77,9 @@ func (source *SourceGeopackage) Init(file string) {
 	source.handle = openGeopackage(file)
 }
 
-func (source SourceGeopackage) ReadFeatures(t table, preSieve chan feature) {
+func (source SourceGeopackage) ReadFeatures(preSieve chan feature) {
 
-	rows, err := source.handle.Query(t.selectSQL())
+	rows, err := source.handle.Query(source.table.selectSQL())
 	if err != nil {
 		log.Fatalf("err during closing rows: %s", err)
 	}
@@ -103,7 +104,7 @@ func (source SourceGeopackage) ReadFeatures(t table, preSieve chan feature) {
 
 		for i, colName := range cols {
 			switch colName {
-			case t.gcolumn:
+			case source.table.gcolumn:
 				wkbgeom, err := gpkg.DecodeGeometry(vals[i].([]byte))
 				if err != nil {
 					log.Fatalf("error decoding the geometry: %s", err)
@@ -172,6 +173,7 @@ func (source SourceGeopackage) GetTableInfo() []table {
 }
 
 type TargetGeopackage struct {
+	table    table
 	pagesize int
 	handle   *gpkg.Handle
 }
@@ -196,32 +198,32 @@ func (target TargetGeopackage) CreateTables(tables []table) error {
 	return nil
 }
 
-func (target TargetGeopackage) WriteFeatures(t table, postSieve chan feature) {
+func (target TargetGeopackage) WriteFeatures(postSieve chan feature) {
 	var features []interface{}
 
 	for {
 		feature, hasMore := <-postSieve
 		if !hasMore {
-			target.writeFeatures(features, t)
+			target.writeFeatures(features)
 			break
 		} else {
 			features = append(features, feature)
 
 			if len(features)%target.pagesize == 0 {
-				target.writeFeatures(features, t)
+				target.writeFeatures(features)
 				features = nil
 			}
 		}
 	}
 }
 
-func (target TargetGeopackage) writeFeatures(features features, t table) {
+func (target TargetGeopackage) writeFeatures(features features) {
 	tx, err := target.handle.Begin()
 	if err != nil {
 		log.Fatalf("Could not start a transaction: %s", err)
 	}
 
-	stmt, err := tx.Prepare(t.insertSQL())
+	stmt, err := tx.Prepare(target.table.insertSQL())
 	if err != nil {
 		log.Fatalf("Could not prepare a statement: %s", err)
 	}
@@ -230,7 +232,7 @@ func (target TargetGeopackage) writeFeatures(features features, t table) {
 
 	for _, feature := range features {
 		f := feature.(*featureGPKG)
-		sb, err := gpkg.NewBinary(int32(t.srs.ID), f.geometry)
+		sb, err := gpkg.NewBinary(int32(target.table.srs.ID), f.geometry)
 		if err != nil {
 			log.Fatalf("Could not create a binary geometry: %s", err)
 		}
@@ -261,7 +263,7 @@ func (target TargetGeopackage) writeFeatures(features features, t table) {
 	stmt.Close()
 	tx.Commit()
 
-	err = target.handle.UpdateGeometryExtent(t.name, ext)
+	err = target.handle.UpdateGeometryExtent(target.table.name, ext)
 	if err != nil {
 		log.Fatalln("Failed to update new extent:", err)
 	}

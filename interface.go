@@ -11,9 +11,9 @@ type feature interface {
 type features []interface{}
 
 type Source interface {
-	ReadFeatures(table, chan feature)
+	ReadFeatures(chan feature)
 }
 
 type Target interface {
-	WriteFeatures(table, chan feature)
+	WriteFeatures(chan feature)
 }

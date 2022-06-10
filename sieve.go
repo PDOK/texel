@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"math"
 
@@ -10,8 +9,8 @@ import (
 
 // readFeatures reads the features from the given Geopackage table
 // and decodes the WKB geometry to a geom.Polygon
-func readFeaturesFromSource(source Source, preSieve chan feature, t table) {
-	source.ReadFeatures(t, preSieve)
+func readFeaturesFromSource(source Source, preSieve chan feature) {
+	source.ReadFeatures(preSieve)
 }
 
 // sieveFeatures sieves/filters the geometry against the given resolution
@@ -64,9 +63,9 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 // writeFeatures collects the processed features by the sieveFeatures and
 // creates a WKB binary from the geometry
 // The collected feature array, based on the pagesize, is then passed to the writeFeaturesArray
-func writeFeaturesToTarget(postSieve chan feature, kill chan bool, target Target, t table) {
+func writeFeaturesToTarget(postSieve chan feature, kill chan bool, target Target) {
 
-	target.WriteFeatures(t, postSieve)
+	target.WriteFeatures(postSieve)
 	kill <- true
 }
 
@@ -129,15 +128,15 @@ func shoelace(pts [][2]float64) float64 {
 	return math.Abs(sum / 2)
 }
 
-func Sieve(source Source, target Target, table table, resolution float64) {
-	log.Printf("  sieving %s", table.name)
+func Sieve(source Source, target Target, resolution float64) {
+
 	preSieve := make(chan feature)
 	postSieve := make(chan feature)
 	kill := make(chan bool)
 
-	go writeFeaturesToTarget(postSieve, kill, target, table)
+	go writeFeaturesToTarget(postSieve, kill, target)
 	go sieveFeatures(preSieve, postSieve, resolution)
-	go readFeaturesFromSource(source, preSieve, table)
+	go readFeaturesFromSource(source, preSieve)
 
 	for {
 		if <-kill {
@@ -145,6 +144,4 @@ func Sieve(source Source, target Target, table table, resolution float64) {
 		}
 	}
 	close(kill)
-	log.Println(fmt.Sprintf(`  finished %s`, table.name))
-	log.Println("")
 }
