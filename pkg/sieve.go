@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"log"
@@ -9,7 +9,7 @@ import (
 
 // readFeatures reads the features from the given Geopackage table
 // and decodes the WKB geometry to a geom.Polygon
-func readFeaturesFromSource(source Source, preSieve chan feature) {
+func readFeaturesFromSource(source Source, preSieve chan Feature) {
 	source.ReadFeatures(preSieve)
 }
 
@@ -17,7 +17,7 @@ func readFeaturesFromSource(source Source, preSieve chan feature) {
 // the two steps that are done are:
 // 1. filter features with a area smaller then the (resolution*resolution)
 // 2. removes interior rings with a area smaller then the (resolution*resolution)
-func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution float64) {
+func sieveFeatures(preSieve chan Feature, postSieve chan Feature, resolution float64) {
 	var preSieveCount, postSieveCount, nonPolygonCount, multiPolygonCount uint64
 	for {
 		feature, hasMore := <-preSieve
@@ -63,7 +63,7 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 // writeFeatures collects the processed features by the sieveFeatures and
 // creates a WKB binary from the geometry
 // The collected feature array, based on the pagesize, is then passed to the writeFeaturesArray
-func writeFeaturesToTarget(postSieve chan feature, kill chan bool, target Target) {
+func writeFeaturesToTarget(postSieve chan Feature, kill chan bool, target Target) {
 
 	target.WriteFeatures(postSieve)
 	kill <- true
@@ -130,8 +130,8 @@ func shoelace(pts [][2]float64) float64 {
 
 func Sieve(source Source, target Target, resolution float64) {
 
-	preSieve := make(chan feature)
-	postSieve := make(chan feature)
+	preSieve := make(chan Feature)
+	postSieve := make(chan Feature)
 	kill := make(chan bool)
 
 	go writeFeaturesToTarget(postSieve, kill, target)

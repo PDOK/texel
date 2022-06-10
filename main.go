@@ -4,6 +4,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/pdok/sieve/pkg"
+	"github.com/pdok/sieve/pkg/gpkg"
 	"github.com/urfave/cli/v2"
 )
 
@@ -57,13 +59,13 @@ func main() {
 			log.Fatalf("error opening source GeoPackage: %s", err)
 		}
 
-		source := SourceGeopackage{}
+		source := gpkg.SourceGeopackage{}
 		source.Init(c.String(SOURCE))
-		defer source.handle.Close()
+		defer source.Close()
 
-		target := TargetGeopackage{}
+		target := gpkg.TargetGeopackage{}
 		target.Init(c.String(TARGET), c.Int(PAGESIZE))
-		defer target.handle.Close()
+		defer target.Close()
 
 		tables := source.GetTableInfo()
 
@@ -76,11 +78,11 @@ func main() {
 
 		// Process the tables sequential
 		for _, table := range tables {
-			log.Printf("  sieving %s", table.name)
-			source.table = table
-			target.table = table
-			Sieve(source, target, c.Float64(RESOLUTION))
-			log.Printf("  finised %s", table.name)
+			log.Printf("  sieving %s", table.Name)
+			source.Table = table
+			target.Table = table
+			pkg.Sieve(source, target, c.Float64(RESOLUTION))
+			log.Printf("  finised %s", table.Name)
 		}
 
 		log.Println("=== done sieving ===")

@@ -1,19 +1,17 @@
-package main
+package pkg
 
 import "github.com/go-spatial/geom"
 
-type feature interface {
+type Feature interface {
 	Columns() []interface{}
 	Geometry() geom.Geometry
 	UpdateGeometry(geom.Geometry)
 }
 
-type features []interface{}
-
 type Source interface {
-	ReadFeatures(chan feature)
+	ReadFeatures(chan Feature)
 }
 
 type Target interface {
-	WriteFeatures(chan feature)
+	WriteFeatures(chan Feature)
 }

@@ -1,4 +1,4 @@
-module github.com/woutervisscher/sieve
+module github.com/pdok/sieve
 
 go 1.17
 
