@@ -53,15 +53,22 @@ func main() {
 
 	app.Action = func(c *cli.Context) error {
 
-		source := SourceGeopackage{handle: openGeopackage(c.String(SOURCE))}
+		_, err := os.Stat(c.String(SOURCE))
+		if os.IsNotExist(err) {
+			log.Fatalf("error opening source GeoPackage: %s", err)
+		}
+
+		source := SourceGeopackage{}
+		source.Init(c.String(SOURCE))
 		defer source.handle.Close()
 
-		target := TargetGeopackage{handle: openGeopackage(c.String(TARGET))}
+		target := TargetGeopackage{}
+		target.Init(c.String(TARGET))
 		defer target.handle.Close()
 
 		tables := source.GetTableInfo()
 
-		err := target.CreateTables(tables)
+		err = target.CreateTables(tables)
 		if err != nil {
 			log.Fatalf("error initialization the target GeoPackage: %s", err)
 		}
@@ -75,9 +82,9 @@ func main() {
 			postSieve := make(chan feature)
 			kill := make(chan bool)
 
-			go writeFeaturesToTarget(postSieve, kill, target, table, c.Int(PAGESIZE))
+			go writeFeaturesToTarget(postSieve, kill, &target, table, c.Int(PAGESIZE))
 			go sieveFeatures(preSieve, postSieve, c.Float64(RESOLUTION))
-			go readFeaturesFromSource(source, preSieve, table)
+			go readFeaturesFromSource(&source, preSieve, table)
 
 			for {
 				if <-kill {
