@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
@@ -77,24 +76,7 @@ func main() {
 
 		// Process the tables sequential
 		for _, table := range tables {
-
-			log.Printf("  sieving %s", table.name)
-			preSieve := make(chan feature)
-			postSieve := make(chan feature)
-			kill := make(chan bool)
-
-			go writeFeaturesToTarget(postSieve, kill, &target, table)
-			go sieveFeatures(preSieve, postSieve, c.Float64(RESOLUTION))
-			go readFeaturesFromSource(&source, preSieve, table)
-
-			for {
-				if <-kill {
-					break
-				}
-			}
-			close(kill)
-			log.Println(fmt.Sprintf(`  finished %s`, table.name))
-			log.Println("")
+			Sieve(source, target, table, c.Float64(RESOLUTION))
 		}
 
 		log.Println("=== done sieving ===")

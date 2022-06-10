@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 
@@ -126,4 +127,24 @@ func shoelace(pts [][2]float64) float64 {
 		p0 = p1
 	}
 	return math.Abs(sum / 2)
+}
+
+func Sieve(source Source, target Target, table table, resolution float64) {
+	log.Printf("  sieving %s", table.name)
+	preSieve := make(chan feature)
+	postSieve := make(chan feature)
+	kill := make(chan bool)
+
+	go writeFeaturesToTarget(postSieve, kill, target, table)
+	go sieveFeatures(preSieve, postSieve, resolution)
+	go readFeaturesFromSource(source, preSieve, table)
+
+	for {
+		if <-kill {
+			break
+		}
+	}
+	close(kill)
+	log.Println(fmt.Sprintf(`  finished %s`, table.name))
+	log.Println("")
 }
