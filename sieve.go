@@ -3,35 +3,9 @@ package main
 import (
 	"log"
 	"math"
-	"strings"
 
 	"github.com/go-spatial/geom"
-	"github.com/go-spatial/geom/encoding/gpkg"
 )
-
-// geometryTypeFromString returns the numeric value of a gometry string
-func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
-	switch strings.ToUpper(geometrytype) {
-	case "GEOMETRY":
-		return gpkg.Geometry
-	case "POINT":
-		return gpkg.Point
-	case "LINESTRING":
-		return gpkg.Linestring
-	case "POLYGON":
-		return gpkg.Polygon
-	case "MULTIPOINT":
-		return gpkg.MultiPoint
-	case "MULTILINESTRING":
-		return gpkg.MultiLinestring
-	case "MULTIPOLYGON":
-		return gpkg.MultiPolygon
-	case "GEOMETRYCOLLECTION":
-		return gpkg.GeometryCollection
-	default:
-		return gpkg.Geometry
-	}
-}
 
 // readFeatures reads the features from the given Geopackage table
 // and decodes the WKB geometry to a geom.Polygon
@@ -51,8 +25,8 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 			break
 		} else {
 			preSieveCount++
-			switch gpkg.TypeForGeometry(feature.Geometry()) {
-			case gpkg.Polygon:
+			switch feature.Geometry().(type) {
+			case geom.Polygon:
 				var p geom.Polygon
 				p = feature.Geometry().(geom.Polygon)
 				if p := polygonSieve(p, resolution); p != nil {
@@ -60,7 +34,7 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 					postSieveCount++
 					postSieve <- feature
 				}
-			case gpkg.MultiPolygon:
+			case geom.MultiPolygon:
 				var mp geom.MultiPolygon
 				mp = feature.Geometry().(geom.MultiPolygon)
 				if mp := multiPolygonSieve(mp, resolution); mp != nil {

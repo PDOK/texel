@@ -44,6 +44,30 @@ type table struct {
 	srs     gpkg.SpatialReferenceSystem
 }
 
+// geometryTypeFromString returns the numeric value of a gometry string
+func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
+	switch strings.ToUpper(geometrytype) {
+	case "GEOMETRY":
+		return gpkg.Geometry
+	case "POINT":
+		return gpkg.Point
+	case "LINESTRING":
+		return gpkg.Linestring
+	case "POLYGON":
+		return gpkg.Polygon
+	case "MULTIPOINT":
+		return gpkg.MultiPoint
+	case "MULTILINESTRING":
+		return gpkg.MultiLinestring
+	case "MULTIPOLYGON":
+		return gpkg.MultiPolygon
+	case "GEOMETRYCOLLECTION":
+		return gpkg.GeometryCollection
+	default:
+		return gpkg.Geometry
+	}
+}
+
 type SourceGeopackage struct {
 	handle *gpkg.Handle
 }
