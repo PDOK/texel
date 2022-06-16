@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
-	"github.com/go-spatial/geom/encoding/gpkg"
+	"github.com/pdok/sieve/pkg"
+	"github.com/pdok/sieve/pkg/gpkg"
 	"github.com/urfave/cli/v2"
 )
 
@@ -53,25 +53,23 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
+
 		_, err := os.Stat(c.String(SOURCE))
 		if os.IsNotExist(err) {
 			log.Fatalf("error opening source GeoPackage: %s", err)
 		}
-		srcHandle, err := gpkg.Open(c.String(SOURCE))
-		if err != nil {
-			log.Fatalf("error opening source GeoPackage: %s", err)
-		}
-		defer srcHandle.Close()
 
-		trgHandle, err := gpkg.Open(c.String(TARGET))
-		if err != nil {
-			log.Fatalf("error opening target GeoPackage: %s", err)
-		}
-		defer trgHandle.Close()
+		source := gpkg.SourceGeopackage{}
+		source.Init(c.String(SOURCE))
+		defer source.Close()
 
-		tables := getSourceTableInfo(srcHandle)
+		target := gpkg.TargetGeopackage{}
+		target.Init(c.String(TARGET), c.Int(PAGESIZE))
+		defer target.Close()
 
-		err = initTargetGeopackage(trgHandle, tables)
+		tables := source.GetTableInfo()
+
+		err = target.CreateTables(tables)
 		if err != nil {
 			log.Fatalf("error initialization the target GeoPackage: %s", err)
 		}
@@ -80,23 +78,11 @@ func main() {
 
 		// Process the tables sequential
 		for _, table := range tables {
-			log.Printf("  sieving %s", table.name)
-			preSieve := make(chan feature)
-			postSieve := make(chan feature)
-			kill := make(chan bool)
-
-			go writeFeatures(postSieve, kill, trgHandle, table, c.Int(PAGESIZE))
-			go sieveFeatures(preSieve, postSieve, c.Float64(RESOLUTION))
-			go readFeatures(srcHandle, preSieve, table)
-
-			for {
-				if <-kill {
-					break
-				}
-			}
-			close(kill)
-			log.Println(fmt.Sprintf(`  finished %s`, table.name))
-			log.Println("")
+			log.Printf("  sieving %s", table.Name)
+			source.Table = table
+			target.Table = table
+			pkg.Sieve(source, target, c.Float64(RESOLUTION))
+			log.Printf("  finised %s", table.Name)
 		}
 
 		log.Println("=== done sieving ===")

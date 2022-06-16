@@ -39,7 +39,7 @@ go build .
 go run . -s=[source GPKG] -t=[target GPKG] -r=[resolution for filtering] \
    -p=[pagesize for writing to target GPKG]
 
-go test .
+go test ./... -covermode=atomic
 ```
 
 ## Docker
