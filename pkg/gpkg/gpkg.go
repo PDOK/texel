@@ -164,7 +164,7 @@ func (source SourceGeopackage) GetTableInfo() []Table {
 		var srsID int
 		err := rows.Scan(&t.Name, &t.gcolumn, &gtype, &srsID)
 		if err != nil {
-			log.Fatalf("error ready the source table information: %s", err)
+			log.Fatalf("error retrieving the source table information: %s", err)
 		}
 
 		t.columns = getTableColumns(source.handle, t.Name)
