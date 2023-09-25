@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/pdok/sieve/pkg"
-	"github.com/pdok/sieve/pkg/gpkg"
+	"github.com/pdok/sieve/processing/gpkg"
+	"github.com/pdok/sieve/sieve"
 	"github.com/urfave/cli/v2"
 )
 
@@ -81,7 +81,7 @@ func main() {
 			log.Printf("  sieving %s", table.Name)
 			source.Table = table
 			target.Table = table
-			pkg.Sieve(source, target, c.Float64(RESOLUTION))
+			sieve.Sieve(source, &target, c.Float64(RESOLUTION))
 			log.Printf("  finised %s", table.Name)
 		}
 

@@ -1,4 +1,4 @@
-FROM golang:1.18-bullseye AS build-env
+FROM golang:1.21-bullseye AS build-env
 
 ENV GO111MODULE=on
 ENV GOPROXY=https://proxy.golang.org

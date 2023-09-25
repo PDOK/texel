@@ -1,4 +1,4 @@
-package pkg
+package processing
 
 import "github.com/go-spatial/geom"
 
@@ -9,9 +9,9 @@ type Feature interface {
 }
 
 type Source interface {
-	ReadFeatures(chan Feature)
+	ReadFeatures(chan<- Feature)
 }
 
 type Target interface {
-	WriteFeatures(chan Feature)
+	WriteFeatures(<-chan Feature)
 }

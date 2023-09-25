@@ -1,12 +1,12 @@
 module github.com/pdok/sieve
 
-go 1.18
+go 1.21
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
-	github.com/go-spatial/geom v0.0.0-20220426070044-6e8855d2cfe6
-	github.com/mattn/go-sqlite3 v1.14.13 // indirect
-	github.com/urfave/cli/v2 v2.8.1
+	github.com/go-spatial/geom v0.0.0-20220918193402-3cd2f5a9a082
+	github.com/mattn/go-sqlite3 v1.14.17 // indirect
+	github.com/urfave/cli/v2 v2.25.7
 )
 
 require (
