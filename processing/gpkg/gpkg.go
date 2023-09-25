@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/gpkg"
-	"github.com/pdok/sieve/pkg"
+	"github.com/pdok/sieve/processing"
 )
 
 type featureGPKG struct {
@@ -82,7 +82,7 @@ func (source SourceGeopackage) Close() {
 	source.handle.Close()
 }
 
-func (source SourceGeopackage) ReadFeatures(preSieve chan pkg.Feature) {
+func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) {
 
 	rows, err := source.handle.Query(source.Table.selectSQL())
 	if err != nil {
@@ -140,13 +140,13 @@ func (source SourceGeopackage) ReadFeatures(preSieve chan pkg.Feature) {
 			f.columns = c
 		}
 		ff := &f
-		preSieve <- ff
+		features <- ff
 	}
 	err = rows.Err()
 	if err != nil {
 		log.Fatal(err)
 	}
-	close(preSieve)
+	close(features)
 	defer rows.Close()
 }
 
@@ -188,11 +188,11 @@ func (target *TargetGeopackage) Init(file string, pagesize int) {
 	target.handle = openGeopackage(file)
 }
 
-func (target TargetGeopackage) Close() {
+func (target *TargetGeopackage) Close() {
 	target.handle.Close()
 }
 
-func (target TargetGeopackage) CreateTables(tables []Table) error {
+func (target *TargetGeopackage) CreateTables(tables []Table) error {
 	for _, table := range tables {
 		err := target.handle.UpdateSRS(table.srs)
 		if err != nil {
@@ -207,11 +207,11 @@ func (target TargetGeopackage) CreateTables(tables []Table) error {
 	return nil
 }
 
-func (target TargetGeopackage) WriteFeatures(postSieve chan pkg.Feature) {
+func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Feature) {
 	var features []interface{}
 
 	for {
-		feature, hasMore := <-postSieve
+		feature, hasMore := <-inFeatures
 		if !hasMore {
 			target.writeFeatures(features)
 			break
@@ -226,7 +226,7 @@ func (target TargetGeopackage) WriteFeatures(postSieve chan pkg.Feature) {
 	}
 }
 
-func (target TargetGeopackage) writeFeatures(features []interface{}) {
+func (target *TargetGeopackage) writeFeatures(features []interface{}) {
 	tx, err := target.handle.Begin()
 	if err != nil {
 		log.Fatalf("Could not start a transaction: %s", err)
@@ -276,7 +276,6 @@ func (target TargetGeopackage) writeFeatures(features []interface{}) {
 	if err != nil {
 		log.Fatalln("Failed to update new extent:", err)
 	}
-
 }
 
 func openGeopackage(file string) *gpkg.Handle {
