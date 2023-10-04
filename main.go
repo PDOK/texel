@@ -1,11 +1,11 @@
 package main
 
 import (
+	"github.com/pdok/sieve/snap"
 	"log"
 	"os"
 
 	"github.com/pdok/sieve/processing/gpkg"
-	"github.com/pdok/sieve/sieve"
 	"github.com/urfave/cli/v2"
 )
 
@@ -16,8 +16,8 @@ const PAGESIZE string = `pagesize`
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "GOSieve"
-	app.Usage = "A Golang Polygon Sieve application"
+	app.Name = "Snappy"
+	app.Usage = "A Golang Polygon Snapping application"
 
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
@@ -76,12 +76,12 @@ func main() {
 
 		log.Println("=== start sieving ===")
 
-		// Process the tables sequential
+		// Process the tables sequentially
 		for _, table := range tables {
 			log.Printf("  sieving %s", table.Name)
 			source.Table = table
 			target.Table = table
-			sieve.Sieve(source, &target, c.Float64(RESOLUTION))
+			snap.SnapToPointCloud(source, &target)
 			log.Printf("  finised %s", table.Name)
 		}
 
