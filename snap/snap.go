@@ -35,7 +35,7 @@ func addPointsAndSnap(pi *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			// So also including that one.
 			nextVertexI := vertexI + 1%ringLen
 			segment := geom.Line{vertex, ring[nextVertexI]}
-			newVertices := pi.SnapClosestPoints(segment, 666) // TODO SnapClosestPoints depth
+			newVertices := pi.SnapClosestPoints(segment)
 			// TODO dedupe points
 			newRing = append(newRing, newVertices[:len(newVertices)-1]...)
 		}
