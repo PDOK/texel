@@ -67,7 +67,7 @@ func pointIndexForGrid(grid *slippy.Grid, matrixId uint) *PointIndex {
 // SnapToPointCloud snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
 func SnapToPointCloud(source processing.Source, target processing.Target) {
-	processing.ProcessFeatures(source, target, func(p geom.Polygon) geom.Polygon {
-		return *snapPolygon(&p) // TODO maybe return pointer here too (hunch that penalty for gc for passing big geoms by pointer is less bad than mem usage for copying?)
+	processing.ProcessFeatures(source, target, func(p geom.Polygon) *geom.Polygon {
+		return snapPolygon(&p)
 	})
 }
