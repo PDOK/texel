@@ -1,16 +1,19 @@
 package main
 
 import (
-	"github.com/pdok/sieve/snap"
+	"errors"
 	"log"
 	"os"
+	"syscall"
 
 	"github.com/pdok/sieve/processing/gpkg"
+	"github.com/pdok/sieve/snap"
 	"github.com/urfave/cli/v2"
 )
 
 const SOURCE string = `source`
 const TARGET string = `target`
+const OVERWRITE string = `overwrite`
 const RESOLUTION string = `resolution`
 const PAGESIZE string = `pagesize`
 
@@ -33,6 +36,13 @@ func main() {
 			Usage:    "Target GPKG",
 			Required: true,
 			EnvVars:  []string{"TARGET_GPKG"},
+		},
+		&cli.BoolFlag{
+			Name:     OVERWRITE,
+			Aliases:  []string{"o"},
+			Usage:    "Overwrite the target GPKG if it exists",
+			Required: false,
+			EnvVars:  []string{"OVERWRITE"},
 		},
 		&cli.Float64Flag{
 			Name:     RESOLUTION,
@@ -63,8 +73,19 @@ func main() {
 		source.Init(c.String(SOURCE))
 		defer source.Close()
 
+		targetPath := c.String(TARGET)
+		if c.Bool(OVERWRITE) {
+			err := os.Remove(targetPath)
+			var pathError *os.PathError
+			if err != nil {
+				if !(errors.As(err, &pathError) && errors.Is(pathError.Err, syscall.ENOENT)) {
+					log.Fatalf("could not remove target file: %e", err)
+				}
+			}
+		}
+
 		target := gpkg.TargetGeopackage{}
-		target.Init(c.String(TARGET), c.Int(PAGESIZE))
+		target.Init(targetPath, c.Int(PAGESIZE))
 		defer target.Close()
 
 		tables := source.GetTableInfo()
