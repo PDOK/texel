@@ -19,19 +19,26 @@ func snapPolygon(polygon *geom.Polygon) *geom.Polygon {
 func addPointsAndSnap(pi *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	newPolygon := make([][][2]float64, 0, len(*polygon))
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
-	for _, ring := range polygon.LinearRings() {
+	for ringI, ring := range polygon.LinearRings() {
 		ringLen := len(ring)
 		newRing := make([][2]float64, 0, ringLen*2) // TODO better estimation of new amount of points
 		for vertexI, vertex := range ring {
 			// LinearRings(): "The last point in the linear ring will not match the first point."
 			// So also including that one.
-			nextVertexI := vertexI + 1%ringLen
+			nextVertexI := (vertexI + 1) % ringLen
 			segment := geom.Line{vertex, ring[nextVertexI]}
 			newVertices := pi.SnapClosestPoints(segment)
 			// TODO dedupe points
 			newRing = append(newRing, newVertices[:len(newVertices)-1]...)
 		}
-		newPolygon = append(newPolygon, newRing)
+		if len(newRing) > 2 {
+			newPolygon = append(newPolygon, newRing)
+		} else {
+			// TODO keep as line or point instead of removing cq sieving
+			if ringI == 0 {
+				return nil // outer ring has become too small
+			}
+		}
 	}
 	return (*geom.Polygon)(&newPolygon)
 }
