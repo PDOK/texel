@@ -2,9 +2,11 @@ package snap
 
 import (
 	"fmt"
+	"io"
 	"math"
 
 	"github.com/go-spatial/geom"
+	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/go-spatial/geom/planar"
 )
 
@@ -49,83 +51,90 @@ type PointIndex struct {
 	hasPoints bool
 	maxDepth  uint // 0 means this is a leaf
 	quadrants [4]*PointIndex
-	parent    *PointIndex // TODO parent necessary?
+}
+
+// InsertPolygon inserts all points from a Polygon
+func (ix *PointIndex) InsertPolygon(polygon *geom.Polygon) {
+	for _, ring := range polygon.LinearRings() {
+		for _, vertex := range ring {
+			ix.InsertPoint(vertex)
+		}
+	}
 }
 
 // InsertPoint inserts a Point by its absolute coord
-func (pi *PointIndex) InsertPoint(point geom.Point) {
-	deepestSize := pow2(pi.maxDepth)
-	deepestRes := pi.extent.XSpan() / float64(deepestSize)
-	deepestX := int(math.Floor((point.X() - pi.extent.MinX()) / deepestRes))
-	deepestY := int(math.Floor((point.Y() - pi.extent.MinY()) / deepestRes))
-	pi.InsertCoord(deepestX, deepestY)
+func (ix *PointIndex) InsertPoint(point geom.Point) {
+	deepestSize := pow2(ix.maxDepth)
+	deepestRes := ix.extent.XSpan() / float64(deepestSize)
+	deepestX := int(math.Floor((point.X() - ix.extent.MinX()) / deepestRes))
+	deepestY := int(math.Floor((point.Y() - ix.extent.MinY()) / deepestRes))
+	ix.InsertCoord(deepestX, deepestY)
 }
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
-func (pi *PointIndex) InsertCoord(deepestX int, deepestY int) {
-	deepestSize := int(pow2(pi.maxDepth))
+func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
+	deepestSize := int(pow2(ix.maxDepth))
 	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
 		return // the point is outside the extent
 	}
-	pi.insertCoord(deepestX, deepestY)
+	ix.insertCoord(deepestX, deepestY)
 }
 
 // insertCoord adds a point into this pc, assuming the point is inside its extent
-func (pi *PointIndex) insertCoord(deepestX int, deepestY int) {
-	pi.hasPoints = true
-	if pi.maxDepth == 0 { // this is a leaf node
+func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
+	ix.hasPoints = true
+	if ix.isLeaf() {
 		return
 	}
 
 	// insert into one of the quadrants
-	deepestSize := int(pow2(pi.maxDepth))
-	isRight := b2i(deepestX < deepestSize/2)    // TODO check
-	isTop := b2i(deepestY < deepestSize/2) << 1 // TODO check
+	indexSize := int(pow2(ix.maxDepth))
+	xAtDeepest := ix.x * indexSize
+	yAtDeepest := ix.y * indexSize
+
+	isRight := bool2int(deepestX >= xAtDeepest+indexSize/2)
+	isTop := bool2int(deepestY >= yAtDeepest+indexSize/2) << 1
 	quadrantI := isRight | isTop
-	pi.ensureQuadrant(quadrantI).insertCoord(deepestX, deepestY) // TODO check
+	ix.ensureQuadrant(quadrantI).insertCoord(deepestX, deepestY)
 }
 
-func (pi *PointIndex) ensureQuadrant(quadrantI int) *PointIndex {
-	if pi.quadrants[quadrantI] == nil {
-		pi.quadrants[quadrantI] = &PointIndex{
-			level:    pi.level + 1,
-			x:        pi.x*2 + oneIfRight(quadrantI),
-			y:        pi.y*2 + oneIfTop(quadrantI),
-			extent:   pi.getQuadrantExtent(quadrantI),
-			maxDepth: pi.maxDepth - 1,
-			parent:   pi,
+func (ix *PointIndex) ensureQuadrant(quadrantI int) *PointIndex {
+	if ix.quadrants[quadrantI] == nil {
+		ix.quadrants[quadrantI] = &PointIndex{
+			level:    ix.level + 1,
+			x:        ix.x*2 + oneIfRight(quadrantI),
+			y:        ix.y*2 + oneIfTop(quadrantI),
+			extent:   ix.getQuadrantExtent(quadrantI),
+			maxDepth: ix.maxDepth - 1,
 		}
 	}
-	return pi.quadrants[quadrantI]
+	return ix.quadrants[quadrantI]
 }
 
-func (pi *PointIndex) getQuadrantExtent(quadrantI int) geom.Extent {
-	xSpan := pi.extent.XSpan() / 2
-	ySpan := pi.extent.YSpan() / 2
+func (ix *PointIndex) isLeaf() bool {
+	return ix.maxDepth == 0
+}
+
+func (ix *PointIndex) getQuadrantExtent(quadrantI int) geom.Extent {
+	xSpan := ix.extent.XSpan() / 2
+	ySpan := ix.extent.YSpan() / 2
 	return geom.Extent{
-		pi.extent.MinX() + float64(oneIfRight(quadrantI))*xSpan,  // minx // TODO multiple adds/subs creates floating point errors? use original resolution and level and x and y
-		pi.extent.MinY() + float64(oneIfTop(quadrantI))*ySpan,    // miny
-		pi.extent.MaxX() - float64(oneIfLeft(quadrantI))*xSpan,   // maxx
-		pi.extent.MaxX() - float64(oneIfBottom(quadrantI))*xSpan, // maxy
+		ix.extent.MinX() + float64(oneIfRight(quadrantI))*xSpan,  // minx // TODO multiple adds/subs creates floating point errors? use original resolution and level and x and y
+		ix.extent.MinY() + float64(oneIfTop(quadrantI))*ySpan,    // miny
+		ix.extent.MaxX() - float64(oneIfLeft(quadrantI))*xSpan,   // maxx
+		ix.extent.MaxY() - float64(oneIfBottom(quadrantI))*xSpan, // maxy
 	}
 }
 
-// ContainsPoint checks whether a point is contained in the extent.
-func (pi *PointIndex) ContainsPoint(pt geom.Point) bool {
-	// Differs from geom.(Extent)ContainsPoint() by not including the right and top edges
-	return pi.extent.MinX() <= pt[0] && pt[0] <= pi.extent.MaxX() &&
-		pi.extent.MinY() <= pt[1] && pt[1] <= pi.extent.MaxY()
-}
-
-func (pi *PointIndex) GetCentroid() geom.Point {
+func (ix *PointIndex) GetCentroid() geom.Point {
 	return geom.Point{
-		pi.extent.MinX() + pi.extent.XSpan()/2, // <-- here is the plus 0.5 internal pixel size
-		pi.extent.MinY() + pi.extent.YSpan()/2,
+		ix.extent.MinX() + ix.extent.XSpan()/2, // <-- here is the plus 0.5 internal pixel size
+		ix.extent.MinY() + ix.extent.YSpan()/2,
 	}
 }
 
-func (pi *PointIndex) SnapClosestPoints(line geom.Line) [][2]float64 {
-	pointIndices := pi.snapClosestPoints(line, pi.maxDepth, false)
+func (ix *PointIndex) SnapClosestPoints(line geom.Line) [][2]float64 {
+	pointIndices := ix.snapClosestPoints(line, ix.maxDepth, false)
 	points := make([][2]float64, len(pointIndices))
 	for i, pi := range pointIndices {
 		points[i] = pi.GetCentroid()
@@ -133,22 +142,23 @@ func (pi *PointIndex) SnapClosestPoints(line geom.Line) [][2]float64 {
 	return points
 }
 
-func (pi *PointIndex) snapClosestPoints(line geom.Line, depth uint, certainlyIntersects bool) []*PointIndex {
-	if !pi.hasPoints {
+//nolint:cyclop
+func (ix *PointIndex) snapClosestPoints(line geom.Line, depth uint, certainlyIntersects bool) []*PointIndex {
+	if !ix.hasPoints {
 		return nil
 	}
-	if !certainlyIntersects && !pi.lineIntersects(line) {
+	if !certainlyIntersects && !ix.lineIntersects(line) {
 		return nil
 	}
 	if depth == 0 {
-		return []*PointIndex{pi}
+		return []*PointIndex{ix}
 	}
 	var quadrantsToCheck []quadrantToCheck
 
-	pt1InfiniteQuadrantI := pi.getInfiniteQuadrant(line[0])
-	pt1IsInsideQuadrant := pi.ContainsPoint(line[0])
-	pt2InfiniteQuadrantI := pi.getInfiniteQuadrant(line[1])
-	pt2IsInsideQuadrant := pi.ContainsPoint(line[1])
+	pt1InfiniteQuadrantI := ix.getInfiniteQuadrant(line[0])
+	pt1IsInsideQuadrant := ix.containsPoint(line[0])
+	pt2InfiniteQuadrantI := ix.getInfiniteQuadrant(line[1])
+	pt2IsInsideQuadrant := ix.containsPoint(line[1])
 
 	if pt1InfiniteQuadrantI == pt2InfiniteQuadrantI {
 		// line intersects at most this quadrant
@@ -213,13 +223,20 @@ func (pi *PointIndex) snapClosestPoints(line geom.Line, depth uint, certainlyInt
 		if quadrantToCheck.mutex && mutexed {
 			continue
 		}
-		found := pi.ensureQuadrant(quadrantToCheck.i).snapClosestPoints(line, depth-1, quadrantToCheck.certain)
+		found := ix.ensureQuadrant(quadrantToCheck.i).snapClosestPoints(line, depth-1, quadrantToCheck.certain)
 		if quadrantToCheck.mutex && len(found) > 0 {
 			mutexed = true
 		}
 		intersectedQuadrantsWithPoints = append(intersectedQuadrantsWithPoints, found...)
 	}
 	return intersectedQuadrantsWithPoints
+}
+
+// containsPoint checks whether a point is contained in the extent.
+func (ix *PointIndex) containsPoint(pt geom.Point) bool {
+	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
+	return ix.extent.MinX() <= pt[0] && pt[0] < ix.extent.MaxX() &&
+		ix.extent.MinY() <= pt[1] && pt[1] < ix.extent.MaxY()
 }
 
 // A quadrant to check for an intersecting line and having points
@@ -232,10 +249,10 @@ type quadrantToCheck struct {
 }
 
 // getInfiniteQuadrant determines in which infinite quadrant the point lies
-func (pi *PointIndex) getInfiniteQuadrant(point geom.Point) int {
-	centroid := pi.GetCentroid()
-	isRight := b2i(point.X() >= centroid.X())
-	isTop := b2i(point.Y() >= centroid.Y()) << 1
+func (ix *PointIndex) getInfiniteQuadrant(point geom.Point) int {
+	centroid := ix.GetCentroid()
+	isRight := bool2int(point.X() >= centroid.X())
+	isTop := bool2int(point.Y() >= centroid.Y()) << 1
 	return isRight | isTop
 }
 
@@ -254,19 +271,19 @@ func adjacentQuadrantY(quadrantI int) int {
 
 // lineIntersects tests whether a line intersects with the extent.
 // TODO this can probably be faster by reusing the edges for the other three quadrants and/or only testing relevant edges (hints)
-func (pi *PointIndex) lineIntersects(line geom.Line) bool {
+func (ix *PointIndex) lineIntersects(line geom.Line) bool {
 	// First see if a point is inside (cheap test).
-	pt1IsInsideQuadrant := pi.ContainsPoint(line[0])
-	pt2IsInsideQuadrant := pi.ContainsPoint(line[1])
+	pt1IsInsideQuadrant := ix.containsPoint(line[0])
+	pt2IsInsideQuadrant := ix.containsPoint(line[1])
 	if pt1IsInsideQuadrant || pt2IsInsideQuadrant {
 		return true
 	}
 
-	for edgeI, edge := range pi.extent.Edges(nil) {
+	for edgeI, edge := range ix.extent.Edges(nil) {
 		intersection, intersects := planar.SegmentIntersect(line, edge)
 		// Checking for intersection cq crossing is not enough. The right and top edges are exclusive.
 		// So there are exceptions ...:
-		if intersects {
+		if intersects { //nolint:nestif
 			if isExclusiveEdge(edgeI) {
 				if line[0] == intersection || line[1] == intersection {
 					// The tip of a line coming from the outside touches the (exclusive) edge.
@@ -304,16 +321,17 @@ func getExclusiveTip(edgeI int, edge geom.Line) geom.Point {
 	panic(fmt.Sprintf("not an inclusive edge: %v", edgeI))
 }
 
-// lineOverlapsInclusiveEdge helps to check if a line overlaps an inlcusive edge (excluding the exclusive tip)
+// lineOverlapsInclusiveEdge helps to check if a line overlaps an inclusive edge (excluding the exclusive tip)
 func lineOverlapsInclusiveEdge(line geom.Line, edgeI int, edge geom.Line) bool {
 	var constAx, varAx int
-	if edge[0][xAx] == edge[1][xAx] { // vertical
+	switch {
+	case edge[0][xAx] == edge[1][xAx]:
 		constAx = xAx
 		varAx = yAx
-	} else if edge[0][yAx] == edge[1][yAx] { // horizontal
+	case edge[0][yAx] == edge[1][yAx]:
 		constAx = yAx
 		varAx = xAx
-	} else {
+	default:
 		panic(fmt.Sprintf("not a straight edge: %v", edge))
 	}
 	eConstOrd := edge[0][constAx]
@@ -343,11 +361,11 @@ func pow2(n uint) uint {
 	return 1 << n
 }
 
-func b2i(b bool) int {
+func bool2int(b bool) int {
 	if b {
-		return 0
+		return 1
 	}
-	return 1
+	return 0
 }
 
 func oneIfLeft(quadrantI int) int {
@@ -361,4 +379,20 @@ func oneIfBottom(quadrantI int) int {
 }
 func oneIfTop(quadrantI int) int {
 	return (quadrantI & top) >> 1
+}
+
+// toWkt creates a WKT representation of the pointcloud. For debugging/visualising.
+func (ix *PointIndex) toWkt(writer io.Writer) {
+	// TODO collect polygons and multipolygons
+	_ = wkt.Encode(writer, ix.extent)
+	_, _ = fmt.Fprintf(writer, "\n")
+	if ix.isLeaf() {
+		_ = wkt.Encode(writer, ix.GetCentroid())
+		_, _ = fmt.Fprintf(writer, "\n")
+	}
+	for _, quadrant := range ix.quadrants {
+		if quadrant != nil {
+			quadrant.toWkt(writer)
+		}
+	}
 }
