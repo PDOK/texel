@@ -383,7 +383,6 @@ func oneIfTop(quadrantI int) int {
 
 // toWkt creates a WKT representation of the pointcloud. For debugging/visualising.
 func (ix *PointIndex) toWkt(writer io.Writer) {
-	// TODO collect polygons and multipolygons
 	_ = wkt.Encode(writer, ix.extent)
 	_, _ = fmt.Fprintf(writer, "\n")
 	if ix.isLeaf() {
