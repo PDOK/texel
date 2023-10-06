@@ -289,22 +289,27 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 
 func TestPointIndex_SnapClosestPoints(t *testing.T) {
 	tests := []struct {
-		name string
-		poly geom.Polygon
-		line geom.Line
-		want [][2]float64
+		name     string
+		extent   geom.Extent
+		maxDepth uint
+		poly     geom.Polygon
+		line     geom.Line
+		want     [][2]float64
 	}{
 		{
-			name: "nowhere even close",
+			name:     "nowhere even close",
+			extent:   geom.Extent{0.0, 0.0, 8.0, 8.0},
+			maxDepth: 4,
 			poly: geom.Polygon{
 				{{0.0, 0.0}, {0.0, 2.0}, {2.0, 2.0}, {2.0, 0.0}},
 			},
 			line: geom.Line{{4.0, 4.0}, {8.0, 8.0}},
 			want: make([][2]float64, 0), // nothing because the line is not part of the original geom so no points indexed
-			// TODO maybe you always want the start and end point of the line, regardless if there are points. don't think so though.
 		},
 		{
-			name: "no extra points",
+			name:     "no extra points",
+			extent:   geom.Extent{0.0, 0.0, 16.0, 16.0},
+			maxDepth: 5, // deepest res = 0.5
 			poly: geom.Polygon{
 				{{0.0, 0.0}, {0.0, 8.0}, {8.0, 8.0}, {8.0, 0.0}},
 				{{2.0, 2.0}, {6.0, 2.0}, {6.0, 6.0}, {2.0, 6.0}},
@@ -312,12 +317,23 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			line: geom.Line{{2.0, 2.0}, {6.0, 2.0}},
 			want: [][2]float64{{2.25, 2.25}, {6.25, 2.25}}, // same amount of points, but snapped to centroid
 		},
+		{
+			name:     "extra points (scary geom 1)",
+			extent:   geom.Extent{0.0, 0.0, 8.0, 8.0},
+			maxDepth: 4, // deepest res = 0.5
+			poly: geom.Polygon{
+				{{0.0, 5.0}, {5.0, 4.0}, {5.0, 0.0}, {3.0, 0.0}, {0.0, 2.0}},
+				{{1.0, 3.0}, {3.0, 3.0}, {3.0, 1.0}, {1.25, 1.25}},
+			},
+			line: geom.Line{{3.0, 0.0}, {0.0, 2.0}},
+			want: [][2]float64{{3.25, 0.25}, {1.25, 1.25}, {0.25, 2.25}}, // extra point in the middle
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := &PointIndex{
-				extent:   geom.Extent{0.0, 0.0, 16.0, 16.0},
-				maxDepth: 5, // deepest res = 0.5
+				extent:   tt.extent,
+				maxDepth: tt.maxDepth,
 			}
 			ix.InsertPolygon(&tt.poly)
 			ix.toWkt(os.Stdout)
