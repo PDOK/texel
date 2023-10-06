@@ -29,7 +29,9 @@ func addPointsAndSnap(pi *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			segment := geom.Line{vertex, ring[nextVertexI]}
 			newVertices := pi.SnapClosestPoints(segment)
 			// TODO dedupe points
-			newRing = append(newRing, newVertices[:len(newVertices)-1]...)
+			if len(newVertices) > 0 {
+				newRing = append(newRing, newVertices[:len(newVertices)-1]...)
+			} // FIXME what if it is not? shouldn't happen? always line first and last are returned?
 		}
 		if len(newRing) > 2 {
 			newPolygon = append(newPolygon, newRing)
@@ -49,9 +51,10 @@ func pointIndexForGrid(grid *slippy.Grid, matrixId uint) *PointIndex {
 	maxY := 903401.92
 	pixelSize := 16
 	tileSize := 256
-	cellSize := 3440.64
-	gridSize := float64(tileSize) * cellSize
-	maxDepth := int(math.Log2(float64(tileSize)) + math.Log2(float64(pixelSize)))
+	matrixSize := 32   // <-- = 5 //  0 = 1
+	cellSize := 107.52 // <-- = 5 //  0 = 3440.64
+	gridSize := float64(matrixSize) * float64(tileSize) * cellSize
+	maxDepth := int(math.Log2(float64(matrixSize)) + math.Log2(float64(tileSize)) + math.Log2(float64(pixelSize)))
 	pi := PointIndex{
 		level:    0, // TODO maybe adjust for actual matrixId
 		x:        0,
