@@ -10,18 +10,10 @@ import (
 
 func snapPolygon(polygon *geom.Polygon) *geom.Polygon {
 	pi := pointIndexForGrid(nil, 0)
-	indexPoints(pi, polygon)
+	pi.InsertPolygon(polygon)
 	newPolygon := addPointsAndSnap(pi, polygon)
 
 	return newPolygon
-}
-
-func indexPoints(pi *PointIndex, polygon *geom.Polygon) {
-	for _, ring := range polygon.LinearRings() {
-		for _, vertex := range ring {
-			pi.InsertPoint(vertex)
-		}
-	}
 }
 
 func addPointsAndSnap(pi *PointIndex, polygon *geom.Polygon) *geom.Polygon {
