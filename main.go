@@ -9,12 +9,13 @@ import (
 	"github.com/pdok/sieve/processing/gpkg"
 	"github.com/pdok/sieve/snap"
 	"github.com/urfave/cli/v2"
+	"gopkg.in/yaml.v2"
 )
 
 const SOURCE string = `source`
 const TARGET string = `target`
 const OVERWRITE string = `overwrite`
-const RESOLUTION string = `resolution`
+const TILEMATRIX string = `tilematrix`
 const PAGESIZE string = `pagesize`
 
 func main() {
@@ -44,13 +45,12 @@ func main() {
 			Required: false,
 			EnvVars:  []string{"OVERWRITE"},
 		},
-		&cli.Float64Flag{
-			Name:     RESOLUTION,
-			Aliases:  []string{"r"},
-			Usage:    "Resolution, the threshold area to determine if a feature is sieved or not",
-			Value:    0.0,
-			Required: false,
-			EnvVars:  []string{"SIEVE_RESOLUTION"},
+		&cli.StringFlag{
+			Name:     TILEMATRIX,
+			Aliases:  []string{"m"},
+			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"MinX": -285401.92, "MaxY": 903401.92, "PixelSize": 16, "TileSize": 256, "Level": 5, "CellSize": 107.52}`,
+			Required: true,
+			EnvVars:  []string{"TILEMATRIX"},
 		},
 		&cli.IntFlag{
 			Name:     PAGESIZE,
@@ -63,8 +63,13 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
+		var tileMatrix snap.TileMatrix
+		err := yaml.Unmarshal([]byte(c.String(TILEMATRIX)), &tileMatrix)
+		if err != nil {
+			return err
+		}
 
-		_, err := os.Stat(c.String(SOURCE))
+		_, err = os.Stat(c.String(SOURCE))
 		if os.IsNotExist(err) {
 			log.Fatalf("error opening source GeoPackage: %s", err)
 		}
@@ -102,7 +107,7 @@ func main() {
 			log.Printf("  sieving %s", table.Name)
 			source.Table = table
 			target.Table = table
-			snap.SnapToPointCloud(source, &target)
+			snap.SnapToPointCloud(source, &target, tileMatrix)
 			log.Printf("  finised %s", table.Name)
 		}
 
