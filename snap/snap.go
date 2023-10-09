@@ -9,14 +9,14 @@ import (
 )
 
 func snapPolygon(polygon *geom.Polygon) *geom.Polygon {
-	pi := pointIndexForGrid(nil, 0)
-	pi.InsertPolygon(polygon)
-	newPolygon := addPointsAndSnap(pi, polygon)
+	ix := pointIndexForGrid(nil, 0)
+	ix.InsertPolygon(polygon)
+	newPolygon := addPointsAndSnap(ix, polygon)
 
 	return newPolygon
 }
 
-func addPointsAndSnap(pi *PointIndex, polygon *geom.Polygon) *geom.Polygon {
+func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	newPolygon := make([][][2]float64, 0, len(*polygon))
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
 	for ringI, ring := range polygon.LinearRings() {
@@ -27,7 +27,7 @@ func addPointsAndSnap(pi *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			// So also including that one.
 			nextVertexI := (vertexI + 1) % ringLen
 			segment := geom.Line{vertex, ring[nextVertexI]}
-			newVertices := pi.SnapClosestPoints(segment)
+			newVertices := ix.SnapClosestPoints(segment)
 			// TODO dedupe points
 			if len(newVertices) > 0 {
 				newRing = append(newRing, newVertices[:len(newVertices)-1]...)

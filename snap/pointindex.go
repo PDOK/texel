@@ -136,8 +136,8 @@ func (ix *PointIndex) GetCentroid() geom.Point {
 func (ix *PointIndex) SnapClosestPoints(line geom.Line) [][2]float64 {
 	pointIndices := ix.snapClosestPoints(line, ix.maxDepth, false)
 	points := make([][2]float64, len(pointIndices))
-	for i, pi := range pointIndices {
-		points[i] = pi.GetCentroid()
+	for i, ixWithPoint := range pointIndices {
+		points[i] = ixWithPoint.GetCentroid()
 	}
 	return points
 }
@@ -223,7 +223,11 @@ func (ix *PointIndex) snapClosestPoints(line geom.Line, depth uint, certainlyInt
 		if quadrantToCheck.mutex && mutexed {
 			continue
 		}
-		found := ix.ensureQuadrant(quadrantToCheck.i).snapClosestPoints(line, depth-1, quadrantToCheck.certain)
+		var found []*PointIndex
+		quadrant := ix.quadrants[quadrantToCheck.i]
+		if quadrant != nil {
+			found = quadrant.snapClosestPoints(line, depth-1, quadrantToCheck.certain)
+		}
 		if quadrantToCheck.mutex && len(found) > 0 {
 			mutexed = true
 		}
@@ -385,8 +389,9 @@ func oneIfTop(quadrantI int) int {
 func (ix *PointIndex) toWkt(writer io.Writer) {
 	_ = wkt.Encode(writer, ix.extent)
 	_, _ = fmt.Fprintf(writer, "\n")
-	if ix.isLeaf() {
-		_ = wkt.Encode(writer, ix.GetCentroid())
+	if ix.isLeaf() && ix.hasPoints {
+		centroid := ix.GetCentroid()
+		_ = wkt.Encode(writer, centroid)
 		_, _ = fmt.Fprintf(writer, "\n")
 	}
 	for _, quadrant := range ix.quadrants {
