@@ -29,7 +29,11 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			newVertices := ix.SnapClosestPoints(segment)
 			// TODO dedupe points
 			if len(newVertices) > 0 {
-				newRing = append(newRing, newVertices[:len(newVertices)-1]...)
+				minus := 1
+				if len(newVertices) == 1 {
+					minus = 0
+				}
+				newRing = append(newRing, newVertices[:len(newVertices)-minus]...)
 			} // FIXME what if it is not? shouldn't happen? always line first and last are returned?
 		}
 		if len(newRing) > 2 {
