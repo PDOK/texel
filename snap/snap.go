@@ -7,6 +7,22 @@ import (
 	"github.com/pdok/sieve/processing"
 )
 
+const (
+	InternalPixelSize = 16
+	DefaultTileSize   = 256
+)
+
+// TileMatrix contains the parameters to create a PointIndex and resembles a TileMatrix from OGC TMS
+// TODO use proper and full TileMatrixSet support
+type TileMatrix struct {
+	MinX      float64 `yaml:"MinX"`
+	MaxY      float64 `yaml:"MaxY"`
+	PixelSize uint    `yaml:"PixelSize"` // defaults to 16
+	TileSize  uint    `yaml:"TileSize"`  // defaults to 256
+	Level     uint    `yaml:"Level"`     // determines the number of tiles
+	CellSize  float64 `yaml:"CellSize"`
+}
+
 func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
 	ix := pointIndexForGrid(tileMatrix)
 	ix.InsertPolygon(polygon)
@@ -48,21 +64,19 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	return (*geom.Polygon)(&newPolygon)
 }
 
-// TODO use proper and full TileMatrixSet support
-type TileMatrix struct {
-	MinX      float64 `yaml:"MinX"`
-	MaxY      float64 `yaml:"MaxY"`
-	PixelSize uint    `yaml:"PixelSize"`
-	TileSize  uint    `yaml:"TileSize"`
-	Level     uint    `yaml:"Level"`
-	CellSize  float64 `yaml:"CellSize"`
-}
-
 func pointIndexForGrid(tm TileMatrix) *PointIndex {
-	// TODO replace hardcoded NetherlandsRDNewQuad with TMS or slippy grid
-	gridSize := float64(pow2(tm.Level)) * float64(tm.TileSize) * tm.CellSize
-	maxDepth := int(float64(tm.Level) + math.Log2(float64(tm.TileSize)) + math.Log2(float64(tm.PixelSize)))
-	pi := PointIndex{
+	// TODO support actual TMS or slippy grid
+	pixelSize := tm.PixelSize
+	if pixelSize == 0 {
+		pixelSize = InternalPixelSize
+	}
+	tileSize := tm.TileSize
+	if tileSize == 0 {
+		tileSize = DefaultTileSize
+	}
+	gridSize := float64(pow2(tm.Level)) * float64(tileSize) * tm.CellSize
+	maxDepth := int(float64(tm.Level) + math.Log2(float64(tileSize)) + math.Log2(float64(pixelSize)))
+	ix := PointIndex{
 		level:    0, // TODO maybe adjust for actual matrixId
 		x:        0,
 		y:        0,
@@ -71,7 +85,7 @@ func pointIndexForGrid(tm TileMatrix) *PointIndex {
 			tm.MinX, tm.MaxY - gridSize, tm.MinX + gridSize, tm.MaxY,
 		},
 	}
-	return &pi
+	return &ix
 }
 
 // SnapToPointCloud snaps polygons' points to a tile's internal pixel grid
