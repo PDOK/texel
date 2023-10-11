@@ -1,11 +1,12 @@
-# Sieve
+<!-- TODO: Rewrite README to reflect purpose/usage of the texel tool -->
+# `texel`
 
-![GitHub license](https://img.shields.io/github/license/PDOK/sieve) [![GitHub
-release](https://img.shields.io/github/release/PDOK/sieve.svg)](https://github.com/PDOK/sieve/releases)
+![GitHub license](https://img.shields.io/github/license/PDOK/texel) [![GitHub
+release](https://img.shields.io/github/release/PDOK/texel.svg)](https://github.com/PDOK/texel/releases)
 [![Go Report
-Card](https://goreportcard.com/badge/PDOK/sieve)](https://goreportcard.com/report/PDOK/sieve)
+Card](https://goreportcard.com/badge/PDOK/texel)](https://goreportcard.com/report/PDOK/texel)
 [![Docker
-Pulls](https://img.shields.io/docker/pulls/pdok/sieve.svg)](https://hub.docker.com/r/pdok/sieve)
+Pulls](https://img.shields.io/docker/pulls/pdok/texel.svg)](https://hub.docker.com/r/pdok/texel)
 
 Sieves [GeoPackage](https://www.geopackage.org/) Polygon geometries.
 
@@ -36,8 +37,8 @@ vector tiles can be omitted, and less data needs to be processed.
 ```go
 go build .
 
-go run . -s=[source GPKG] -t=[target GPKG] -r=[resolution for filtering] \
-   -p=[pagesize for writing to target GPKG]
+go run . -s=[source GPKG] -t=[target GPKG] -m=[tilematrix for filtering] \
+   -p=[pagesize for writing to target GPKG] -o=[overwrite target GPKG]
 
 go test ./... -covermode=atomic
 ```
@@ -45,9 +46,11 @@ go test ./... -covermode=atomic
 ## Docker
 
 ```docker
-docker build -t pdok/sieve .
-docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve \
-   -s=./example/example.gpkg -t=./example/example-processed.gpkg -r=50001 -p=10
+docker build -t pdok/texel .
+docker run --rm --name texel -v `pwd`/example:/example pdok/texel ./texel \
+   -s=./example/example.gpkg -t=./example/example-processed.gpkg \
+   -m="{\"MinX\": -285401.92, \"MaxY\": 903401.92, \"PixelSize\": 16, \"TileSize\": 256, \"Level\": 5, \"CellSize\": 107.52}" \
+   -p=10 -o=false
 ```
 
 With the docker example above processing the ```example.gpkg``` would result in
@@ -56,8 +59,8 @@ the following.
 ![with interiors](./images/with-interiors.jpg)  ![without
 interiors](./images/without-interiors.jpg)
 
-## Inspiration
+<!-- ## Inspiration
 
 Code is inspired by the PostGis [Sieve
-function](https://github.com/mapbox/postgis-vt-util/blob/master/src/Sieve.sql)
-from Mapbox.
+function](https://github.com/mapbox/postgis-vt-util/blob/master/src/texel.sql)
+from Mapbox. -->
