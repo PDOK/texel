@@ -2,7 +2,6 @@ package snap
 
 import (
 	"os"
-	"reflect"
 	"testing"
 
 	"github.com/go-spatial/geom"
@@ -64,9 +63,7 @@ func TestPointIndex_containsPoint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := &PointIndex{
-				extent: geom.Extent{0.0, 0.0, 1.0, 1.0},
-			}
+			ix := NewPointIndexFromTileMatrix(newSimpleTileMatrix(1.0, 0, 1.0))
 			if got := ix.containsPoint(tt.pt); got != tt.want {
 				t.Errorf("containsPoint() = %v, want %v", got, tt.want)
 			}
@@ -74,30 +71,41 @@ func TestPointIndex_containsPoint(t *testing.T) {
 	}
 }
 
-func TestPointIndex_GetCentroid(t *testing.T) {
+func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
+	type wants struct {
+		extent   geom.Extent
+		centroid geom.Point
+	}
 	tests := []struct {
 		name   string
-		extent geom.Extent
-		want   geom.Point
+		matrix TileMatrix
+		want   wants
 	}{
 		{
 			name:   "simple",
-			extent: geom.Extent{0.0, 0.0, 1.0, 1.0},
-			want:   geom.Point{0.5, 0.5},
+			matrix: newSimpleTileMatrix(1.0, 0, 1.0),
+			want: wants{
+				extent:   geom.Extent{0.0, 0.0, 1.0, 1.0},
+				centroid: geom.Point{0.5, 0.5},
+			},
 		},
 		{
 			name:   "zero",
-			extent: geom.Extent{0.0, 0.0, 0.0, 0.0},
-			want:   geom.Point{0.0, 0.0},
+			matrix: newSimpleTileMatrix(0.0, 0, 0.0),
+			want: wants{
+				extent:   geom.Extent{0.0, 0.0, 0.0, 0.0},
+				centroid: geom.Point{0.0, 0.0},
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := &PointIndex{
-				extent: tt.extent,
+			extent, centroid := getQuadrantExtentAndCentroid(&tt.matrix, 0, 0, 0)
+			if !assert.EqualValues(t, tt.want.extent, extent) {
+				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", extent, tt.want.extent)
 			}
-			if got := ix.GetCentroid(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetCentroid() = %v, want %v", got, tt.want)
+			if !assert.EqualValues(t, tt.want.centroid, centroid) {
+				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", centroid, tt.want.centroid)
 			}
 		})
 	}
@@ -106,31 +114,30 @@ func TestPointIndex_GetCentroid(t *testing.T) {
 //nolint:funlen
 func TestPointIndex_InsertPoint(t *testing.T) {
 	tests := []struct {
-		name     string
-		extent   geom.Extent
-		maxDepth uint
-		point    geom.Point
-		want     PointIndex
+		name   string
+		matrix TileMatrix
+		point  geom.Point
+		want   PointIndex
 	}{
 		{
-			name:     "leaf",
-			extent:   geom.Extent{0.0, 0.0, 1.0, 1.0},
-			maxDepth: 0,
-			point:    geom.Point{0.5, 0.5},
+			name:   "leaf",
+			matrix: newSimpleTileMatrix(1.0, 0, 1.0),
+			point:  geom.Point{0.5, 0.5},
 			want: PointIndex{
 				extent:    geom.Extent{0.0, 0.0, 1.0, 1.0},
+				centroid:  geom.Point{0.5, 0.5},
 				hasPoints: true,
 				maxDepth:  0,
 				quadrants: [4]*PointIndex{},
 			},
 		},
 		{
-			name:     "centroid",
-			extent:   geom.Extent{0.0, 0.0, 1.0, 1.0},
-			maxDepth: 1,
-			point:    geom.Point{0.5, 0.5},
+			name:   "centroid",
+			matrix: newSimpleTileMatrix(1.0, 1, 0.5),
+			point:  geom.Point{0.5, 0.5},
 			want: PointIndex{
 				extent:    geom.Extent{0.0, 0.0, 1.0, 1.0},
+				centroid:  geom.Point{0.5, 0.5},
 				hasPoints: true,
 				maxDepth:  1,
 				quadrants: [4]*PointIndex{
@@ -139,6 +146,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 						x:         1,
 						y:         1,
 						extent:    geom.Extent{0.5, 0.5, 1.0, 1.0},
+						centroid:  geom.Point{0.75, 0.75},
 						hasPoints: true,
 						maxDepth:  0,
 						quadrants: [4]*PointIndex{},
@@ -147,12 +155,12 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			},
 		},
 		{
-			name:     "deep",
-			extent:   geom.Extent{0.0, 0.0, 4.0, 4.0},
-			maxDepth: 3,
-			point:    geom.Point{2.8, 3.2},
+			name:   "deep",
+			matrix: newSimpleTileMatrix(4.0, 3, 0.5),
+			point:  geom.Point{2.8, 3.2},
 			want: PointIndex{
 				extent:    geom.Extent{0.0, 0.0, 4.0, 4.0},
+				centroid:  geom.Point{2.0, 2.0},
 				hasPoints: true,
 				maxDepth:  3,
 				quadrants: [4]*PointIndex{
@@ -164,6 +172,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 						x:         1,
 						y:         1,
 						extent:    geom.Extent{2.0, 2.0, 4.0, 4.0},
+						centroid:  geom.Point{3.0, 3.0},
 						hasPoints: true,
 						maxDepth:  2,
 						quadrants: [4]*PointIndex{
@@ -174,6 +183,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 								x:         2,
 								y:         3,
 								extent:    geom.Extent{2.0, 3.0, 3.0, 4.0},
+								centroid:  geom.Point{2.5, 3.5},
 								hasPoints: true,
 								maxDepth:  1,
 								quadrants: [4]*PointIndex{
@@ -183,6 +193,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 										x:         5,
 										y:         6,
 										extent:    geom.Extent{2.5, 3.0, 3.0, 3.5},
+										centroid:  geom.Point{2.75, 3.25},
 										hasPoints: true,
 										maxDepth:  0,
 										quadrants: [4]*PointIndex{},
@@ -198,12 +209,12 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			},
 		},
 		{
-			name:     "deeper",
-			extent:   geom.Extent{0.0, 0.0, 16.0, 16.0},
-			maxDepth: 5, // deepest res = 0.5
-			point:    geom.Point{2.0, 6.0},
+			name:   "deeper",
+			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
+			point:  geom.Point{2.0, 6.0},
 			want: PointIndex{
 				extent:    geom.Extent{0.0, 0.0, 16.0, 16.0},
+				centroid:  geom.Point{8.0, 8.0},
 				hasPoints: true,
 				maxDepth:  5,
 				quadrants: [4]*PointIndex{
@@ -212,6 +223,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 						x:         0,
 						y:         0,
 						extent:    geom.Extent{0.0, 0.0, 8.0, 8.0},
+						centroid:  geom.Point{4.0, 4.0},
 						hasPoints: true,
 						maxDepth:  4,
 						quadrants: [4]*PointIndex{
@@ -222,6 +234,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 								x:         0,
 								y:         1,
 								extent:    geom.Extent{0.0, 4.0, 4.0, 8.0},
+								centroid:  geom.Point{2.0, 6.0},
 								hasPoints: true,
 								maxDepth:  3,
 								quadrants: [4]*PointIndex{
@@ -233,6 +246,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 										x:         1,
 										y:         3,
 										extent:    geom.Extent{2.0, 6.0, 4.0, 8.0},
+										centroid:  geom.Point{3.0, 7.0},
 										hasPoints: true,
 										maxDepth:  2,
 										quadrants: [4]*PointIndex{
@@ -241,6 +255,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 												x:         2,
 												y:         6,
 												extent:    geom.Extent{2.0, 6.0, 3.0, 7.0},
+												centroid:  geom.Point{2.5, 6.5},
 												hasPoints: true,
 												maxDepth:  1,
 												quadrants: [4]*PointIndex{
@@ -249,6 +264,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 														x:         4,
 														y:         12,
 														extent:    geom.Extent{2.0, 6.0, 2.5, 6.5},
+														centroid:  geom.Point{2.25, 6.25},
 														hasPoints: true,
 														maxDepth:  0,
 														quadrants: [4]*PointIndex{},
@@ -277,11 +293,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := &PointIndex{
-				extent:   tt.extent,
-				maxDepth: tt.maxDepth,
-			}
+			ix := NewPointIndexFromTileMatrix(tt.matrix)
 			ix.InsertPoint(tt.point)
+			setRootMatrices(&tt.want, &tt.matrix)
 			assert.EqualValues(t, tt.want, *ix)
 		})
 	}
@@ -289,17 +303,15 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 
 func TestPointIndex_SnapClosestPoints(t *testing.T) {
 	tests := []struct {
-		name     string
-		extent   geom.Extent
-		maxDepth uint
-		poly     geom.Polygon
-		line     geom.Line
-		want     [][2]float64
+		name   string
+		matrix TileMatrix
+		poly   geom.Polygon
+		line   geom.Line
+		want   [][2]float64
 	}{
 		{
-			name:     "nowhere even close",
-			extent:   geom.Extent{0.0, 0.0, 8.0, 8.0},
-			maxDepth: 4,
+			name:   "nowhere even close",
+			matrix: newSimpleTileMatrix(8.0, 4, 0.5),
 			poly: geom.Polygon{
 				{{0.0, 0.0}, {0.0, 2.0}, {2.0, 2.0}, {2.0, 0.0}},
 			},
@@ -307,9 +319,8 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			want: make([][2]float64, 0), // nothing because the line is not part of the original geom so no points indexed
 		},
 		{
-			name:     "no extra points",
-			extent:   geom.Extent{0.0, 0.0, 16.0, 16.0},
-			maxDepth: 5, // deepest res = 0.5
+			name:   "no extra points",
+			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
 			poly: geom.Polygon{
 				{{0.0, 0.0}, {0.0, 8.0}, {8.0, 8.0}, {8.0, 0.0}},
 				{{2.0, 2.0}, {6.0, 2.0}, {6.0, 6.0}, {2.0, 6.0}},
@@ -318,9 +329,8 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			want: [][2]float64{{2.25, 2.25}, {6.25, 2.25}}, // same amount of points, but snapped to centroid
 		},
 		{
-			name:     "extra points (scary geom 1)",
-			extent:   geom.Extent{0.0, 0.0, 8.0, 8.0},
-			maxDepth: 4, // deepest res = 0.5
+			name:   "extra points (scary geom 1)",
+			matrix: newSimpleTileMatrix(8.0, 4, 0.5),
 			poly: geom.Polygon{
 				{{0.0, 5.0}, {5.0, 4.0}, {5.0, 0.0}, {3.0, 0.0}, {0.0, 2.0}},
 				{{1.0, 3.0}, {3.0, 3.0}, {3.0, 1.0}, {1.25, 1.25}},
@@ -328,13 +338,26 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			line: geom.Line{{3.0, 0.0}, {0.0, 2.0}},
 			want: [][2]float64{{3.25, 0.25}, {1.25, 1.25}, {0.25, 2.25}}, // extra point in the middle
 		},
+		{
+			name:   "horizontal line",
+			matrix: newNetherlandsRDNewQuadTileMatrix(14),
+			poly: geom.Polygon{{
+				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
+				{110907.64400000000023283, 504428.79999999998835847}, // horizontal line between quadrants
+			}},
+			line: geom.Line{
+				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
+				{110907.64400000000023283, 504428.79999999998835847},
+			},
+			want: [][2]float64{
+				{110906.87093749997, 504428.8065625}, // horizontal line still here
+				{110907.64531250001, 504428.8065625}, // horizontal line still here
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := &PointIndex{
-				extent:   tt.extent,
-				maxDepth: tt.maxDepth,
-			}
+			ix := NewPointIndexFromTileMatrix(tt.matrix)
 			ix.InsertPolygon(&tt.poly)
 			ix.toWkt(os.Stdout)
 			got := ix.SnapClosestPoints(tt.line)
@@ -342,5 +365,36 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func newSimpleTileMatrix(maxY float64, level uint, cellSize float64) TileMatrix {
+	return TileMatrix{
+		MaxY:      maxY,
+		PixelSize: 1,
+		TileSize:  1,
+		Level:     level,
+		CellSize:  cellSize,
+	}
+}
+
+func newNetherlandsRDNewQuadTileMatrix(level uint) TileMatrix {
+	return TileMatrix{
+		MinX:      -285401.92,
+		MaxY:      903401.92,
+		PixelSize: 16,
+		TileSize:  256,
+		Level:     level,
+		CellSize:  3440.64 / float64(pow2(level)),
+	}
+}
+
+func setRootMatrices(pi *PointIndex, matrix *TileMatrix) {
+	pi.rootMatrix = matrix
+	for _, qu := range pi.quadrants {
+		if qu == nil {
+			continue
+		}
+		setRootMatrices(qu, matrix)
 	}
 }
