@@ -19,5 +19,7 @@
 
 example/*
 !example/example.gpkg
+out/
+texel
 
 /.vscode
