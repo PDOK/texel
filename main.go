@@ -48,7 +48,7 @@ func main() {
 		&cli.StringFlag{
 			Name:     TILEMATRIX,
 			Aliases:  []string{"m"},
-			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"MinX": -285401.92, "MaxY": 903401.92, "PixelSize": 16, "TileSize": 256, "Level": 5, "CellSize": 107.52}`,
+			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"MinX": -285401.92, "MaxY": 903401.92, "Level": 5, "CellSize": 107.52}`,
 			Required: true,
 			EnvVars:  []string{"TILEMATRIX"},
 		},
