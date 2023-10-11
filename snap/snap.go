@@ -1,15 +1,16 @@
 package snap
 
 import (
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/sieve/processing"
 )
 
 const (
-	InternalPixelSize = 16
-	DefaultTileSize   = 256
+	precision = 5
 )
 
 // TileMatrix contains the parameters to create a PointIndex and resembles a TileMatrix from OGC TMS
@@ -17,15 +18,28 @@ const (
 type TileMatrix struct {
 	MinX      float64 `yaml:"MinX"`
 	MaxY      float64 `yaml:"MaxY"`
-	PixelSize uint    `yaml:"PixelSize"` // defaults to 16
-	TileSize  uint    `yaml:"TileSize"`  // defaults to 256
-	Level     uint    `yaml:"Level"`     // determines the number of tiles
-	CellSize  float64 `yaml:"CellSize"`
+	PixelSize uint    `default:"16" yaml:"PixelSize"`
+	TileSize  uint    `default:"256" yaml:"TileSize"`
+	Level     uint    `yaml:"Level"`    // a.k.a. ID. determines the number of tiles
+	CellSize  float64 `yaml:"CellSize"` // the cell size at that Level
+}
+
+func (tm *TileMatrix) GridSize() float64 {
+	return float64(pow2(tm.Level)) * float64(tm.TileSize) * tm.CellSize
+}
+
+func (tm *TileMatrix) MinY() float64 {
+	return roundFloat(tm.MaxY-tm.GridSize(), precision) // FIXME is this the solution to all fp issues?
+}
+
+func (tm *TileMatrix) MaxX() float64 {
+	return roundFloat(tm.MinX+tm.GridSize(), precision)
 }
 
 func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
-	ix := pointIndexForGrid(tileMatrix)
+	ix := NewPointIndexFromTileMatrix(tileMatrix)
 	ix.InsertPolygon(polygon)
+	ix.toWkt(os.Stdout)
 	newPolygon := addPointsAndSnap(ix, polygon)
 
 	return newPolygon
@@ -50,7 +64,9 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 					minus = 0
 				}
 				newRing = append(newRing, newVertices[:len(newVertices)-minus]...)
-			} // FIXME what if it is not? shouldn't happen? always line first and last are returned?
+			} else {
+				panic(fmt.Sprintf("no points found for %v", segment))
+			}
 		}
 		if len(newRing) > 2 {
 			newPolygon = append(newPolygon, newRing)
@@ -64,34 +80,15 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	return (*geom.Polygon)(&newPolygon)
 }
 
-func pointIndexForGrid(tm TileMatrix) *PointIndex {
-	// TODO support actual TMS or slippy grid
-	pixelSize := tm.PixelSize
-	if pixelSize == 0 {
-		pixelSize = InternalPixelSize
-	}
-	tileSize := tm.TileSize
-	if tileSize == 0 {
-		tileSize = DefaultTileSize
-	}
-	gridSize := float64(pow2(tm.Level)) * float64(tileSize) * tm.CellSize
-	maxDepth := int(float64(tm.Level) + math.Log2(float64(tileSize)) + math.Log2(float64(pixelSize)))
-	ix := PointIndex{
-		level:    0, // TODO maybe adjust for actual matrixId
-		x:        0,
-		y:        0,
-		maxDepth: uint(maxDepth),
-		extent: geom.Extent{
-			tm.MinX, tm.MaxY - gridSize, tm.MinX + gridSize, tm.MaxY,
-		},
-	}
-	return &ix
-}
-
 // SnapToPointCloud snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
 func SnapToPointCloud(source processing.Source, target processing.Target, tileMatrix TileMatrix) {
 	processing.ProcessFeatures(source, target, func(p geom.Polygon) *geom.Polygon {
 		return snapPolygon(&p, tileMatrix)
 	})
+}
+
+func roundFloat(val float64, precision uint) float64 {
+	ratio := math.Pow(10, float64(precision))
+	return math.Round(val*ratio) / ratio
 }

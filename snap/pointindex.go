@@ -44,13 +44,31 @@ const (
 //	   minX    0    maxX
 //	          inc
 type PointIndex struct {
-	level     int
-	x         int         // from the left
-	y         int         // from the bottom
-	extent    geom.Extent // maxX and maxY are exclusive
-	hasPoints bool
-	maxDepth  uint // 0 means this is a leaf
-	quadrants [4]*PointIndex
+	rootMatrix *TileMatrix
+	level      uint
+	x          int         // from the left
+	y          int         // from the bottom
+	extent     geom.Extent // maxX and MaxY are exclusive
+	centroid   geom.Point
+	hasPoints  bool
+	maxDepth   uint // 0 means this is a leaf
+	quadrants  [4]*PointIndex
+}
+
+func NewPointIndexFromTileMatrix(tm TileMatrix) *PointIndex {
+	// TODO support actual TMS or slippy grid
+	maxDepth := int(float64(tm.Level) + math.Log2(float64(tm.TileSize)) + math.Log2(float64(tm.PixelSize)))
+	extent, centroid := getQuadrantExtentAndCentroid(&tm, 0, 0, 0)
+	ix := PointIndex{
+		rootMatrix: &tm,
+		level:      0, // TODO maybe adjust for actual matrixId
+		x:          0,
+		y:          0,
+		maxDepth:   uint(maxDepth),
+		extent:     extent,
+		centroid:   centroid,
+	}
+	return &ix
 }
 
 // InsertPolygon inserts all points from a Polygon
@@ -100,12 +118,18 @@ func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 
 func (ix *PointIndex) ensureQuadrant(quadrantI int) *PointIndex {
 	if ix.quadrants[quadrantI] == nil {
+		x := ix.x*2 + oneIfRight(quadrantI)
+		y := ix.y*2 + oneIfTop(quadrantI)
+		level := ix.level + 1
+		extent, centroid := getQuadrantExtentAndCentroid(ix.rootMatrix, level, x, y)
 		ix.quadrants[quadrantI] = &PointIndex{
-			level:    ix.level + 1,
-			x:        ix.x*2 + oneIfRight(quadrantI),
-			y:        ix.y*2 + oneIfTop(quadrantI),
-			extent:   ix.getQuadrantExtent(quadrantI),
-			maxDepth: ix.maxDepth - 1,
+			rootMatrix: ix.rootMatrix,
+			level:      level,
+			x:          x,
+			y:          y,
+			extent:     extent,
+			centroid:   centroid,
+			maxDepth:   ix.maxDepth - 1,
 		}
 	}
 	return ix.quadrants[quadrantI]
@@ -115,29 +139,24 @@ func (ix *PointIndex) isLeaf() bool {
 	return ix.maxDepth == 0
 }
 
-func (ix *PointIndex) getQuadrantExtent(quadrantI int) geom.Extent {
-	xSpan := ix.extent.XSpan() / 2
-	ySpan := ix.extent.YSpan() / 2
+func getQuadrantExtentAndCentroid(rootMatrix *TileMatrix, level uint, x, y int) (geom.Extent, geom.Point) {
+	span := rootMatrix.GridSize() / float64(pow2(level))
 	return geom.Extent{
-		ix.extent.MinX() + float64(oneIfRight(quadrantI))*xSpan,  // minx // TODO multiple adds/subs creates floating point errors? use original resolution and level and x and y
-		ix.extent.MinY() + float64(oneIfTop(quadrantI))*ySpan,    // miny
-		ix.extent.MaxX() - float64(oneIfLeft(quadrantI))*xSpan,   // maxx
-		ix.extent.MaxY() - float64(oneIfBottom(quadrantI))*xSpan, // maxy
-	}
-}
-
-func (ix *PointIndex) GetCentroid() geom.Point {
-	return geom.Point{
-		ix.extent.MinX() + ix.extent.XSpan()/2, // <-- here is the plus 0.5 internal pixel size
-		ix.extent.MinY() + ix.extent.YSpan()/2,
-	}
+			rootMatrix.MinX + float64(x)*span,     // minx
+			rootMatrix.MinY() + float64(y)*span,   // miny
+			rootMatrix.MinX + float64(x+1)*span,   // maxx
+			rootMatrix.MinY() + float64(y+1)*span, // maxy
+		}, geom.Point{
+			rootMatrix.MinX + (float64(x)+0.5)*span, // <-- here is the plus 0.5 internal pixel size
+			rootMatrix.MinY() + (float64(y)+0.5)*span,
+		}
 }
 
 func (ix *PointIndex) SnapClosestPoints(line geom.Line) [][2]float64 {
 	pointIndices := ix.snapClosestPoints(line, ix.maxDepth, false)
 	points := make([][2]float64, len(pointIndices))
 	for i, ixWithPoint := range pointIndices {
-		points[i] = ixWithPoint.GetCentroid()
+		points[i] = ixWithPoint.centroid
 	}
 	return points
 }
@@ -254,7 +273,7 @@ type quadrantToCheck struct {
 
 // getInfiniteQuadrant determines in which infinite quadrant the point lies
 func (ix *PointIndex) getInfiniteQuadrant(point geom.Point) int {
-	centroid := ix.GetCentroid()
+	centroid := ix.centroid
 	isRight := bool2int(point.X() >= centroid.X())
 	isTop := bool2int(point.Y() >= centroid.Y()) << 1
 	return isRight | isTop
@@ -390,7 +409,7 @@ func (ix *PointIndex) toWkt(writer io.Writer) {
 	_ = wkt.Encode(writer, ix.extent)
 	_, _ = fmt.Fprintf(writer, "\n")
 	if ix.isLeaf() && ix.hasPoints {
-		centroid := ix.GetCentroid()
+		centroid := ix.centroid
 		_ = wkt.Encode(writer, centroid)
 		_, _ = fmt.Fprintf(writer, "\n")
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/pdok/sieve/processing/gpkg"
 	"github.com/pdok/sieve/snap"
 	"github.com/urfave/cli/v2"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 const SOURCE string = `source`
@@ -48,7 +48,7 @@ func main() {
 		&cli.StringFlag{
 			Name:     TILEMATRIX,
 			Aliases:  []string{"m"},
-			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"MinX": -285401.92, "MaxY": 903401.92, "Level": 5, "CellSize": 107.52}`,
+			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"minX": -285401.92, "maxY": 903401.92, "level": 5, "cellSize": 107.52}`,
 			Required: true,
 			EnvVars:  []string{"TILEMATRIX"},
 		},
