@@ -6,14 +6,15 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/iancoleman/strcase"
 	"github.com/pdok/texel/processing/gpkg"
 	"github.com/pdok/texel/snap"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )
 
-const SOURCE string = `source`
-const TARGET string = `target`
+const SOURCE string = `sourceGpkg`
+const TARGET string = `targetGpkg`
 const OVERWRITE string = `overwrite`
 const TILEMATRIX string = `tilematrix`
 const PAGESIZE string = `pagesize`
@@ -29,28 +30,28 @@ func main() {
 			Aliases:  []string{"s"},
 			Usage:    "Source GPKG",
 			Required: true,
-			EnvVars:  []string{"SOURCE_GPKG"},
+			EnvVars:  []string{strcase.ToScreamingSnake(SOURCE)},
 		},
 		&cli.StringFlag{
 			Name:     TARGET,
 			Aliases:  []string{"t"},
 			Usage:    "Target GPKG",
 			Required: true,
-			EnvVars:  []string{"TARGET_GPKG"},
+			EnvVars:  []string{strcase.ToScreamingSnake(TARGET)},
 		},
 		&cli.BoolFlag{
 			Name:     OVERWRITE,
 			Aliases:  []string{"o"},
 			Usage:    "Overwrite the target GPKG if it exists",
 			Required: false,
-			EnvVars:  []string{"OVERWRITE"},
+			EnvVars:  []string{strcase.ToScreamingSnake(OVERWRITE)},
 		},
 		&cli.StringFlag{
 			Name:     TILEMATRIX,
 			Aliases:  []string{"m"},
 			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"minX": -285401.92, "maxY": 903401.92, "level": 5, "cellSize": 107.52}`,
 			Required: true,
-			EnvVars:  []string{"TILEMATRIX"},
+			EnvVars:  []string{strcase.ToScreamingSnake(TILEMATRIX)},
 		},
 		&cli.IntFlag{
 			Name:     PAGESIZE,
@@ -58,7 +59,7 @@ func main() {
 			Usage:    "Page Size, how many features are written per transaction to the target GPKG",
 			Value:    1000,
 			Required: false,
-			EnvVars:  []string{"SIEVE_PAGESIZE"},
+			EnvVars:  []string{strcase.ToScreamingSnake(PAGESIZE)},
 		},
 	}
 

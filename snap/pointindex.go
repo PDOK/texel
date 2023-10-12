@@ -91,6 +91,7 @@ func (ix *PointIndex) InsertPoint(point geom.Point) {
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
+	// TODO panic if outside grid
 	deepestSize := int(pow2(ix.maxDepth))
 	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
 		return // the point is outside the extent
