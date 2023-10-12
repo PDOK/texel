@@ -3,7 +3,6 @@ package snap
 import (
 	"fmt"
 	"math"
-	"os"
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/processing"
@@ -39,7 +38,6 @@ func (tm *TileMatrix) MaxX() float64 {
 func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
 	ix := NewPointIndexFromTileMatrix(tileMatrix)
 	ix.InsertPolygon(polygon)
-	ix.toWkt(os.Stdout)
 	newPolygon := addPointsAndSnap(ix, polygon)
 
 	return newPolygon
@@ -57,30 +55,30 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			nextVertexI := (vertexI + 1) % ringLen
 			segment := geom.Line{vertex, ring[nextVertexI]}
 			newVertices := ix.SnapClosestPoints(segment)
-			if len(newVertices) > 0 {
-				minus := 1
-				if len(newVertices) == 1 {
-					minus = 0
-				}
-				newRing = append(newRing, newVertices[:len(newVertices)-minus]...)
+			newVerticesCount := len(newVertices)
+			if newVerticesCount > 0 {
+				// 0 if len is 1, 1 otherwise
+				minus := min(newVerticesCount-1, 1)
+				// remove last vertex if there is more than 1 vertex, as the first vertex in the next segment will be the same
+				newRing = append(newRing, newVertices[:newVerticesCount-minus]...)
 			} else {
 				panic(fmt.Sprintf("no points found for %v", segment))
 			}
 		}
-		newRingLen := len(newRing)
-		switch {
-		case newRingLen > 2:
-			// deduplicate points in the ring, then add to the polygon
-			newPolygon = append(newPolygon, deduplicateRing(newRing))
-		case newRingLen == 2:
-			// keep outer ring as line
+		switch len(newRing) {
+		case 0:
 			if ringI == 0 {
+				// outer ring has become too small
+				return nil
+			}
+		case 1, 2:
+			if ringI == 0 {
+				// keep outer ring as point or line
 				newPolygon = append(newPolygon, newRing)
 			}
 		default:
-			if ringI == 0 {
-				return nil // outer ring has become too small
-			}
+			// deduplicate points in the ring, then add to the polygon
+			newPolygon = append(newPolygon, deduplicateRing(newRing))
 		}
 	}
 	return (*geom.Polygon)(&newPolygon)
@@ -98,7 +96,8 @@ func deduplicateRing(newRing [][2]float64) [][2]float64 {
 			newVertexIplus1 := (newVertexI + 1) % len(newRing)
 			newVertexIplus2 := (newVertexI + 2) % len(newRing)
 			newVertexIplus3 := (newVertexI + 3) % len(newRing)
-			if newVertexI != newVertexIplus2 && newVertexIplus1 != newVertexIplus3 && newVertex == newRing[newVertexIplus2] && newRing[newVertexIplus1] == newRing[newVertexIplus3] {
+			if newVertexI != newVertexIplus2 && newVertexIplus1 != newVertexIplus3 &&
+				newVertex == newRing[newVertexIplus2] && newRing[newVertexIplus1] == newRing[newVertexIplus3] {
 				skip = 2
 			}
 			dedupedRing = append(dedupedRing, newVertex)
