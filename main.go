@@ -19,9 +19,10 @@ const OVERWRITE string = `overwrite`
 const TILEMATRIX string = `tilematrix`
 const PAGESIZE string = `pagesize`
 
+//nolint:funlen
 func main() {
 	app := cli.NewApp()
-	app.Name = "Snappy"
+	app.Name = "texel"
 	app.Usage = "A Golang Polygon Snapping application"
 
 	app.Flags = []cli.Flag{
@@ -101,18 +102,18 @@ func main() {
 			log.Fatalf("error initialization the target GeoPackage: %s", err)
 		}
 
-		log.Println("=== start sieving ===")
+		log.Println("=== start snapping ===")
 
 		// Process the tables sequentially
 		for _, table := range tables {
-			log.Printf("  sieving %s", table.Name)
+			log.Printf("  snapping %s", table.Name)
 			source.Table = table
 			target.Table = table
 			snap.SnapToPointCloud(source, &target, tileMatrix)
-			log.Printf("  finised %s", table.Name)
+			log.Printf("  finished %s", table.Name)
 		}
 
-		log.Println("=== done sieving ===")
+		log.Println("=== done snapping ===")
 		return nil
 	}
 
