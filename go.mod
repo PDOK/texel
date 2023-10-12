@@ -1,4 +1,4 @@
-module github.com/pdok/sieve
+module github.com/pdok/texel
 
 go 1.21
 

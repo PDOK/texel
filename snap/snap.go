@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/go-spatial/geom"
-	"github.com/pdok/sieve/processing"
+	"github.com/pdok/texel/processing"
 )
 
 const (
@@ -57,7 +57,6 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			nextVertexI := (vertexI + 1) % ringLen
 			segment := geom.Line{vertex, ring[nextVertexI]}
 			newVertices := ix.SnapClosestPoints(segment)
-			// TODO dedupe points
 			if len(newVertices) > 0 {
 				minus := 1
 				if len(newVertices) == 1 {
@@ -68,16 +67,44 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 				panic(fmt.Sprintf("no points found for %v", segment))
 			}
 		}
-		if len(newRing) > 2 {
-			newPolygon = append(newPolygon, newRing)
-		} else {
-			// TODO keep as line or point instead of removing cq sieving
+		newRingLen := len(newRing)
+		switch {
+		case newRingLen > 2:
+			// deduplicate points in the ring, then add to the polygon
+			newPolygon = append(newPolygon, deduplicateRing(newRing))
+		case newRingLen == 2:
+			// keep outer ring as line
+			if ringI == 0 {
+				newPolygon = append(newPolygon, newRing)
+			}
+		default:
 			if ringI == 0 {
 				return nil // outer ring has become too small
 			}
 		}
 	}
 	return (*geom.Polygon)(&newPolygon)
+}
+
+func deduplicateRing(newRing [][2]float64) [][2]float64 {
+	dedupedRing := make([][2]float64, 0, len(newRing))
+	skip := 0
+	for newVertexI, newVertex := range newRing {
+		if skip > 0 {
+			skip--
+		} else {
+			// if vertex at i is equal to vertex at i+2, and vertex at i+1 is equal to vertex at i+3,
+			// then we're just traversing the same line three times --> skip two points to turn it into a single line
+			newVertexIplus1 := (newVertexI + 1) % len(newRing)
+			newVertexIplus2 := (newVertexI + 2) % len(newRing)
+			newVertexIplus3 := (newVertexI + 3) % len(newRing)
+			if newVertexI != newVertexIplus2 && newVertexIplus1 != newVertexIplus3 && newVertex == newRing[newVertexIplus2] && newRing[newVertexIplus1] == newRing[newVertexIplus3] {
+				skip = 2
+			}
+			dedupedRing = append(dedupedRing, newVertex)
+		}
+	}
+	return dedupedRing
 }
 
 // SnapToPointCloud snaps polygons' points to a tile's internal pixel grid
