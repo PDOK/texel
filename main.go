@@ -6,8 +6,8 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/pdok/sieve/processing/gpkg"
-	"github.com/pdok/sieve/snap"
+	"github.com/pdok/texel/processing/gpkg"
+	"github.com/pdok/texel/snap"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )

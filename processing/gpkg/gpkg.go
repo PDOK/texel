@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/gpkg"
-	"github.com/pdok/sieve/processing"
+	"github.com/pdok/texel/processing"
 )
 
 type featureGPKG struct {
