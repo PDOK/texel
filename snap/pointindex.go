@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/wkt"
-	"github.com/go-spatial/geom/planar"
+	"github.com/pdok/texel/intgeom"
 )
 
 const (
@@ -21,6 +21,7 @@ const (
 	// bottomright = bottom | right // 0b01
 	// topleft     = top | left     // 0b10
 	// topright    = top | right    // 0b11
+	intHalf = 500000000
 )
 
 // PointIndex is a pointcloud annex quadtree to enable snapping lines to a grid accounting for those points.
@@ -44,29 +45,29 @@ const (
 //	   minX    0    maxX
 //	          inc
 type PointIndex struct {
-	rootMatrix *TileMatrix
-	level      uint
-	x          int         // from the left
-	y          int         // from the bottom
-	extent     geom.Extent // maxX and MaxY are exclusive
-	centroid   geom.Point
-	hasPoints  bool
-	maxDepth   uint // 0 means this is a leaf
-	quadrants  [4]*PointIndex
+	rootMatrix  *TileMatrix
+	level       uint
+	x           int            // from the left
+	y           int            // from the bottom
+	intExtent   intgeom.Extent // maxX and MaxY are exclusive
+	intCentroid intgeom.Point
+	hasPoints   bool
+	maxDepth    uint // 0 means this is a leaf
+	quadrants   [4]*PointIndex
 }
 
 func NewPointIndexFromTileMatrix(tm TileMatrix) *PointIndex {
 	// TODO support actual TMS or slippy grid
 	maxDepth := int(float64(tm.Level) + math.Log2(float64(tm.TileSize)) + math.Log2(float64(tm.PixelSize)))
-	extent, centroid := getQuadrantExtentAndCentroid(&tm, 0, 0, 0)
+	intExtent, intCentroid := getQuadrantExtentAndCentroid(&tm, 0, 0, 0)
 	ix := PointIndex{
-		rootMatrix: &tm,
-		level:      0, // TODO maybe adjust for actual matrixId
-		x:          0,
-		y:          0,
-		maxDepth:   uint(maxDepth),
-		extent:     extent,
-		centroid:   centroid,
+		rootMatrix:  &tm,
+		level:       0, // TODO maybe adjust for actual matrixId
+		x:           0,
+		y:           0,
+		maxDepth:    uint(maxDepth),
+		intExtent:   intExtent,
+		intCentroid: intCentroid,
 	}
 	return &ix
 }
@@ -83,9 +84,10 @@ func (ix *PointIndex) InsertPolygon(polygon *geom.Polygon) {
 // InsertPoint inserts a Point by its absolute coord
 func (ix *PointIndex) InsertPoint(point geom.Point) {
 	deepestSize := pow2(ix.maxDepth)
-	deepestRes := ix.extent.XSpan() / float64(deepestSize)
-	deepestX := int(math.Floor((point.X() - ix.extent.MinX()) / deepestRes))
-	deepestY := int(math.Floor((point.Y() - ix.extent.MinY()) / deepestRes))
+	intDeepestRes := ix.intExtent.XSpan() / int64(deepestSize)
+	intPoint := intgeom.FromGeomPoint(point)
+	deepestX := int((intPoint.X() - ix.intExtent.MinX()) / intDeepestRes)
+	deepestY := int((intPoint.Y() - ix.intExtent.MinY()) / intDeepestRes)
 	ix.InsertCoord(deepestX, deepestY)
 }
 
@@ -124,13 +126,13 @@ func (ix *PointIndex) ensureQuadrant(quadrantI int) *PointIndex {
 		level := ix.level + 1
 		extent, centroid := getQuadrantExtentAndCentroid(ix.rootMatrix, level, x, y)
 		ix.quadrants[quadrantI] = &PointIndex{
-			rootMatrix: ix.rootMatrix,
-			level:      level,
-			x:          x,
-			y:          y,
-			extent:     extent,
-			centroid:   centroid,
-			maxDepth:   ix.maxDepth - 1,
+			rootMatrix:  ix.rootMatrix,
+			level:       level,
+			x:           x,
+			y:           y,
+			intExtent:   extent,
+			intCentroid: centroid,
+			maxDepth:    ix.maxDepth - 1,
 		}
 	}
 	return ix.quadrants[quadrantI]
@@ -140,34 +142,37 @@ func (ix *PointIndex) isLeaf() bool {
 	return ix.maxDepth == 0
 }
 
-func getQuadrantExtentAndCentroid(rootMatrix *TileMatrix, level uint, x, y int) (geom.Extent, geom.Point) {
-	span := rootMatrix.GridSize() / float64(pow2(level))
-	return geom.Extent{
-			rootMatrix.MinX + float64(x)*span,     // minx
-			rootMatrix.MinY() + float64(y)*span,   // miny
-			rootMatrix.MinX + float64(x+1)*span,   // maxx
-			rootMatrix.MinY() + float64(y+1)*span, // maxy
-		}, geom.Point{
-			rootMatrix.MinX + (float64(x)+0.5)*span, // <-- here is the plus 0.5 internal pixel size
-			rootMatrix.MinY() + (float64(y)+0.5)*span,
-		}
+func getQuadrantExtentAndCentroid(rootMatrix *TileMatrix, level uint, x, y int) (intgeom.Extent, intgeom.Point) {
+	intSpan := intgeom.FromGeomOrd(rootMatrix.GridSize()) / int64(pow2(level))
+	intExtent := intgeom.Extent{
+		intgeom.FromGeomOrd(rootMatrix.MinX) + int64(x)*intSpan,     // minx
+		intgeom.FromGeomOrd(rootMatrix.MinY()) + int64(y)*intSpan,   // miny
+		intgeom.FromGeomOrd(rootMatrix.MinX) + int64(x+1)*intSpan,   // maxx
+		intgeom.FromGeomOrd(rootMatrix.MinY()) + int64(y+1)*intSpan, // maxy
+	}
+	intCentroid := intgeom.Point{
+		intgeom.FromGeomOrd(rootMatrix.MinX) + (int64(x))*intSpan + intSpan/2, // <-- here is the plus 0.5 internal pixel size
+		intgeom.FromGeomOrd(rootMatrix.MinY()) + (int64(y))*intSpan + intSpan/2,
+	}
+	return intExtent, intCentroid
 }
 
 func (ix *PointIndex) SnapClosestPoints(line geom.Line) [][2]float64 {
-	pointIndices := ix.snapClosestPoints(line, ix.maxDepth, false)
+	intLine := intgeom.FromGeomLine(line)
+	pointIndices := ix.snapClosestPoints(intLine, ix.maxDepth, false)
 	points := make([][2]float64, len(pointIndices))
 	for i, ixWithPoint := range pointIndices {
-		points[i] = ixWithPoint.centroid
+		points[i] = ixWithPoint.intCentroid.ToGeomPoint()
 	}
 	return points
 }
 
 //nolint:cyclop
-func (ix *PointIndex) snapClosestPoints(line geom.Line, depth uint, certainlyIntersects bool) []*PointIndex {
+func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth uint, certainlyIntersects bool) []*PointIndex {
 	if !ix.hasPoints {
 		return nil
 	}
-	if !certainlyIntersects && !ix.lineIntersects(line) {
+	if !certainlyIntersects && !ix.lineIntersects(intLine) {
 		return nil
 	}
 	if depth == 0 {
@@ -175,10 +180,10 @@ func (ix *PointIndex) snapClosestPoints(line geom.Line, depth uint, certainlyInt
 	}
 	var quadrantsToCheck []quadrantToCheck
 
-	pt1InfiniteQuadrantI := ix.getInfiniteQuadrant(line[0])
-	pt1IsInsideQuadrant := ix.containsPoint(line[0])
-	pt2InfiniteQuadrantI := ix.getInfiniteQuadrant(line[1])
-	pt2IsInsideQuadrant := ix.containsPoint(line[1])
+	pt1InfiniteQuadrantI := ix.getInfiniteQuadrant(intLine[0])
+	pt1IsInsideQuadrant := ix.containsPoint(intLine[0])
+	pt2InfiniteQuadrantI := ix.getInfiniteQuadrant(intLine[1])
+	pt2IsInsideQuadrant := ix.containsPoint(intLine[1])
 
 	if pt1InfiniteQuadrantI == pt2InfiniteQuadrantI {
 		// line intersects at most this quadrant
@@ -246,7 +251,7 @@ func (ix *PointIndex) snapClosestPoints(line geom.Line, depth uint, certainlyInt
 		var found []*PointIndex
 		quadrant := ix.quadrants[quadrantToCheck.i]
 		if quadrant != nil {
-			found = quadrant.snapClosestPoints(line, depth-1, quadrantToCheck.certain)
+			found = quadrant.snapClosestPoints(intLine, depth-1, quadrantToCheck.certain)
 		}
 		if quadrantToCheck.mutex && len(found) > 0 {
 			mutexed = true
@@ -257,10 +262,10 @@ func (ix *PointIndex) snapClosestPoints(line geom.Line, depth uint, certainlyInt
 }
 
 // containsPoint checks whether a point is contained in the extent.
-func (ix *PointIndex) containsPoint(pt geom.Point) bool {
+func (ix *PointIndex) containsPoint(intPt intgeom.Point) bool {
 	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
-	return ix.extent.MinX() <= pt[0] && pt[0] < ix.extent.MaxX() &&
-		ix.extent.MinY() <= pt[1] && pt[1] < ix.extent.MaxY()
+	return ix.intExtent.MinX() <= intPt[0] && intPt[0] < ix.intExtent.MaxX() &&
+		ix.intExtent.MinY() <= intPt[1] && intPt[1] < ix.intExtent.MaxY()
 }
 
 // A quadrant to check for an intersecting line and having points
@@ -273,10 +278,9 @@ type quadrantToCheck struct {
 }
 
 // getInfiniteQuadrant determines in which infinite quadrant the point lies
-func (ix *PointIndex) getInfiniteQuadrant(point geom.Point) int {
-	centroid := ix.centroid
-	isRight := bool2int(point.X() >= centroid.X())
-	isTop := bool2int(point.Y() >= centroid.Y()) << 1
+func (ix *PointIndex) getInfiniteQuadrant(intPt intgeom.Point) int {
+	isRight := bool2int(intPt[0] >= ix.intCentroid[0])
+	isTop := bool2int(intPt[1] >= ix.intCentroid[1]) << 1
 	return isRight | isTop
 }
 
@@ -295,33 +299,33 @@ func adjacentQuadrantY(quadrantI int) int {
 
 // lineIntersects tests whether a line intersects with the extent.
 // TODO this can probably be faster by reusing the edges for the other three quadrants and/or only testing relevant edges (hints)
-func (ix *PointIndex) lineIntersects(line geom.Line) bool {
+func (ix *PointIndex) lineIntersects(intLine intgeom.Line) bool {
 	// First see if a point is inside (cheap test).
-	pt1IsInsideQuadrant := ix.containsPoint(line[0])
-	pt2IsInsideQuadrant := ix.containsPoint(line[1])
+	pt1IsInsideQuadrant := ix.containsPoint(intLine[0])
+	pt2IsInsideQuadrant := ix.containsPoint(intLine[1])
 	if pt1IsInsideQuadrant || pt2IsInsideQuadrant {
 		return true
 	}
 
-	for edgeI, edge := range ix.extent.Edges(nil) {
-		intersection, intersects := planar.SegmentIntersect(line, edge)
+	for edgeI, intEdge := range ix.intExtent.Edges(nil) {
+		intersection, intersects := intgeom.SegmentIntersect(intLine, intEdge)
 		// Checking for intersection cq crossing is not enough. The right and top edges are exclusive.
 		// So there are exceptions ...:
 		if intersects { //nolint:nestif
 			if isExclusiveEdge(edgeI) {
-				if line[0] == intersection || line[1] == intersection {
+				if intLine[0] == intersection || intLine[1] == intersection {
 					// The tip of a line coming from the outside touches the (exclusive) edge.
 					continue
 				}
 			} else {
 				// The tip of a line coming from the outside touches the exclusive tip of an inclusive edge.
-				exclusivePoint := getExclusiveTip(edgeI, edge)
-				if line[0] == exclusivePoint || line[1] == exclusivePoint {
+				exclusivePoint := getExclusiveTip(edgeI, intEdge)
+				if intLine[0] == exclusivePoint || intLine[1] == exclusivePoint {
 					continue
 				}
 			}
 			return true
-		} else if !isExclusiveEdge(edgeI) && lineOverlapsInclusiveEdge(line, edgeI, edge) {
+		} else if !isExclusiveEdge(edgeI) && lineOverlapsInclusiveEdge(intLine, edgeI, intEdge) {
 			// No intersection but overlap on an inclusive edge.
 			return true
 		}
@@ -335,7 +339,7 @@ func isExclusiveEdge(edgeI int) bool {
 }
 
 // getExclusiveTip returns the tip point of an inclusive edge that is not-inclusive
-func getExclusiveTip(edgeI int, edge geom.Line) geom.Point {
+func getExclusiveTip(edgeI int, edge intgeom.Line) intgeom.Point {
 	i := edgeI % 4
 	if i == 0 {
 		return edge[1]
@@ -346,35 +350,35 @@ func getExclusiveTip(edgeI int, edge geom.Line) geom.Point {
 }
 
 // lineOverlapsInclusiveEdge helps to check if a line overlaps an inclusive edge (excluding the exclusive tip)
-func lineOverlapsInclusiveEdge(line geom.Line, edgeI int, edge geom.Line) bool {
+func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.Line) bool {
 	var constAx, varAx int
 	switch {
-	case edge[0][xAx] == edge[1][xAx]:
+	case intEdge[0][xAx] == intEdge[1][xAx]:
 		constAx = xAx
 		varAx = yAx
-	case edge[0][yAx] == edge[1][yAx]:
+	case intEdge[0][yAx] == intEdge[1][yAx]:
 		constAx = yAx
 		varAx = xAx
 	default:
-		panic(fmt.Sprintf("not a straight edge: %v", edge))
+		panic(fmt.Sprintf("not a straight edge: %v", intEdge))
 	}
-	eConstOrd := edge[0][constAx]
-	if line[0][constAx] != eConstOrd || line[1][constAx] != eConstOrd {
+	eConstOrd := intEdge[0][constAx]
+	if intLine[0][constAx] != eConstOrd || intLine[1][constAx] != eConstOrd {
 		return false // not a straight line and/or not on same line as the edge, so no overlap
 	}
-	eOrd1 := edge[0][varAx]
-	eOrd2 := edge[1][varAx]
+	eOrd1 := intEdge[0][varAx]
+	eOrd2 := intEdge[1][varAx]
 
-	exclusiveTip := getExclusiveTip(edgeI, edge)
+	exclusiveTip := getExclusiveTip(edgeI, intEdge)
 	// if exclusiveTip[constAx] != eConstOrd || !betweenInc(exclusiveTip[varAx], eOrd1, eOrd2) {
 	// 	 panic(fmt.Sprintf("exclusive point not on edge: %v, %v", exclusiveTip, edge))
 	// }
-	lOrd1 := line[0][varAx]
-	lOrd2 := line[1][varAx]
-	return lOrd1 != lOrd2 && (betweenInc(lOrd1, eOrd1, eOrd2) && line[0] != exclusiveTip || betweenInc(lOrd2, eOrd1, eOrd2) && line[1] != exclusiveTip)
+	lOrd1 := intLine[0][varAx]
+	lOrd2 := intLine[1][varAx]
+	return lOrd1 != lOrd2 && (betweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || betweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
 }
 
-func betweenInc(f, p, q float64) bool {
+func betweenInc(f, p, q int64) bool {
 	if p <= q {
 		return p <= f && f <= q
 	}
@@ -407,11 +411,10 @@ func oneIfTop(quadrantI int) int {
 
 // toWkt creates a WKT representation of the pointcloud. For debugging/visualising.
 func (ix *PointIndex) toWkt(writer io.Writer) {
-	_ = wkt.Encode(writer, ix.extent)
+	_ = wkt.Encode(writer, ix.intExtent.ToGeomExtent())
 	_, _ = fmt.Fprintf(writer, "\n")
 	if ix.isLeaf() && ix.hasPoints {
-		centroid := ix.centroid
-		_ = wkt.Encode(writer, centroid)
+		_ = wkt.Encode(writer, ix.intCentroid.ToGeomPoint())
 		_, _ = fmt.Fprintf(writer, "\n")
 	}
 	for _, quadrant := range ix.quadrants {
