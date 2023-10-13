@@ -1,6 +1,7 @@
 package snap
 
 import (
+	"github.com/pdok/texel/intgeom"
 	"os"
 	"testing"
 
@@ -64,7 +65,8 @@ func TestPointIndex_containsPoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := NewPointIndexFromTileMatrix(newSimpleTileMatrix(1.0, 0, 1.0))
-			if got := ix.containsPoint(tt.pt); got != tt.want {
+			got := ix.containsPoint(intgeom.FromGeomPoint(tt.pt))
+			if got != tt.want {
 				t.Errorf("containsPoint() = %v, want %v", got, tt.want)
 			}
 		})
@@ -73,8 +75,8 @@ func TestPointIndex_containsPoint(t *testing.T) {
 
 func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	type wants struct {
-		extent   geom.Extent
-		centroid geom.Point
+		extent   intgeom.Extent
+		centroid intgeom.Point
 	}
 	tests := []struct {
 		name   string
@@ -85,16 +87,16 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 			name:   "simple",
 			matrix: newSimpleTileMatrix(1.0, 0, 1.0),
 			want: wants{
-				extent:   geom.Extent{0.0, 0.0, 1.0, 1.0},
-				centroid: geom.Point{0.5, 0.5},
+				extent:   intgeom.Extent{0, 0, 1000000000, 1000000000},
+				centroid: intgeom.Point{intHalf, intHalf},
 			},
 		},
 		{
 			name:   "zero",
 			matrix: newSimpleTileMatrix(0.0, 0, 0.0),
 			want: wants{
-				extent:   geom.Extent{0.0, 0.0, 0.0, 0.0},
-				centroid: geom.Point{0.0, 0.0},
+				extent:   intgeom.Extent{0, 0, 0, 0},
+				centroid: intgeom.Point{0, 0},
 			},
 		},
 	}
@@ -124,11 +126,11 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			matrix: newSimpleTileMatrix(1.0, 0, 1.0),
 			point:  geom.Point{0.5, 0.5},
 			want: PointIndex{
-				extent:    geom.Extent{0.0, 0.0, 1.0, 1.0},
-				centroid:  geom.Point{0.5, 0.5},
-				hasPoints: true,
-				maxDepth:  0,
-				quadrants: [4]*PointIndex{},
+				intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
+				intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
+				hasPoints:   true,
+				maxDepth:    0,
+				quadrants:   [4]*PointIndex{},
 			},
 		},
 		{
@@ -136,20 +138,20 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			matrix: newSimpleTileMatrix(1.0, 1, 0.5),
 			point:  geom.Point{0.5, 0.5},
 			want: PointIndex{
-				extent:    geom.Extent{0.0, 0.0, 1.0, 1.0},
-				centroid:  geom.Point{0.5, 0.5},
-				hasPoints: true,
-				maxDepth:  1,
+				intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
+				intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
+				hasPoints:   true,
+				maxDepth:    1,
 				quadrants: [4]*PointIndex{
 					nil, nil, nil, {
-						level:     1,
-						x:         1,
-						y:         1,
-						extent:    geom.Extent{0.5, 0.5, 1.0, 1.0},
-						centroid:  geom.Point{0.75, 0.75},
-						hasPoints: true,
-						maxDepth:  0,
-						quadrants: [4]*PointIndex{},
+						level:       1,
+						x:           1,
+						y:           1,
+						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.5, 0.5, 1.0, 1.0}),
+						intCentroid: intgeom.FromGeomPoint(geom.Point{0.75, 0.75}),
+						hasPoints:   true,
+						maxDepth:    0,
+						quadrants:   [4]*PointIndex{},
 					},
 				},
 			},
@@ -159,44 +161,44 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			matrix: newSimpleTileMatrix(4.0, 3, 0.5),
 			point:  geom.Point{2.8, 3.2},
 			want: PointIndex{
-				extent:    geom.Extent{0.0, 0.0, 4.0, 4.0},
-				centroid:  geom.Point{2.0, 2.0},
-				hasPoints: true,
-				maxDepth:  3,
+				intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 4.0, 4.0}),
+				intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 2.0}),
+				hasPoints:   true,
+				maxDepth:    3,
 				quadrants: [4]*PointIndex{
 					nil,
 					nil,
 					nil,
 					{
-						level:     1,
-						x:         1,
-						y:         1,
-						extent:    geom.Extent{2.0, 2.0, 4.0, 4.0},
-						centroid:  geom.Point{3.0, 3.0},
-						hasPoints: true,
-						maxDepth:  2,
+						level:       1,
+						x:           1,
+						y:           1,
+						intExtent:   intgeom.FromGeomExtent(geom.Extent{2.0, 2.0, 4.0, 4.0}),
+						intCentroid: intgeom.FromGeomPoint(geom.Point{3.0, 3.0}),
+						hasPoints:   true,
+						maxDepth:    2,
 						quadrants: [4]*PointIndex{
 							nil,
 							nil,
 							{
-								level:     2,
-								x:         2,
-								y:         3,
-								extent:    geom.Extent{2.0, 3.0, 3.0, 4.0},
-								centroid:  geom.Point{2.5, 3.5},
-								hasPoints: true,
-								maxDepth:  1,
+								level:       2,
+								x:           2,
+								y:           3,
+								intExtent:   intgeom.FromGeomExtent(geom.Extent{2.0, 3.0, 3.0, 4.0}),
+								intCentroid: intgeom.FromGeomPoint(geom.Point{2.5, 3.5}),
+								hasPoints:   true,
+								maxDepth:    1,
 								quadrants: [4]*PointIndex{
 									nil,
 									{
-										level:     3,
-										x:         5,
-										y:         6,
-										extent:    geom.Extent{2.5, 3.0, 3.0, 3.5},
-										centroid:  geom.Point{2.75, 3.25},
-										hasPoints: true,
-										maxDepth:  0,
-										quadrants: [4]*PointIndex{},
+										level:       3,
+										x:           5,
+										y:           6,
+										intExtent:   intgeom.FromGeomExtent(geom.Extent{2.5, 3.0, 3.0, 3.5}),
+										intCentroid: intgeom.FromGeomPoint(geom.Point{2.75, 3.25}),
+										hasPoints:   true,
+										maxDepth:    0,
+										quadrants:   [4]*PointIndex{},
 									},
 									nil,
 									nil,
@@ -213,61 +215,61 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
 			point:  geom.Point{2.0, 6.0},
 			want: PointIndex{
-				extent:    geom.Extent{0.0, 0.0, 16.0, 16.0},
-				centroid:  geom.Point{8.0, 8.0},
-				hasPoints: true,
-				maxDepth:  5,
+				intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 16.0, 16.0}),
+				intCentroid: intgeom.FromGeomPoint(geom.Point{8.0, 8.0}),
+				hasPoints:   true,
+				maxDepth:    5,
 				quadrants: [4]*PointIndex{
 					{
-						level:     1,
-						x:         0,
-						y:         0,
-						extent:    geom.Extent{0.0, 0.0, 8.0, 8.0},
-						centroid:  geom.Point{4.0, 4.0},
-						hasPoints: true,
-						maxDepth:  4,
+						level:       1,
+						x:           0,
+						y:           0,
+						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 8.0, 8.0}),
+						intCentroid: intgeom.FromGeomPoint(geom.Point{4.0, 4.0}),
+						hasPoints:   true,
+						maxDepth:    4,
 						quadrants: [4]*PointIndex{
 							nil,
 							nil,
 							{
-								level:     2,
-								x:         0,
-								y:         1,
-								extent:    geom.Extent{0.0, 4.0, 4.0, 8.0},
-								centroid:  geom.Point{2.0, 6.0},
-								hasPoints: true,
-								maxDepth:  3,
+								level:       2,
+								x:           0,
+								y:           1,
+								intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 4.0, 4.0, 8.0}),
+								intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 6.0}),
+								hasPoints:   true,
+								maxDepth:    3,
 								quadrants: [4]*PointIndex{
 									nil,
 									nil,
 									nil,
 									{
-										level:     3,
-										x:         1,
-										y:         3,
-										extent:    geom.Extent{2.0, 6.0, 4.0, 8.0},
-										centroid:  geom.Point{3.0, 7.0},
-										hasPoints: true,
-										maxDepth:  2,
+										level:       3,
+										x:           1,
+										y:           3,
+										intExtent:   intgeom.FromGeomExtent(geom.Extent{2.0, 6.0, 4.0, 8.0}),
+										intCentroid: intgeom.FromGeomPoint(geom.Point{3.0, 7.0}),
+										hasPoints:   true,
+										maxDepth:    2,
 										quadrants: [4]*PointIndex{
 											{
-												level:     4,
-												x:         2,
-												y:         6,
-												extent:    geom.Extent{2.0, 6.0, 3.0, 7.0},
-												centroid:  geom.Point{2.5, 6.5},
-												hasPoints: true,
-												maxDepth:  1,
+												level:       4,
+												x:           2,
+												y:           6,
+												intExtent:   intgeom.FromGeomExtent(geom.Extent{2.0, 6.0, 3.0, 7.0}),
+												intCentroid: intgeom.FromGeomPoint(geom.Point{2.5, 6.5}),
+												hasPoints:   true,
+												maxDepth:    1,
 												quadrants: [4]*PointIndex{
 													{
-														level:     5,
-														x:         4,
-														y:         12,
-														extent:    geom.Extent{2.0, 6.0, 2.5, 6.5},
-														centroid:  geom.Point{2.25, 6.25},
-														hasPoints: true,
-														maxDepth:  0,
-														quadrants: [4]*PointIndex{},
+														level:       5,
+														x:           4,
+														y:           12,
+														intExtent:   intgeom.FromGeomExtent(geom.Extent{2.0, 6.0, 2.5, 6.5}),
+														intCentroid: intgeom.FromGeomPoint(geom.Point{2.25, 6.25}),
+														hasPoints:   true,
+														maxDepth:    0,
+														quadrants:   [4]*PointIndex{},
 													},
 													nil,
 													nil,
@@ -350,8 +352,8 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 				{110907.64400000000023283, 504428.79999999998835847},
 			},
 			want: [][2]float64{
-				{110906.87093749997, 504428.8065625}, // horizontal line still here
-				{110907.64531250001, 504428.8065625}, // horizontal line still here
+				{110906.8709375, 504428.8065625}, // horizontal line still here
+				{110907.6453125, 504428.8065625}, // horizontal line still here
 			},
 		},
 	}
