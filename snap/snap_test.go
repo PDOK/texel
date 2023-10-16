@@ -1,6 +1,7 @@
 package snap
 
 import (
+	"github.com/go-spatial/geom/encoding/wkt"
 	"testing"
 
 	"github.com/go-spatial/geom"
@@ -15,15 +16,8 @@ func Test_snapPolygon(t *testing.T) {
 		want    *geom.Polygon
 	}{
 		{
-			name: "missing corner",
-			matrix: TileMatrix{
-				MinX:      -285401.92,
-				MaxY:      903401.92,
-				PixelSize: 16,
-				TileSize:  256,
-				Level:     14,
-				CellSize:  0.21,
-			},
+			name:   "missing corner",
+			matrix: newNetherlandsRDNewQuadTileMatrix(14),
 			polygon: &geom.Polygon{{
 				{117220.282, 440135.898},
 				{117210.713, 440135.101},
@@ -42,15 +36,8 @@ func Test_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name: "horizontal line",
-			matrix: TileMatrix{
-				MinX:      -285401.92,
-				MaxY:      903401.92,
-				PixelSize: 16,
-				TileSize:  256,
-				Level:     14,
-				CellSize:  0.21,
-			},
+			name:   "horizontal line on edge",
+			matrix: newNetherlandsRDNewQuadTileMatrix(14),
 			polygon: &geom.Polygon{{
 				{110899.19100000000617001, 504431.15200000000186265},
 				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
@@ -70,12 +57,36 @@ func Test_snapPolygon(t *testing.T) {
 				{110892.9321875, 504407.8196875},
 			}},
 		},
+		{
+			name:   "dedupe this",
+			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
+			polygon: &geom.Polygon{{
+				{0.0, 0.0},
+				{15.0, 0.0},
+				{15.0, 2.0},
+				{2.0, 2.0},
+				{2.0, 2.1},
+				{15.0, 2.1},
+				{15.0, 2.2},
+				{2.0, 2.2},
+				{2.0, 2.3},
+				{15.0, 2.3},
+				{15.0, 2.4},
+				{0.0, 2.4},
+			}},
+			want: &geom.Polygon{{
+				{0.25, 0.25},
+				{15.25, 0.25},
+				{15.25, 2.25},
+				{0.25, 2.25},
+			}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := snapPolygon(tt.polygon, tt.matrix)
 			if !assert.EqualValues(t, tt.want, got) {
-				t.Errorf("snapPolygon(...) = %v, want %v", got, tt.want)
+				t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got), wkt.MustEncode(tt.want))
 			}
 		})
 	}
