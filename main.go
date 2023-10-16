@@ -6,6 +6,7 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/creasty/defaults"
 	"github.com/iancoleman/strcase"
 	"github.com/pdok/texel/processing/gpkg"
 	"github.com/pdok/texel/snap"
@@ -50,7 +51,7 @@ func main() {
 		&cli.StringFlag{
 			Name:     TILEMATRIX,
 			Aliases:  []string{"m"},
-			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"minX": -285401.92, "maxY": 903401.92, "level": 5, "cellSize": 107.52}`,
+			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"MinX": -285401.92, "MaxY": 903401.92, "Level": 5, "CellSize": 107.52}`,
 			Required: true,
 			EnvVars:  []string{strcase.ToScreamingSnake(TILEMATRIX)},
 		},
@@ -67,6 +68,11 @@ func main() {
 	app.Action = func(c *cli.Context) error {
 		var tileMatrix snap.TileMatrix
 		err := yaml.Unmarshal([]byte(c.String(TILEMATRIX)), &tileMatrix)
+		if err != nil {
+			return err
+		}
+		// set fields that weren't supplied to default values
+		err = defaults.Set(&tileMatrix)
 		if err != nil {
 			return err
 		}
