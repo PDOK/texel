@@ -67,12 +67,12 @@ func main() {
 
 	app.Action = func(c *cli.Context) error {
 		var tileMatrix snap.TileMatrix
-		err := yaml.Unmarshal([]byte(c.String(TILEMATRIX)), &tileMatrix)
+		// set fields that weren't supplied to default values
+		err := defaults.Set(&tileMatrix)
 		if err != nil {
 			return err
 		}
-		// set fields that weren't supplied to default values
-		err = defaults.Set(&tileMatrix)
+		err = yaml.Unmarshal([]byte(c.String(TILEMATRIX)), &tileMatrix)
 		if err != nil {
 			return err
 		}
