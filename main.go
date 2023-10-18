@@ -6,6 +6,7 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/creasty/defaults"
 	"github.com/iancoleman/strcase"
 	"github.com/pdok/texel/processing/gpkg"
 	"github.com/pdok/texel/snap"
@@ -19,9 +20,10 @@ const OVERWRITE string = `overwrite`
 const TILEMATRIX string = `tilematrix`
 const PAGESIZE string = `pagesize`
 
+//nolint:funlen
 func main() {
 	app := cli.NewApp()
-	app.Name = "Snappy"
+	app.Name = "texel"
 	app.Usage = "A Golang Polygon Snapping application"
 
 	app.Flags = []cli.Flag{
@@ -49,7 +51,7 @@ func main() {
 		&cli.StringFlag{
 			Name:     TILEMATRIX,
 			Aliases:  []string{"m"},
-			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"minX": -285401.92, "maxY": 903401.92, "level": 5, "cellSize": 107.52}`,
+			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"MinX": -285401.92, "MaxY": 903401.92, "Level": 5, "CellSize": 107.52}`,
 			Required: true,
 			EnvVars:  []string{strcase.ToScreamingSnake(TILEMATRIX)},
 		},
@@ -65,7 +67,12 @@ func main() {
 
 	app.Action = func(c *cli.Context) error {
 		var tileMatrix snap.TileMatrix
-		err := yaml.Unmarshal([]byte(c.String(TILEMATRIX)), &tileMatrix)
+		// set fields that weren't supplied to default values
+		err := defaults.Set(&tileMatrix)
+		if err != nil {
+			return err
+		}
+		err = yaml.Unmarshal([]byte(c.String(TILEMATRIX)), &tileMatrix)
 		if err != nil {
 			return err
 		}
@@ -101,18 +108,18 @@ func main() {
 			log.Fatalf("error initialization the target GeoPackage: %s", err)
 		}
 
-		log.Println("=== start sieving ===")
+		log.Println("=== start snapping ===")
 
 		// Process the tables sequentially
 		for _, table := range tables {
-			log.Printf("  sieving %s", table.Name)
+			log.Printf("  snapping %s", table.Name)
 			source.Table = table
 			target.Table = table
 			snap.SnapToPointCloud(source, &target, tileMatrix)
-			log.Printf("  finised %s", table.Name)
+			log.Printf("  finished %s", table.Name)
 		}
 
-		log.Println("=== done sieving ===")
+		log.Println("=== done snapping ===")
 		return nil
 	}
 

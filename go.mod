@@ -16,6 +16,7 @@ require (
 )
 
 require (
+	github.com/creasty/defaults v1.7.0
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gdey/errors v0.0.0-20190426172550-8ebd5bc891fb // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

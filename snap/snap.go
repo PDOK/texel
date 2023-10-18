@@ -2,6 +2,7 @@ package snap
 
 import (
 	"fmt"
+
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/processing"
 )
@@ -14,6 +15,7 @@ func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
 	return newPolygon
 }
 
+//nolint:cyclop
 func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	newPolygon := make([][][2]float64, 0, len(*polygon))
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
@@ -31,10 +33,19 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 				// 0 if len is 1, 1 otherwise
 				minus := min(newVerticesCount-1, 1)
 				// remove last vertex if there is more than 1 vertex, as the first vertex in the next segment will be the same
-				newRing = append(newRing, newVertices[:newVerticesCount-minus]...)
+				newVertices = newVertices[:newVerticesCount-minus]
+				// remove first element if it is equal to the last element added to newRing
+				if len(newRing) > 0 && newVertices[0] == newRing[len(newRing)-1] {
+					newVertices = newVertices[1:]
+				}
+				newRing = append(newRing, newVertices...)
 			} else {
 				panic(fmt.Sprintf("no points found for %v", segment))
 			}
+		}
+		// LinearRings(): "The last point in the linear ring will not match the first point."
+		if len(newRing) > 1 && newRing[0] == newRing[len(newRing)-1] {
+			newRing = newRing[:len(newRing)-1]
 		}
 		switch len(newRing) {
 		case 0:
@@ -55,12 +66,15 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	return (*geom.Polygon)(&newPolygon)
 }
 
+//nolint:cyclop,nestif
 func deduplicateRing(newRing [][2]float64) [][2]float64 {
 	dedupedRing := make([][2]float64, 0, len(newRing))
 	skip := 0
+	skipped := false
 	for newVertexI, newVertex := range newRing {
 		if skip > 0 {
 			skip--
+			skipped = true
 		} else {
 			// if vertex at i is equal to vertex at i+2, and vertex at i+1 is equal to vertex at i+3,
 			// then we're just traversing the same line three times --> skip two points to turn it into a single line
@@ -71,10 +85,23 @@ func deduplicateRing(newRing [][2]float64) [][2]float64 {
 				newVertex == newRing[newVertexIplus2] && newRing[newVertexIplus1] == newRing[newVertexIplus3] {
 				skip = 2
 			}
-			dedupedRing = append(dedupedRing, newVertex)
+			// if we just skipped points, there may still be a duplicate traversal from the previous point, check that in the same manner
+			if skipped {
+				newVertexIminus1 := (newVertexI - 1) % len(newRing)
+				if newVertexIminus1 != newVertexIplus1 && newVertexI != newVertexIplus2 &&
+					newRing[newVertexIminus1] == newRing[newVertexIplus1] && newVertex == newRing[newVertexIplus2] {
+					skip = 2
+				} else {
+					skipped = false
+				}
+			}
+			dedupedRing = append(dedupedRing, newRing[newVertexI])
 		}
 	}
-	return dedupedRing
+	if len(newRing) != len(dedupedRing) && len(dedupedRing) > 0 {
+		return dedupedRing
+	}
+	return newRing
 }
 
 // SnapToPointCloud snaps polygons' points to a tile's internal pixel grid

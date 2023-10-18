@@ -1,8 +1,9 @@
 package snap
 
 import (
-	"github.com/go-spatial/geom/encoding/wkt"
 	"testing"
+
+	"github.com/go-spatial/geom/encoding/wkt"
 
 	"github.com/go-spatial/geom"
 	"github.com/stretchr/testify/assert"
@@ -72,12 +73,14 @@ func Test_snapPolygon(t *testing.T) {
 				{2.0, 2.3},
 				{15.0, 2.3},
 				{15.0, 2.4},
+				{2.0, 2.4},
 				{0.0, 2.4},
 			}},
 			want: &geom.Polygon{{
 				{0.25, 0.25},
 				{15.25, 0.25},
 				{15.25, 2.25},
+				{2.25, 2.25},
 				{0.25, 2.25},
 			}},
 		},

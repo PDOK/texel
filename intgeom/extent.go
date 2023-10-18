@@ -52,7 +52,7 @@ func (e Extent) Vertices() [][2]int64 {
 	}
 }
 
-// ClockwiseFunc returns weather the set of points should be considered clockwise or counterclockwise.
+// ClockwiseFunc returns whether the set of points should be considered clockwise or counterclockwise.
 // The last point is not the same as the first point, and the function should connect these points as needed.
 type ClockwiseFunc func(...[2]int64) bool
 
