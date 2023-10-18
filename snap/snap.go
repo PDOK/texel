@@ -2,6 +2,8 @@ package snap
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/processing"
@@ -60,48 +62,126 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			}
 		default:
 			// deduplicate points in the ring, then add to the polygon
-			newPolygon = append(newPolygon, deduplicateRing(newRing))
+			newPolygon = append(newPolygon, kmpDedupe(newRing))
 		}
 	}
 	return (*geom.Polygon)(&newPolygon)
 }
 
-//nolint:cyclop,nestif
-func deduplicateRing(newRing [][2]float64) [][2]float64 {
-	dedupedRing := make([][2]float64, 0, len(newRing))
-	skip := 0
-	skipped := false
-	for newVertexI, newVertex := range newRing {
-		if skip > 0 {
-			skip--
-			skipped = true
-		} else {
-			// if vertex at i is equal to vertex at i+2, and vertex at i+1 is equal to vertex at i+3,
-			// then we're just traversing the same line three times --> skip two points to turn it into a single line
-			newVertexIplus1 := (newVertexI + 1) % len(newRing)
-			newVertexIplus2 := (newVertexI + 2) % len(newRing)
-			newVertexIplus3 := (newVertexI + 3) % len(newRing)
-			if newVertexI != newVertexIplus2 && newVertexIplus1 != newVertexIplus3 &&
-				newVertex == newRing[newVertexIplus2] && newRing[newVertexIplus1] == newRing[newVertexIplus3] {
-				skip = 2
-			}
-			// if we just skipped points, there may still be a duplicate traversal from the previous point, check that in the same manner
-			if skipped {
-				newVertexIminus1 := (newVertexI - 1) % len(newRing)
-				if newVertexIminus1 != newVertexIplus1 && newVertexI != newVertexIplus2 &&
-					newRing[newVertexIminus1] == newRing[newVertexIplus1] && newVertex == newRing[newVertexIplus2] {
-					skip = 2
-				} else {
-					skipped = false
+// deduplication using an implementation of the Knuth-Morris-Pratt algorithm
+func kmpDedupe(newRing [][2]float64) [][2]float64 {
+	// start with a copy of newRing
+	dedupedRing := make([][2]float64, len(newRing))
+	copy(dedupedRing, newRing)
+	// build map of indices to remove
+	indicesToRemove := make(map[string][2]int)
+	// given a segment (of arbitrary length n) s with its reverse s':
+	// find an index where newRing contains, in order, s followed by one or more times s'+s
+	for n := len(newRing); n > 1; n-- {
+		for j := 0; j < len(newRing)-n; {
+			segment := newRing[j : j+n]
+			matches := kmpSearchAll(newRing, segment)
+			reverseSegment := make([][2]float64, len(segment))
+			copy(reverseSegment, segment)
+			slices.Reverse(reverseSegment)
+			reverseMatches := kmpSearchAll(newRing, reverseSegment)
+			if len(matches) > 1 && (len(matches)-len(reverseMatches)) == 1 {
+				segmentKey := fmt.Sprintf("%v", segment)
+				segmentKey = segmentKey[1 : len(segmentKey)-1]
+				exists := keyOrSubstringOfKey(indicesToRemove, segmentKey)
+				if !exists {
+					indicesToRemove[segmentKey] = [2]int{matches[0] + len(segment), matches[len(matches)-1] + len(segment)}
+
 				}
+				// skip past repeated section
+				j += (len(matches) + len(reverseMatches)) * len(segment)
+			} else if len(matches) > 1 && len(matches) == len(reverseMatches) {
+				j += 2 * len(matches) * len(segment)
+			} else {
+				j++
 			}
-			dedupedRing = append(dedupedRing, newRing[newVertexI])
 		}
 	}
-	if len(newRing) != len(dedupedRing) && len(dedupedRing) > 0 {
-		return dedupedRing
+	offset := 0
+	for _, stretch := range indicesToRemove {
+		dedupedRing = append(dedupedRing[:stretch[0]-offset], dedupedRing[stretch[1]-offset:]...)
+		offset += stretch[1] - stretch[0]
 	}
-	return newRing
+	return dedupedRing
+}
+
+// checks if a key already exists, or is a substring of a key
+// (e.g., if mapToCheck has key 'A B C', then keyToCheck 'A B' returns true)
+func keyOrSubstringOfKey(mapToCheck map[string][2]int, keyToCheck string) bool {
+	for key := range mapToCheck {
+		if keyToCheck == key || strings.Contains(key, keyToCheck) {
+			return true
+		}
+	}
+	return false
+}
+
+// kmpSearchAll repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'
+func kmpSearchAll(corpus, find [][2]float64) []int {
+	matches := []int{}
+	offset := 0
+	for {
+		match := kmpSearch(corpus, find)
+		if match == len(corpus) {
+			// no match found
+			break
+		}
+		matches = append(matches, match+offset)
+		offset += match + len(find)
+		corpus = corpus[match+len(find):]
+		if len(corpus) < len(find) {
+			// corpus is smaller than find, no further matches possible
+			break
+		}
+	}
+	return matches
+}
+
+// kmpSearch returns the index (0 based) of the start of the string 'find' in 'corpus', or returns the length of 'corpus' on failure.
+func kmpSearch(corpus, find [][2]float64) int {
+	m, i := 0, 0
+	table := make([]int, max(len(corpus), 2))
+	kmpTable(find, table)
+	for m+i < len(corpus) {
+		if find[i] == corpus[m+i] {
+			if i == len(find)-1 {
+				return m
+			}
+			i++
+		} else {
+			if table[i] > -1 {
+				i = table[i]
+				m = m + i - table[i] //
+			} else {
+				i = 0
+				m++
+			}
+		}
+	}
+	return len(corpus)
+}
+
+// kmpTable populates the partial match table 'table' for the string 'find'.
+func kmpTable(find [][2]float64, table []int) {
+	pos, cnd := 2, 0
+	table[0], table[1] = -1, 0
+	for pos < len(find) {
+		if find[pos-1] == find[cnd] {
+			cnd++
+			table[pos] = cnd
+			pos++
+		} else if cnd > 0 {
+			cnd = table[cnd]
+		} else {
+			table[pos] = 0
+			pos++
+		}
+	}
 }
 
 // SnapToPointCloud snaps polygons' points to a tile's internal pixel grid
