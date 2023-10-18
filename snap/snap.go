@@ -77,7 +77,7 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 	indicesToRemove := make(map[string][2]int)
 	// given a segment (of arbitrary length n) s with its reverse s':
 	// find an index where newRing contains, in order, s followed by one or more times s'+s
-	for n := len(newRing); n > 1; n-- {
+	for n := (len(newRing) / 3) + 2; n > 1; n-- {
 		for j := 0; j < len(newRing)-n; {
 			segment := newRing[j : j+n]
 			matches := kmpSearchAll(newRing, segment)
