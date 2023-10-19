@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/processing"
+	"github.com/umpc/go-sortedmap"
 )
 
 func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
@@ -73,8 +74,10 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 	// start with a copy of newRing
 	dedupedRing := make([][2]float64, len(newRing))
 	copy(dedupedRing, newRing)
-	// build map of indices to remove
-	indicesToRemove := make(map[string][2]int)
+	// build map of indices to remove, sorted by starting index of each stretch to remove
+	indicesToRemove := sortedmap.New(len(newRing), func(x, y interface{}) bool {
+		return x.([2]int)[0] < y.([2]int)[0]
+	})
 	// given a segment (of arbitrary length n) s with its reverse s':
 	// find an index where newRing contains, in order, s followed by one or more times s'+s
 	for n := (len(newRing) / 3) + 2; n > 1; n-- {
@@ -90,8 +93,11 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 				segmentKey = segmentKey[1 : len(segmentKey)-1]
 				exists := keyOrSubstringOfKey(indicesToRemove, segmentKey)
 				if !exists {
-					indicesToRemove[segmentKey] = [2]int{matches[0] + len(segment), matches[len(matches)-1] + len(segment)}
-
+					segmentRec := sortedmap.Record{
+						Key: segmentKey,
+						Val: [2]int{matches[0] + len(segment), matches[len(matches)-1] + len(segment)},
+					}
+					indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
 				}
 				// skip past repeated section
 				j += (len(matches) + len(reverseMatches)) * len(segment)
@@ -103,7 +109,8 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 		}
 	}
 	offset := 0
-	for _, stretch := range indicesToRemove {
+	for _, key := range indicesToRemove.Keys() {
+		stretch := indicesToRemove.Map()[key].([2]int)
 		dedupedRing = append(dedupedRing[:stretch[0]-offset], dedupedRing[stretch[1]-offset:]...)
 		offset += stretch[1] - stretch[0]
 	}
@@ -112,9 +119,9 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 
 // checks if a key already exists, or is a substring of a key
 // (e.g., if mapToCheck has key 'A B C', then keyToCheck 'A B' returns true)
-func keyOrSubstringOfKey(mapToCheck map[string][2]int, keyToCheck string) bool {
-	for key := range mapToCheck {
-		if keyToCheck == key || strings.Contains(key, keyToCheck) {
+func keyOrSubstringOfKey(mapToCheck *sortedmap.SortedMap, keyToCheck string) bool {
+	for _, key := range mapToCheck.Keys() {
+		if keyToCheck == key.(string) || strings.Contains(key.(string), keyToCheck) {
 			return true
 		}
 	}
