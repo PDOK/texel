@@ -165,6 +165,54 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 				// no removal necessary, skip past matched section and reset visitedPoints
 				i = start + (2 * len(segment)) - 1
 				visitedPoints = [][2]float64{}
+			} else if len(reverseMatches) > len(matches) {
+				// zigzag with one or more stray points in between (segment occurs fewer times than its reverse)
+				tmpCorpus := make([][2]float64, len(corpus))
+				copy(tmpCorpus, corpus)
+				tmpCorpus = append(tmpCorpus[:len(segment)], tmpCorpus[reverseMatches[0]+len(segment):]...)
+				zigzag := false
+				vp := [][2]float64{}
+				for ic := 0; ic < len(tmpCorpus); {
+					vt := tmpCorpus[ic]
+					if len(vp) > 1 && vp[len(vp)-2] == vt {
+						rs := [][2]float64{vp[len(vp)-1], vp[len(vp)-2]}
+						for jc := 3; jc <= len(vp); jc++ {
+							nextIc := ic + (jc - 2)
+							if nextIc <= len(tmpCorpus)-1 && vp[len(vp)-jc] == tmpCorpus[nextIc] {
+								rs = append(rs, vp[len(vp)-jc])
+							} else {
+								// end of segment
+								break
+							}
+						}
+						// create segment from reverse segment
+						s := make([][2]float64, len(rs))
+						copy(s, rs)
+						slices.Reverse(s)
+						if len(kmpSearchAll(tmpCorpus, s)) == 1 && len(kmpSearchAll(tmpCorpus, rs)) == 1 {
+							zigzag = true
+							segmentKey := fmt.Sprintf("%v", segment)
+							segmentKey = segmentKey[1 : len(segmentKey)-1]
+							stretchStart := start + len(segment)
+							stretchEnd := stretchStart + len(segment) - 1
+							segmentRec := sortedmap.Record{
+								Key: segmentKey,
+								Val: [2]int{stretchStart, stretchEnd},
+							}
+							indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
+						}
+						break
+					}
+					vp = append(vp, vt)
+					ic++
+				}
+				// unable to fix the zigzag
+				if !zigzag {
+					panic(fmt.Sprintf("not a broken zigzag: %v\n", corpus))
+				}
+				// skip past matched section and reset visitedPoints
+				i = start + reverseMatches[len(reverseMatches)-1] + len(segment)
+				visitedPoints = [][2]float64{}
 			}
 		} else {
 			visitedPoints = append(visitedPoints, vertex)
@@ -193,8 +241,9 @@ func kmpSearchAll(corpus, find [][2]float64) []int {
 		matches = append(matches, match+offset)
 		offset += match + len(find)
 		corpus = corpus[match+len(find):]
-		if len(corpus) < len(find) {
-			// corpus is smaller than find, no further matches possible
+		if len(corpus) < len(find) { //|| corpus[1] != find[1] {
+			// corpus is smaller than find --> no further matches possible
+			// or second point of remaining corpus doesn't match second point of find
 			break
 		}
 	}
