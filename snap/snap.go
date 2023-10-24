@@ -131,7 +131,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 			reverseMatches := kmpSearchAll(corpus, reverseSegment)
 			switch {
 			case len(matches) > 1 && (len(matches)-len(reverseMatches)) == 1:
-				// zigzag found (segment occurs one time more than its reverse)
+				// zigzag found (segment occurs one time more often than its reverse)
 				// mark all but one occurrance of segment for removal
 				sequenceStart := start + len(segment)
 				sequenceEnd := start + matches[len(matches)-1] + len(segment)
@@ -161,11 +161,20 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 				// no removal necessary, skip past matched section and reset visitedPoints
 				i = start + (2 * len(segment)) - 1
 				visitedPoints = [][2]float64{}
-			case len(reverseMatches) > len(matches):
-				// segment occurs fewer times than its reverse -- could be an odd zigzag, or a backtrace followed by a triangle or a square
-				// remove the initial backtrace, retain the remaining points (backtrace, triangle, or square)
+			default:
 				sequenceStart := start
-				sequenceEnd := start + 2*(len(segment)-1)*len(matches)
+				var sequenceEnd int
+				var endPointIdx int
+				if len(reverseMatches) > len(matches) {
+					// segment occurs fewer times than its reverse -- could be an odd zigzag, or a backtrace followed by a triangle or a square
+					// remove the initial backtrace, retain the remaining points (backtrace, triangle, or square)
+					sequenceEnd = start + 2*(len(segment)-1)*len(matches)
+					endPointIdx = start + reverseMatches[len(reverseMatches)-1] + len(segment)
+				} else if len(matches) > 1 && (len(matches)-len(reverseMatches)) > 1 {
+					// segment occurs more than one time more often then its reverse -- same as previous case, but with an initial zigzag instead of an initial backtrace
+					sequenceEnd = start + 2*(len(segment)-1)*len(reverseMatches)
+					endPointIdx = start + matches[len(matches)-1] + len(segment)
+				}
 				segmentRec := sortedmap.Record{
 					Key: fmt.Sprintf("%v", segment),
 					Val: [2]int{sequenceStart, sequenceEnd},
@@ -177,7 +186,6 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 				onLine := true
 				furthestDistance := 0.0
 				furthestPointIdx := sequenceEnd
-				endPointIdx := start + reverseMatches[len(reverseMatches)-1] + len(segment)
 				for n := sequenceEnd + 1; n < endPointIdx; n++ {
 					if newRing[n][0] != startPointX && newRing[n][1] != startPointY {
 						onLine = false
@@ -200,7 +208,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 					indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
 				}
 				// skip past matched section and reset visitedPoints
-				i = endPointIdx
+				i = endPointIdx - 1
 				visitedPoints = [][2]float64{}
 			}
 		} else {
