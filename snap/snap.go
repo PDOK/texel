@@ -2,6 +2,7 @@ package snap
 
 import (
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/go-spatial/geom"
@@ -21,14 +22,14 @@ func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
 func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	newPolygon := make([][][2]float64, 0, len(*polygon))
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
-	for ringI, ring := range polygon.LinearRings() {
+	for ringIdx, ring := range polygon.LinearRings() {
 		ringLen := len(ring)
 		newRing := make([][2]float64, 0, ringLen*2) // TODO better estimation of new amount of points
-		for vertexI, vertex := range ring {
+		for vertexIdx, vertex := range ring {
 			// LinearRings(): "The last point in the linear ring will not match the first point."
 			// So also including that one.
-			nextVertexI := (vertexI + 1) % ringLen
-			segment := geom.Line{vertex, ring[nextVertexI]}
+			nextVertexIdx := (vertexIdx + 1) % ringLen
+			segment := geom.Line{vertex, ring[nextVertexIdx]}
 			newVertices := ix.SnapClosestPoints(segment)
 			newVerticesCount := len(newVertices)
 			if newVerticesCount > 0 {
@@ -51,18 +52,18 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 		}
 		switch len(newRing) {
 		case 0:
-			if ringI == 0 {
+			if ringIdx == 0 {
 				// outer ring has become too small
 				return nil
 			}
 		case 1, 2:
-			if ringI == 0 {
+			if ringIdx == 0 {
 				// keep outer ring as point or line
 				newPolygon = append(newPolygon, newRing)
 			}
 		default:
 			// deduplicate points in the ring, then add to the polygon
-			newPolygon = append(newPolygon, kmpDedupe(newRing))
+			newPolygon = append(newPolygon, kmpDeduplicate(newRing))
 		}
 	}
 	return (*geom.Polygon)(&newPolygon)
@@ -71,16 +72,14 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
 //
 //nolint:cyclop,funlen,nestif
-func kmpDedupe(newRing [][2]float64) [][2]float64 {
-	// start with a copy of newRing
+func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 	dedupedRing := make([][2]float64, len(newRing))
 	copy(dedupedRing, newRing)
-	// build map of indices to remove, sorted by starting index of each stretch to remove
+	// map of indices to remove, sorted by starting index of each sequence to remove
 	indicesToRemove := sortedmap.New(len(newRing), func(x, y interface{}) bool {
 		return x.([2]int)[0] < y.([2]int)[0]
 	})
-	// walk through new ring until a step back is taken
-	// then identify how many steps back are taken and search for zigzags
+	// walk through newRing until a step back is taken, then identify how many steps back are taken and search for repeats
 	visitedPoints := [][2]float64{}
 	for i := 0; i < len(newRing); {
 		vertex := newRing[i]
@@ -100,8 +99,8 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 			segment := make([][2]float64, len(reverseSegment))
 			copy(segment, reverseSegment)
 			slices.Reverse(segment)
-			// create corpus, initialise with section of length 3*segment length, starting from i
-			// then continuously add 2*segment length until corpus contains a point that is not in segment
+			// create search corpus: initialise with section of 3*segment length, then continuously
+			// add 2*segment length until corpus contains a point that is not in segment
 			start := i - len(segment)
 			end := start + (3 * len(segment))
 			k := 0
@@ -127,91 +126,81 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 				corpus = append(corpus, newRing[end:min(end+(2*len(segment)), len(newRing))]...)
 				end += 2 * len(segment)
 			}
-			// search corpus for zigzag or backtrace
+			// search corpus for all matches of segment and reverseSegment
 			matches := kmpSearchAll(corpus, segment)
 			reverseMatches := kmpSearchAll(corpus, reverseSegment)
-			if len(matches) > 1 && (len(matches)-len(reverseMatches)) == 1 {
+			switch {
+			case len(matches) > 1 && (len(matches)-len(reverseMatches)) == 1:
 				// zigzag found (segment occurs one time more than its reverse)
 				// mark all but one occurrance of segment for removal
-				segmentKey := fmt.Sprintf("%v", segment)
-				segmentKey = segmentKey[1 : len(segmentKey)-1]
-				stretchStart := start + len(segment)
-				stretchEnd := start + matches[len(matches)-1] + len(segment)
+				sequenceStart := start + len(segment)
+				sequenceEnd := start + matches[len(matches)-1] + len(segment)
 				segmentRec := sortedmap.Record{
-					Key: segmentKey,
-					Val: [2]int{stretchStart, stretchEnd},
+					Key: fmt.Sprintf("%v", segment),
+					Val: [2]int{sequenceStart, sequenceEnd},
 				}
 				indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
 				// skip past matched section and reset visitedPoints
-				i = stretchEnd
+				i = sequenceEnd
 				visitedPoints = [][2]float64{}
-			} else if len(matches) > 1 && len(matches) == len(reverseMatches) {
+			case len(matches) > 1 && len(matches) == len(reverseMatches):
 				// multiple backtrace found (segment occurs more than once, and equally as many times as its reverse)
 				// mark all but one occurrance of segment and one occurrance of its reverse for removal
-				segmentKey := fmt.Sprintf("%v", segment)
-				segmentKey = segmentKey[1 : len(segmentKey)-1]
-				stretchStart := start + (2 * len(segment)) - 1
-				stretchEnd := start + matches[len(matches)-1] + len(segment)
+				sequenceStart := start + (2 * len(segment)) - 1
+				sequenceEnd := start + matches[len(matches)-1] + len(segment)
 				segmentRec := sortedmap.Record{
-					Key: segmentKey,
-					Val: [2]int{stretchStart, stretchEnd},
+					Key: fmt.Sprintf("%v", segment),
+					Val: [2]int{sequenceStart, sequenceEnd},
 				}
 				indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
 				// skip past matched section and reset visitedPoints
-				i = stretchEnd
+				i = sequenceEnd
 				visitedPoints = [][2]float64{}
-			} else if len(matches) == 1 && len(reverseMatches) == 1 {
+			case len(matches) == 1 && len(reverseMatches) == 1:
 				// backtrace found (segment and its reverse occur exactly once)
 				// no removal necessary, skip past matched section and reset visitedPoints
 				i = start + (2 * len(segment)) - 1
 				visitedPoints = [][2]float64{}
-			} else if len(reverseMatches) > len(matches) {
-				// zigzag with one or more stray points in between (segment occurs fewer times than its reverse)
-				tmpCorpus := make([][2]float64, len(corpus))
-				copy(tmpCorpus, corpus)
-				tmpCorpus = append(tmpCorpus[:len(segment)], tmpCorpus[reverseMatches[0]+len(segment):]...)
-				zigzag := false
-				vp := [][2]float64{}
-				for ic := 0; ic < len(tmpCorpus); {
-					vt := tmpCorpus[ic]
-					if len(vp) > 1 && vp[len(vp)-2] == vt {
-						rs := [][2]float64{vp[len(vp)-1], vp[len(vp)-2]}
-						for jc := 3; jc <= len(vp); jc++ {
-							nextIc := ic + (jc - 2)
-							if nextIc <= len(tmpCorpus)-1 && vp[len(vp)-jc] == tmpCorpus[nextIc] {
-								rs = append(rs, vp[len(vp)-jc])
-							} else {
-								// end of segment
-								break
-							}
-						}
-						// create segment from reverse segment
-						s := make([][2]float64, len(rs))
-						copy(s, rs)
-						slices.Reverse(s)
-						if len(kmpSearchAll(tmpCorpus, s)) == 1 && len(kmpSearchAll(tmpCorpus, rs)) == 1 {
-							zigzag = true
-							segmentKey := fmt.Sprintf("%v", segment)
-							segmentKey = segmentKey[1 : len(segmentKey)-1]
-							stretchStart := start + len(segment)
-							stretchEnd := stretchStart + len(segment) - 1
-							segmentRec := sortedmap.Record{
-								Key: segmentKey,
-								Val: [2]int{stretchStart, stretchEnd},
-							}
-							indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
-						}
+			case len(reverseMatches) > len(matches):
+				// segment occurs fewer times than its reverse -- could be an odd zigzag, or a backtrace followed by a triangle or a square
+				// remove the initial backtrace, retain the remaining points (backtrace, triangle, or square)
+				sequenceStart := start
+				sequenceEnd := start + 2*(len(segment)-1)*len(matches)
+				segmentRec := sortedmap.Record{
+					Key: fmt.Sprintf("%v", segment),
+					Val: [2]int{sequenceStart, sequenceEnd},
+				}
+				indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
+				// check if remaining points are on a straight line, retain only start and end points if so
+				startPointX := newRing[sequenceEnd][0]
+				startPointY := newRing[sequenceEnd][1]
+				onLine := true
+				furthestDistance := 0.0
+				furthestPointIdx := sequenceEnd
+				endPointIdx := start + reverseMatches[len(reverseMatches)-1] + len(segment)
+				for n := sequenceEnd + 1; n < endPointIdx; n++ {
+					if newRing[n][0] != startPointX && newRing[n][1] != startPointY {
+						onLine = false
 						break
 					}
-					vp = append(vp, vt)
-					ic++
+					pointDistance := math.Sqrt(math.Abs(newRing[n][0]-startPointX) + math.Abs(newRing[n][1]-startPointY))
+					if pointDistance > furthestDistance {
+						furthestDistance = pointDistance
+						furthestPointIdx = n
+					}
 				}
-				// unable to fix the zigzag
-				if !zigzag {
-					panic(fmt.Sprintf("not a broken zigzag: %v\n", corpus))
+				if onLine {
+					// remove any intermediate points on the return from the end point to the start point
+					sequenceStart := furthestPointIdx + 1
+					sequenceEnd := endPointIdx - 1
+					segmentRec := sortedmap.Record{
+						Key: fmt.Sprintf("%v", newRing[furthestPointIdx:furthestPointIdx+1]),
+						Val: [2]int{sequenceStart, sequenceEnd},
+					}
+					indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
 				}
 				// skip past matched section and reset visitedPoints
-				i = start + reverseMatches[len(reverseMatches)-1] + len(segment)
+				i = endPointIdx
 				visitedPoints = [][2]float64{}
 			}
 		} else {
@@ -221,9 +210,9 @@ func kmpDedupe(newRing [][2]float64) [][2]float64 {
 	}
 	offset := 0
 	for _, key := range indicesToRemove.Keys() {
-		stretch := indicesToRemove.Map()[key].([2]int)
-		dedupedRing = append(dedupedRing[:stretch[0]-offset], dedupedRing[stretch[1]-offset:]...)
-		offset += stretch[1] - stretch[0]
+		sequence := indicesToRemove.Map()[key].([2]int)
+		dedupedRing = append(dedupedRing[:sequence[0]-offset], dedupedRing[sequence[1]-offset:]...)
+		offset += sequence[1] - sequence[0]
 	}
 	return dedupedRing
 }
@@ -241,9 +230,8 @@ func kmpSearchAll(corpus, find [][2]float64) []int {
 		matches = append(matches, match+offset)
 		offset += match + len(find)
 		corpus = corpus[match+len(find):]
-		if len(corpus) < len(find) { //|| corpus[1] != find[1] {
+		if len(corpus) < len(find) {
 			// corpus is smaller than find --> no further matches possible
-			// or second point of remaining corpus doesn't match second point of find
 			break
 		}
 	}
@@ -279,13 +267,14 @@ func kmpTable(find [][2]float64, table []int) {
 	pos, cnd := 2, 0
 	table[0], table[1] = -1, 0
 	for pos < len(find) {
-		if find[pos-1] == find[cnd] {
+		switch {
+		case find[pos-1] == find[cnd]:
 			cnd++
 			table[pos] = cnd
 			pos++
-		} else if cnd > 0 {
+		case cnd > 0:
 			cnd = table[cnd]
-		} else {
+		default:
 			table[pos] = 0
 			pos++
 		}
