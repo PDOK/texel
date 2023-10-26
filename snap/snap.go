@@ -68,7 +68,7 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			// inner rings (ringIdx != 0) should be clockwise
 			shouldBeClockwise := ringIdx != 0
 			// winding order is reversed if incorrect
-			validateWindingOrder(deduplicatedRing, shouldBeClockwise)
+			ensureCorrectWindingOrder(deduplicatedRing, shouldBeClockwise)
 			newPolygon = append(newPolygon, deduplicatedRing)
 		}
 	}
@@ -77,7 +77,7 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 
 // validate winding order (CCW for outer rings, CW for inner rings)
 // if winding order is incorrect, ring is reversed to correct winding order
-func validateWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
+func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
 	steps := []string{}
 	stepCounts := map[bool]int{true: 0, false: 0}
 	for i := 0; i < len(ring); i++ {
