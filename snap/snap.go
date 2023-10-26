@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/processing"
@@ -62,19 +63,109 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 				newPolygon = append(newPolygon, newRing)
 			}
 		default:
-			// deduplicate points in the ring, then add to the polygon
-			newPolygon = append(newPolygon, kmpDeduplicate(newRing))
+			// deduplicate points in the ring, check winding order, then add to the polygon
+			deduplicatedRing := kmpDeduplicate(newRing)
+			// inner rings (ringIdx != 0) should be clockwise
+			shouldBeClockwise := ringIdx != 0
+			// winding order is reversed if incorrect
+			ensureCorrectWindingOrder(deduplicatedRing, shouldBeClockwise)
+			newPolygon = append(newPolygon, deduplicatedRing)
 		}
 	}
 	return (*geom.Polygon)(&newPolygon)
+}
+
+// validate winding order (CCW for outer rings, CW for inner rings)
+// if winding order is incorrect, ring is reversed to correct winding order
+func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
+	steps := []string{}
+	stepCounts := map[bool]int{true: 0, false: 0}
+	for i := 0; i < len(ring); i++ {
+		steps = append(steps, directionOfStep(ring[i], ring[(i+1)%len(ring)]))
+		// need at least a pair of steps to check winding order
+		if len(steps) <= 1 {
+			continue
+		}
+		// steps back (e.g., 'R,L') or repeated steps (e.g., 'R,R') count as a step for the winding order the ring should have
+		if steps[len(steps)-2] == oppositeDirectionOf(steps[len(steps)-1]) || steps[len(steps)-2] == steps[len(steps)-1] {
+			stepCounts[shouldBeClockwise]++
+		} else {
+			stepCounts[isClockwise(steps[len(steps)-2:])]++
+		}
+	}
+	if stepCounts[shouldBeClockwise] < stepCounts[!shouldBeClockwise] {
+		slices.Reverse(ring)
+	}
+}
+
+// returns if pair of steps is clockwise
+func isClockwise(stepsPair []string) bool {
+	clockwiseSteps := []string{
+		"U,R",   // up, then right
+		"U,RU",  // up, then right+up
+		"U,RD",  // up, then right+down
+		"RU,R",  // right+up, then right
+		"RU,RD", // right+up, then right+down
+		"RU,D",  // right+up, then down
+		"R,D",   // right, then down
+		"R,RD",  // right, then right+down
+		"R,LD",  // right, then left+down
+		"RD,D",  // right+down, then down
+		"RD,LD", // right+down, then left+down
+		"RD,L",  // right+down, then left
+		"D,L",   // down, then left
+		"D,LU",  // down, then left+up
+		"D,LD",  // down, then left+down
+		"LD,L",  // left+down, then left
+		"LD,LU", // left+down, then left+up
+		"LD,U",  // left+down, then up
+		"L,U",   // left, then up
+		"L,LU",  // left, then left+up
+		"L,RU",  // left, then right+up
+		"LU,R",  // left+up, then right
+		"LU,RU", // left+up, then right+up
+		"LU,U",  // left+up, then up
+	}
+	return slices.Contains(clockwiseSteps, strings.Join(stepsPair, ","))
+}
+
+// returns opposite of a direction
+func oppositeDirectionOf(direction string) string {
+	opposites := map[string]string{
+		"U":  "D",
+		"D":  "U",
+		"R":  "L",
+		"L":  "R",
+		"RU": "LD",
+		"RD": "LU",
+		"LU": "RD",
+		"LD": "RU",
+	}
+	return opposites[direction]
+}
+
+// determines direction of a step from one point to another
+func directionOfStep(from, to [2]float64) string {
+	direction := ""
+	if to[0] > from[0] {
+		direction += "R"
+	} else if to[0] < from[0] {
+		direction += "L"
+	}
+	if to[1] > from[1] {
+		direction += "U"
+	} else if to[1] < from[1] {
+		direction += "D"
+	}
+	return direction
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
 //
 //nolint:cyclop,funlen
 func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
-	dedupedRing := make([][2]float64, len(newRing))
-	copy(dedupedRing, newRing)
+	deduplicatedRing := make([][2]float64, len(newRing))
+	copy(deduplicatedRing, newRing)
 	// map of indices to remove, sorted by starting index of each sequence to remove
 	indicesToRemove := sortedmap.New(len(newRing), func(x, y interface{}) bool {
 		return x.([2]int)[0] < y.([2]int)[0]
@@ -220,13 +311,13 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 	offset := 0
 	for _, key := range indicesToRemove.Keys() {
 		sequence := indicesToRemove.Map()[key].([2]int)
-		dedupedRing = append(dedupedRing[:sequence[0]-offset], dedupedRing[sequence[1]-offset:]...)
+		deduplicatedRing = append(deduplicatedRing[:sequence[0]-offset], deduplicatedRing[sequence[1]-offset:]...)
 		offset += sequence[1] - sequence[0]
 	}
-	return dedupedRing
+	return deduplicatedRing
 }
 
-// kmpSearchAll repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'
+// repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'
 func kmpSearchAll(corpus, find [][2]float64) []int {
 	matches := []int{}
 	offset := 0
@@ -247,7 +338,7 @@ func kmpSearchAll(corpus, find [][2]float64) []int {
 	return matches
 }
 
-// kmpSearch returns the index (0 based) of the start of the string 'find' in 'corpus', or returns the length of 'corpus' on failure.
+// returns the index (0 based) of the start of 'find' in 'corpus', or returns the length of 'corpus' on failure
 func kmpSearch(corpus, find [][2]float64) int {
 	m, i := 0, 0
 	table := make([]int, max(len(corpus), 2))
@@ -271,7 +362,7 @@ func kmpSearch(corpus, find [][2]float64) int {
 	return len(corpus)
 }
 
-// kmpTable populates the partial match table 'table' for the string 'find'.
+// populates the partial match table 'table' for 'find'
 func kmpTable(find [][2]float64, table []int) {
 	pos, cnd := 2, 0
 	table[0], table[1] = -1, 0

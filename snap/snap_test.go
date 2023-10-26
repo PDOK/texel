@@ -59,7 +59,7 @@ func Test_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:   "dedupe this",
+			name:   "needs deduplication",
 			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
 			polygon: &geom.Polygon{{
 				{0.0, 0.0},
@@ -85,7 +85,33 @@ func Test_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:   "dedupe this longer one",
+			name:   "needs deduplication and reversal",
+			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
+			polygon: &geom.Polygon{{
+				{0.0, 2.4},
+				{2.0, 2.4},
+				{15.0, 2.4},
+				{15.0, 2.3},
+				{2.0, 2.3},
+				{2.0, 2.2},
+				{15.0, 2.2},
+				{15.0, 2.1},
+				{2.0, 2.1},
+				{2.0, 2.0},
+				{15.0, 2.0},
+				{15.0, 0.0},
+				{0.0, 0.0},
+			}},
+			want: &geom.Polygon{{
+				{0.25, 0.25},
+				{15.25, 0.25},
+				{15.25, 2.25},
+				{2.25, 2.25},
+				{0.25, 2.25},
+			}},
+		},
+		{
+			name:   "needs deduplication with one zigzag",
 			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
 			polygon: &geom.Polygon{{
 				{0.0, 0.0},
@@ -117,7 +143,7 @@ func Test_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:   "dedupe this double zig zag",
+			name:   "needs deduplication with more than one zigzag",
 			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
 			polygon: &geom.Polygon{{
 				{0.0, 0.0},
