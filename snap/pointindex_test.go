@@ -1,6 +1,7 @@
 package snap
 
 import (
+	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/pdok/texel/intgeom"
 	"os"
 	"testing"
@@ -365,6 +366,42 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			got := ix.SnapClosestPoints(tt.line)
 			if !assert.EqualValues(t, tt.want, got) {
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPointIndex_lineIntersects(t *testing.T) {
+	tests := []struct {
+		name   string
+		extent intgeom.Extent
+		line   intgeom.Line
+		want   bool
+	}{
+		{
+			name: "false positive with naive integer intersect implementation",
+			extent: intgeom.Extent{
+				135196160000000,
+				516981760000000,
+				135202880000000,
+				516988480000000,
+			},
+			line: intgeom.Line{
+				{135201147999999, 516929654000000},
+				{135145991000000, 516996354000000},
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ix := &PointIndex{
+				intExtent: tt.extent,
+			}
+			got := ix.lineIntersects(tt.line)
+			if tt.want != got {
+				t.Logf("extent = %v", wkt.MustEncode(tt.extent.ToGeomExtent()))
+				t.Errorf("lineIntersects(%v) = %v, want %v", wkt.MustEncode(tt.line.ToGeomLine()), got, tt.want)
 			}
 		})
 	}
