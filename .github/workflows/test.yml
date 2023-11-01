@@ -1,0 +1,40 @@
+---
+name: test
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: setup cgo dependencies
+        run: sudo apt-get update && sudo apt-get install libcurl4-openssl-dev libssl-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 'stable'
+
+      - name: Download
+        run: go mod download all
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Test
+        run: go test -v ./...
+
+      - name: Update coverage report
+        uses: ncruces/go-coverage-report@v0
+        with:
+          report: true
+          chart: false
+          amend: true
+          reuse-go: true
+        if: |
+          github.event_name == 'push'
+        continue-on-error: true
