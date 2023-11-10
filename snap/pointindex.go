@@ -273,8 +273,6 @@ type quadrantToCheck struct {
 	i       int  // quadrant number
 	certain bool // whether the line certainly intersects this quadrant (true) or needs to be checked (false)
 	mutex   bool // if the line intersects this one, the other cannot be intersected
-	// TODO account for edge cases: lines on, or stopping at the exclusive extent edges
-	// TODO not only exclusive lines but also last/first point on a line
 }
 
 // getInfiniteQuadrant determines in which infinite quadrant the point lies

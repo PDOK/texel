@@ -357,14 +357,71 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 				{110907.6453125, 504428.8065625}, // horizontal line still here
 			},
 		},
+		{
+			name:   "corner case topleft",
+			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{0.0, 4.0}, {1.0, 3.0}},
+			want:   [][2]float64{},
+		},
+		{
+			name:   "corner case topright",
+			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{4.0, 4.0}, {3.0, 3.0}},
+			want:   [][2]float64{},
+		},
+		{
+			name:   "corner case bottomright",
+			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{4.0, 0.0}, {3.0, 1.0}},
+			want:   [][2]float64{},
+		},
+		{
+			name:   "corner case bottomleft",
+			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{0.0, 0.0}, {1.0, 1.0}},
+			want:   [][2]float64{{1.5, 1.5}},
+		},
+		{
+			name:   "edge case top",
+			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{0.0, 3.0}, {4.0, 3.0}},
+			want:   [][2]float64{},
+		},
+		{
+			name:   "edge case right",
+			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{3.0, 4.0}, {3.0, 0.0}},
+			want:   [][2]float64{},
+		},
+		{
+			name:   "edge case bottom",
+			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{0.0, 1.0}, {4.0, 1.0}},
+			want:   [][2]float64{{1.5, 1.5}, {2.5, 1.5}},
+		},
+		{
+			name:   "edge case left",
+			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{1.0, 0.0}, {1.0, 4.0}},
+			want:   [][2]float64{{1.5, 1.5}, {1.5, 2.5}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := NewPointIndexFromTileMatrix(tt.matrix)
-			ix.InsertPolygon(&tt.poly)
-			ix.toWkt(os.Stdout)
+			poly := tt.poly
+			ix.InsertPolygon(&poly)
 			got := ix.SnapClosestPoints(tt.line)
 			if !assert.EqualValues(t, tt.want, got) {
+				ix.toWkt(os.Stdout)
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
 			}
 		})
