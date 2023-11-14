@@ -105,6 +105,7 @@ func isClockwise(points [3][2]float64, shouldBeClockwise bool) bool {
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
+// function also determines the rightmost lowest point of the ring, which is used to ensure correct winding order
 //
 //nolint:cyclop,funlen
 func kmpDeduplicate(newRing [][2]float64) ([][2]float64, [2]float64) {
