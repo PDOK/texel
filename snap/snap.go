@@ -2,9 +2,9 @@ package snap
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"slices"
-	"strings"
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/processing"
@@ -68,6 +68,7 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			// inner rings (ringIdx != 0) should be clockwise
 			shouldBeClockwise := ringIdx != 0
 			// winding order is reversed if incorrect
+			// ensureCorrectWindingOrder(deduplicatedRing, shouldBeClockwise)
 			ensureCorrectWindingOrder(deduplicatedRing, shouldBeClockwise)
 			newPolygon = append(newPolygon, deduplicatedRing)
 		}
@@ -78,86 +79,46 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 // validate winding order (CCW for outer rings, CW for inner rings)
 // if winding order is incorrect, ring is reversed to correct winding order
 func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
-	steps := []string{}
+	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
+	mod := func(a, b int) int {
+		return (a%b + b) % b
+	}
 	stepCounts := map[bool]int{true: 0, false: 0}
 	for i := 0; i < len(ring); i++ {
-		steps = append(steps, directionOfStep(ring[i], ring[(i+1)%len(ring)]))
-		// need at least a pair of steps to check winding order
-		if len(steps) <= 1 {
-			continue
-		}
-		// steps back (e.g., 'R,L') or repeated steps (e.g., 'R,R') count as a step for the winding order the ring should have
-		if steps[len(steps)-2] == oppositeDirectionOf(steps[len(steps)-1]) || steps[len(steps)-2] == steps[len(steps)-1] {
-			stepCounts[shouldBeClockwise]++
-		} else {
-			stepCounts[isClockwise(steps[len(steps)-2:])]++
-		}
+		// check angle between the vector from the previous point to the current point and the vector from the current point to the next point
+		points := [3][2]float64{ring[mod(i-1, len(ring))], ring[i], ring[mod(i+1, len(ring))]}
+		isClockwise := isClockwise(points, shouldBeClockwise)
+		// TODO: implement penalty for 'bites' (parts of the ring that fall within the ring's extent)?
+		stepCounts[isClockwise]++
+	}
+	var msg string
+	if shouldBeClockwise {
+		msg = "inner ring should be clockwise;"
+	} else {
+		msg = "outer ring should be counterclockwise;"
 	}
 	if stepCounts[shouldBeClockwise] < stepCounts[!shouldBeClockwise] {
+		msg += fmt.Sprintf(" incorrect winding order (correct steps: %d, incorrect steps: %d)", stepCounts[shouldBeClockwise], stepCounts[!shouldBeClockwise])
 		slices.Reverse(ring)
+	} else {
+		msg += fmt.Sprintf(" assuming correct winding order (correct steps: %d, incorrect steps: %d)", stepCounts[shouldBeClockwise], stepCounts[!shouldBeClockwise])
 	}
+	log.Printf("%s final ring: %v\n", msg, ring)
 }
 
-// returns if pair of steps is clockwise
-func isClockwise(stepsPair []string) bool {
-	clockwiseSteps := []string{
-		"U,R",   // up, then right
-		"U,RU",  // up, then right+up
-		"U,RD",  // up, then right+down
-		"RU,R",  // right+up, then right
-		"RU,RD", // right+up, then right+down
-		"RU,D",  // right+up, then down
-		"R,D",   // right, then down
-		"R,RD",  // right, then right+down
-		"R,LD",  // right, then left+down
-		"RD,D",  // right+down, then down
-		"RD,LD", // right+down, then left+down
-		"RD,L",  // right+down, then left
-		"D,L",   // down, then left
-		"D,LU",  // down, then left+up
-		"D,LD",  // down, then left+down
-		"LD,L",  // left+down, then left
-		"LD,LU", // left+down, then left+up
-		"LD,U",  // left+down, then up
-		"L,U",   // left, then up
-		"L,LU",  // left, then left+up
-		"L,RU",  // left, then right+up
-		"LU,R",  // left+up, then right
-		"LU,RU", // left+up, then right+up
-		"LU,U",  // left+up, then up
+// determines whether a pair of vectors turns clockwise by examining the relationship of their relative angle to the angles of the vectors
+func isClockwise(points [3][2]float64, shouldBeClockwise bool) bool {
+	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
+	mod := func(a, b float64) float64 {
+		return math.Mod(math.Mod(a, b)+b, b)
 	}
-	return slices.Contains(clockwiseSteps, strings.Join(stepsPair, ","))
-}
-
-// returns opposite of a direction
-func oppositeDirectionOf(direction string) string {
-	opposites := map[string]string{
-		"U":  "D",
-		"D":  "U",
-		"R":  "L",
-		"L":  "R",
-		"RU": "LD",
-		"RD": "LU",
-		"LU": "RD",
-		"LD": "RU",
+	vector1 := vector2d{x: (points[1][0] - points[0][0]), y: (points[1][1] - points[0][1])}
+	vector2 := vector2d{x: (points[2][0] - points[1][0]), y: (points[2][1] - points[1][1])}
+	relativeAngle := math.Acos(vector1.dot(vector2)/(vector1.magnitude()*vector2.magnitude())) * (180 / math.Pi)
+	if math.Round(relativeAngle) == 0.0 || math.Round(relativeAngle) == 180.0 {
+		return shouldBeClockwise
 	}
-	return opposites[direction]
-}
-
-// determines direction of a step from one point to another
-func directionOfStep(from, to [2]float64) string {
-	direction := ""
-	if to[0] > from[0] {
-		direction += "R"
-	} else if to[0] < from[0] {
-		direction += "L"
-	}
-	if to[1] > from[1] {
-		direction += "U"
-	} else if to[1] < from[1] {
-		direction += "D"
-	}
-	return direction
+	return math.Round(mod((vector2.angle()-relativeAngle), 360)) != math.Round(vector1.angle())
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
