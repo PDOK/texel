@@ -84,8 +84,7 @@ func ensureCorrectWindingOrder(ring [][2]float64, rightmostLowestPoint [2]float6
 	i := slices.Index(ring, rightmostLowestPoint)
 	// check angle between the vectors goint into and coming out of the rightmost lowest point
 	points := [3][2]float64{ring[mod(i-1, len(ring))], ring[i], ring[mod(i+1, len(ring))]}
-	isClockwise := isClockwise(points, shouldBeClockwise)
-	if isClockwise != shouldBeClockwise {
+	if isClockwise(points, shouldBeClockwise) != shouldBeClockwise {
 		slices.Reverse(ring)
 	}
 }
@@ -120,7 +119,7 @@ func kmpDeduplicate(newRing [][2]float64) ([][2]float64, [2]float64) {
 	visitedPoints := [][2]float64{}
 	for i := 0; i < len(newRing); {
 		vertex := newRing[i]
-		// check if point is rightmost lowest point (either y is lower, or y is equal and x is higher)
+		// check if vertex is rightmost lowest point (either y is lower, or y is equal and x is higher)
 		if vertex[1] < rightmostLowestPoint[1] {
 			rightmostLowestPoint[0] = vertex[0]
 			rightmostLowestPoint[1] = vertex[1]
