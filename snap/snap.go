@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/processing"
@@ -64,11 +63,11 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 			}
 		default:
 			// deduplicate points in the ring, check winding order, then add to the polygon
-			deduplicatedRing := kmpDeduplicate(newRing)
+			deduplicatedRing, rightmostLowestPoint := kmpDeduplicate(newRing)
 			// inner rings (ringIdx != 0) should be clockwise
 			shouldBeClockwise := ringIdx != 0
 			// winding order is reversed if incorrect
-			ensureCorrectWindingOrder(deduplicatedRing, shouldBeClockwise)
+			ensureCorrectWindingOrder(deduplicatedRing, rightmostLowestPoint, shouldBeClockwise)
 			newPolygon = append(newPolygon, deduplicatedRing)
 		}
 	}
@@ -77,93 +76,40 @@ func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 
 // validate winding order (CCW for outer rings, CW for inner rings)
 // if winding order is incorrect, ring is reversed to correct winding order
-func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
-	steps := []string{}
-	stepCounts := map[bool]int{true: 0, false: 0}
-	for i := 0; i < len(ring); i++ {
-		steps = append(steps, directionOfStep(ring[i], ring[(i+1)%len(ring)]))
-		// need at least a pair of steps to check winding order
-		if len(steps) <= 1 {
-			continue
-		}
-		// steps back (e.g., 'R,L') or repeated steps (e.g., 'R,R') count as a step for the winding order the ring should have
-		if steps[len(steps)-2] == oppositeDirectionOf(steps[len(steps)-1]) || steps[len(steps)-2] == steps[len(steps)-1] {
-			stepCounts[shouldBeClockwise]++
-		} else {
-			stepCounts[isClockwise(steps[len(steps)-2:])]++
-		}
+func ensureCorrectWindingOrder(ring [][2]float64, rightmostLowestPoint [2]float64, shouldBeClockwise bool) {
+	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
+	mod := func(a, b int) int {
+		return (a%b + b) % b
 	}
-	if stepCounts[shouldBeClockwise] < stepCounts[!shouldBeClockwise] {
+	i := slices.Index(ring, rightmostLowestPoint)
+	// check angle between the vectors goint into and coming out of the rightmost lowest point
+	points := [3][2]float64{ring[mod(i-1, len(ring))], ring[i], ring[mod(i+1, len(ring))]}
+	if isClockwise(points, shouldBeClockwise) != shouldBeClockwise {
 		slices.Reverse(ring)
 	}
 }
 
-// returns if pair of steps is clockwise
-func isClockwise(stepsPair []string) bool {
-	clockwiseSteps := []string{
-		"U,R",   // up, then right
-		"U,RU",  // up, then right+up
-		"U,RD",  // up, then right+down
-		"RU,R",  // right+up, then right
-		"RU,RD", // right+up, then right+down
-		"RU,D",  // right+up, then down
-		"R,D",   // right, then down
-		"R,RD",  // right, then right+down
-		"R,LD",  // right, then left+down
-		"RD,D",  // right+down, then down
-		"RD,LD", // right+down, then left+down
-		"RD,L",  // right+down, then left
-		"D,L",   // down, then left
-		"D,LU",  // down, then left+up
-		"D,LD",  // down, then left+down
-		"LD,L",  // left+down, then left
-		"LD,LU", // left+down, then left+up
-		"LD,U",  // left+down, then up
-		"L,U",   // left, then up
-		"L,LU",  // left, then left+up
-		"L,RU",  // left, then right+up
-		"LU,R",  // left+up, then right
-		"LU,RU", // left+up, then right+up
-		"LU,U",  // left+up, then up
+// determines whether a pair of vectors turns clockwise by examining the relationship of their relative angle to the angles of the vectors
+func isClockwise(points [3][2]float64, shouldBeClockwise bool) bool {
+	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
+	mod := func(a, b float64) float64 {
+		return math.Mod(math.Mod(a, b)+b, b)
 	}
-	return slices.Contains(clockwiseSteps, strings.Join(stepsPair, ","))
-}
-
-// returns opposite of a direction
-func oppositeDirectionOf(direction string) string {
-	opposites := map[string]string{
-		"U":  "D",
-		"D":  "U",
-		"R":  "L",
-		"L":  "R",
-		"RU": "LD",
-		"RD": "LU",
-		"LU": "RD",
-		"LD": "RU",
+	vector1 := vector2d{x: (points[1][0] - points[0][0]), y: (points[1][1] - points[0][1])}
+	vector2 := vector2d{x: (points[2][0] - points[1][0]), y: (points[2][1] - points[1][1])}
+	relativeAngle := math.Acos(vector1.dot(vector2)/(vector1.magnitude()*vector2.magnitude())) * (180 / math.Pi)
+	if math.Round(relativeAngle) == 0.0 || math.Round(relativeAngle) == 180.0 {
+		return shouldBeClockwise
 	}
-	return opposites[direction]
-}
-
-// determines direction of a step from one point to another
-func directionOfStep(from, to [2]float64) string {
-	direction := ""
-	if to[0] > from[0] {
-		direction += "R"
-	} else if to[0] < from[0] {
-		direction += "L"
-	}
-	if to[1] > from[1] {
-		direction += "U"
-	} else if to[1] < from[1] {
-		direction += "D"
-	}
-	return direction
+	return math.Round(mod((vector2.angle()-relativeAngle), 360)) != math.Round(vector1.angle())
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
+// function also determines the rightmost lowest point of the ring, which is used to ensure correct winding order
 //
 //nolint:cyclop,funlen
-func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
+func kmpDeduplicate(newRing [][2]float64) ([][2]float64, [2]float64) {
+	rightmostLowestPoint := [2]float64{math.MinInt, math.MaxInt}
 	deduplicatedRing := make([][2]float64, len(newRing))
 	copy(deduplicatedRing, newRing)
 	// map of indices to remove, sorted by starting index of each sequence to remove
@@ -174,6 +120,13 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 	visitedPoints := [][2]float64{}
 	for i := 0; i < len(newRing); {
 		vertex := newRing[i]
+		// check if vertex is rightmost lowest point (either y is lower, or y is equal and x is higher)
+		if vertex[1] < rightmostLowestPoint[1] {
+			rightmostLowestPoint[0] = vertex[0]
+			rightmostLowestPoint[1] = vertex[1]
+		} else if vertex[1] == rightmostLowestPoint[1] && vertex[0] > rightmostLowestPoint[0] {
+			rightmostLowestPoint[0] = vertex[0]
+		}
 		// not a step back, continue
 		if len(visitedPoints) <= 1 || visitedPoints[len(visitedPoints)-2] != vertex {
 			visitedPoints = append(visitedPoints, vertex)
@@ -314,7 +267,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 		deduplicatedRing = append(deduplicatedRing[:sequence[0]-offset], deduplicatedRing[sequence[1]-offset:]...)
 		offset += sequence[1] - sequence[0]
 	}
-	return deduplicatedRing
+	return deduplicatedRing, rightmostLowestPoint
 }
 
 // repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'

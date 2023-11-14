@@ -26,7 +26,7 @@ RUN go test ./... -covermode=atomic
 RUN go build -v -ldflags='-s -w -linkmode auto' -a -installsuffix cgo -o /texel .
 
 # FROM scratch
-FROM golang:1.18-bullseye
+FROM golang:1.21-bullseye
 RUN apt-get update && apt-get install -y \
   libsqlite3-mod-spatialite \
   && rm -rf /var/lib/apt/lists/*
