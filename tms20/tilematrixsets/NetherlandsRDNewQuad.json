@@ -1,0 +1,244 @@
+{
+  "title": "Amersfoort / RD New schema for the Netherlands",
+  "id": "NetherlandsRDNewQuad",
+  "boundingBox": {
+    "crs": "http://www.opengis.net/def/crs/EPSG/0/28992",
+    "lowerLeft": [
+      -285401.92,
+      22598.08
+    ],
+    "upperRight": [
+      595401.92,
+      903401.92
+    ]
+  },
+  "crs": "http://www.opengis.net/def/crs/EPSG/0/28992",
+  "orderedAxes": [
+    "X",
+    "Y"
+  ],
+  "wellKnownScaleSet": "urn:ogc:def:wkss:OGC:1.0:NLDEPSG28992Scale",
+  "tileMatrices": [
+    {
+      "id": "0",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 1.2288E7,
+      "cellSize": 3440.64,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 1,
+      "matrixHeight": 1
+    },
+    {
+      "id": "1",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 6144000.0,
+      "cellSize": 1720.32,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 2,
+      "matrixHeight": 2
+    },
+    {
+      "id": "2",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 3072000.0,
+      "cellSize": 860.16,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 4,
+      "matrixHeight": 4
+    },
+    {
+      "id": "3",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 1536000.0,
+      "cellSize": 430.08,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 8,
+      "matrixHeight": 8
+    },
+    {
+      "id": "4",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 768000.0,
+      "cellSize": 215.04,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 16,
+      "matrixHeight": 16
+    },
+    {
+      "id": "5",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 384000.0,
+      "cellSize": 107.52,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 32,
+      "matrixHeight": 32
+    },
+    {
+      "id": "6",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 192000.0,
+      "cellSize": 53.76,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 64,
+      "matrixHeight": 64
+    },
+    {
+      "id": "7",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 96000.0,
+      "cellSize": 26.88,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 128,
+      "matrixHeight": 128
+    },
+    {
+      "id": "8",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 48000.0,
+      "cellSize": 13.44,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 256,
+      "matrixHeight": 256
+    },
+    {
+      "id": "9",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 24000.0,
+      "cellSize": 6.72,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 512,
+      "matrixHeight": 512
+    },
+    {
+      "id": "10",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 12000.0,
+      "cellSize": 3.36,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 1024,
+      "matrixHeight": 1024
+    },
+    {
+      "id": "11",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 6000.0,
+      "cellSize": 1.68,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 2048,
+      "matrixHeight": 2048
+    },
+    {
+      "id": "12",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 3000.0,
+      "cellSize": 0.84,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 4096,
+      "matrixHeight": 4096
+    },
+    {
+      "id": "13",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 1500.0,
+      "cellSize": 0.42,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 8192,
+      "matrixHeight": 8192
+    },
+    {
+      "id": "14",
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "scaleDenominator": 750.0,
+      "cellSize": 0.21,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 16384,
+      "matrixHeight": 16384
+    },
+    {
+      "id": "15",
+      "scaleDenominator": 375.0,
+      "cellSize": 0.105,
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 32768,
+      "matrixHeight": 32768
+    },
+    {
+      "id": "16",
+      "scaleDenominator": 187.5,
+      "cellSize": 0.0525,
+      "pointOfOrigin": [
+        -285401.92,
+        903401.92
+      ],
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 65536,
+      "matrixHeight": 65536
+    }
+  ]
+}
