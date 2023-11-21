@@ -6,9 +6,13 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"math"
+	"os"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/go-spatial/geom"
 
@@ -19,15 +23,24 @@ import (
 	"github.com/perimeterx/marshmallow"
 )
 
+const (
+	CoordPrecision                 = 5
+	StandardizedRenderingPixelSize = 0.00028
+)
+
 var (
 	//go:embed tilematrixsets/*.json
 	embeddedTileMatrixSetsJSONFS embed.FS
 	embeddedTileMatrixSetsCache  = make(map[string]*TileMatrixSet)
+	crsURIRegexURL               = regexp.MustCompile(`https?://.+/def/crs/(?P<authority>[^/]+)/(?P<version>[^/]*)/(?P<code>[^/]+)$`)
+	crsURIRegexURN               = regexp.MustCompile(`^urn:ogc:def:crs:(?P<authority>[^:]+):(?P<version>[^:]*):(?P<code>[^:]+)$`)
+	latLonOrderedAxesRegex       = regexp.MustCompile(`^(e,n|x,y|lon,lat|e\(x\),n\(y\))`)
+	lonLatOrderedAxesRegex       = regexp.MustCompile(`^(n,e|y,x|lat|lon)`)
 )
 
-func LoadTileMatrixSetJson(path string) (TileMatrixSet, error) {
+func LoadJSONTileMatrixSet(path string) (TileMatrixSet, error) {
 	var tms TileMatrixSet
-	tmsJSON, err := embeddedTileMatrixSetsJSONFS.ReadFile(path)
+	tmsJSON, err := os.ReadFile(path)
 	if err != nil {
 		return tms, err
 	}
@@ -44,7 +57,7 @@ func LoadEmbeddedTileMatrixSet(id string) (TileMatrixSet, error) {
 	if ok {
 		return *cached, nil
 	}
-	tmsJSON, err := embeddedTileMatrixSetsJSONFS.ReadFile("tilematrixsets/" + id + ".json")
+	tmsJSON, err := embeddedTileMatrixSetsJSONFS.ReadFile(path.Join("tilematrixsets", id+".json"))
 	if err != nil {
 		return tms, err
 	}
@@ -69,7 +82,8 @@ type TileMatrixSet struct {
 	// Unordered list of one or more commonly used or formalized word(s) or phrase(s) used to describe this tile matrix set
 	Keywords []string `json:"keywords,omitempty"`
 	// Reference to an official source for this TileMatrixSet
-	URI         string   `validate:"omitempty,uri" json:"uri,omitempty"`
+	URI string `validate:"omitempty,uri" json:"uri,omitempty"`
+	// (This is informative, the CRS is authoritative)
 	OrderedAxes []string `validate:"omitnil,min=1" json:"orderedAxes"`
 	// Coordinate Reference System (CRS)
 	CRS CRS `validate:"required" json:"-"`
@@ -206,21 +220,18 @@ func unmarshalCRS(rawCrs interface{}) (CRS, error) {
 
 type CRS interface {
 	Description() string
-	AuthorityName() string
-	AuthorityCode() string
+	Authority() string
+	Version() string
+	Code() string
 }
-
-var (
-	crsURIRegexURL = regexp.MustCompile("https?://.+/def/crs/(?P<authority>[^/]+)/[^/]+/(?P<code>[^/]+)$")
-	crsURIRegexURN = regexp.MustCompile("^urn:ogc:def:crs:(?P<authority>[^:]+)::(?P<code>[^:]+)$")
-)
 
 type URICRS struct {
 	description string
 	// Reference to one coordinate reference system (CRS)
-	uri           string `validate:"required,uri"`
-	authorityName string `validate:"required"`
-	authorityCode string `validate:"required"`
+	uri       string `validate:"required,uri"`
+	authority string `validate:"required"`
+	version   string
+	code      string `validate:"required"`
 	// Whether it should be marshalled as just a string
 	asString bool
 }
@@ -272,8 +283,9 @@ func (crs *URICRS) UnmarshalJSONFromMap(data interface{}) error {
 	if uriParts == nil {
 		return fmt.Errorf(`could not parse crs uri "%v"`, crs.uri)
 	}
-	crs.authorityName = uriParts[1]
-	crs.authorityCode = uriParts[2]
+	crs.authority = uriParts[1]
+	crs.version = uriParts[2]
+	crs.code = uriParts[3]
 
 	validate := validator.New(validator.WithRequiredStructEnabled())
 	return validate.Struct(crs)
@@ -283,12 +295,16 @@ func (crs *URICRS) Description() string {
 	return crs.description
 }
 
-func (crs *URICRS) AuthorityName() string {
-	return crs.authorityName
+func (crs *URICRS) Authority() string {
+	return crs.authority
 }
 
-func (crs *URICRS) AuthorityCode() string {
-	return crs.authorityCode
+func (crs *URICRS) Version() string {
+	return crs.version
+}
+
+func (crs *URICRS) Code() string {
+	return crs.code
 }
 
 type WKTCRS struct {
@@ -360,11 +376,15 @@ func (crs *WKTCRS) Description() string {
 	return crs.description
 }
 
-func (crs *WKTCRS) AuthorityName() string {
+func (crs *WKTCRS) Authority() string {
 	return crs.wkt.ID.AuthorityName
 }
 
-func (crs *WKTCRS) AuthorityCode() string {
+func (crs *WKTCRS) Version() string {
+	return ""
+}
+
+func (crs *WKTCRS) Code() string {
 	return crs.wkt.ID.AuthorityCode
 }
 
@@ -419,20 +439,24 @@ func (crs *ReferenceSystemCRS) Description() string {
 	return crs.description
 }
 
-func (crs *ReferenceSystemCRS) AuthorityName() string {
-	panic("not implemented") // TODO implement ReferenceSystemCRS.AuthorityName()
+func (crs *ReferenceSystemCRS) Authority() string {
+	panic("not implemented") // TODO implement ReferenceSystemCRS.Authority()
 }
 
-func (crs *ReferenceSystemCRS) AuthorityCode() string {
-	panic("not implemented") // TODO implement ReferenceSystemCRS.AuthorityCode()
+func (crs *ReferenceSystemCRS) Version() string {
+	panic("not implemented") // TODO implement ReferenceSystemCRS.Version()
+}
+
+func (crs *ReferenceSystemCRS) Code() string {
+	panic("not implemented") // TODO implement ReferenceSystemCRS.Code()
 }
 
 // Minimum bounding rectangle surrounding a 2D resource in the CRS indicated elsewhere
 type TwoDBoundingBox struct {
-	LowerLeft   TwoDPoint `validate:"required" json:"lowerLeft"`
-	UpperRight  TwoDPoint `validate:"required" json:"upperRight"`
-	CRS         CRS       `json:"-"`
-	OrderedAxes []string  `validate:"omitempty,len=2" json:"orderedAxes,omitempty"`
+	LowerLeft   *TwoDPoint `validate:"required" json:"lowerLeft"`
+	UpperRight  *TwoDPoint `validate:"required" json:"upperRight"`
+	CRS         CRS        `json:"-"`
+	OrderedAxes []string   `validate:"omitempty,len=2" json:"orderedAxes,omitempty"`
 }
 
 func (bb *TwoDBoundingBox) MarshalJSON() ([]byte, error) {
@@ -473,8 +497,56 @@ func (bb *TwoDBoundingBox) UnmarshalJSON(data []byte) error {
 // A 2D Point in the CRS indicated elsewhere
 type TwoDPoint [2]float64
 
-func (p TwoDPoint) XY() [2]float64 {
-	return p
+func IsLatLon(crs CRS) (bool, error) {
+	authority := crs.Authority()
+	version := crs.Version()
+	code := crs.Code()
+	// :urn:ogc:def:crs:OGC:1.3:CRS84
+	if authority == "OGC" && version == "1.3" && code == "CRS84" {
+		return false, nil
+	}
+	if strings.ToLower(authority) != "epsg" {
+		return false, fmt.Errorf(`could not determine axis order for unknown crs authority "%v"`, authority)
+	}
+	iCode, err := strconv.ParseUint(code, 10, 64)
+	if err != nil {
+		return false, fmt.Errorf(`could not parse uri authority code "%w"`, err)
+	}
+	isLatLon, known := epsgAxesAreLatLon[uint(iCode)]
+	if !known {
+		return false, fmt.Errorf(`unknown axis order for epsg:%d`, iCode)
+	}
+	return isLatLon, nil
+}
+
+// ToXYPoint ensures that the coordinates in a point are in XY order
+func ToXYPoint(tms *TileMatrixSet, point [2]float64) (geom.Point, error) {
+	isLatLon, err := IsLatLon(tms.CRS)
+	if err != nil {
+		// Fall back to (informative) OrderedAxes property
+		isLatLon, err = axisOrderIsLatLon(tms.OrderedAxes)
+	}
+	switch {
+	case err != nil:
+		return [2]float64{}, err
+	case isLatLon:
+		return [2]float64{point[1], point[0]}, nil
+	default:
+		return [2]float64{point[0], point[1]}, nil
+	}
+}
+
+func axisOrderIsLatLon(orderedAxes []string) (bool, error) {
+	if len(orderedAxes) < 2 {
+		return false, fmt.Errorf(`could not determine if (empty or single) ordered axes are in lat/lon order`)
+	}
+	orderedAxesStr := []byte(strings.ToLower(fmt.Sprintf(`%s,%s`, orderedAxes[0], orderedAxes[1])))
+	if latLonOrderedAxesRegex.Match(orderedAxesStr) {
+		return true, nil
+	} else if lonLatOrderedAxesRegex.Match(orderedAxesStr) {
+		return false, nil
+	}
+	return false, fmt.Errorf(`could not determine if ordered axes are in lat/lon order`)
 }
 
 // A tile matrix, usually corresponding to a particular zoom level of a TileMatrixSet.
@@ -496,7 +568,7 @@ type TileMatrix struct {
 	// This corner is also a corner of the (0, 0) tile.
 	CornerOfOrigin CornerOfOrigin `validate:"omitempty,oneof=topLeft bottomLeft" json:"cornerOfOrigin,omitempty"`
 	// Precise position in CRS coordinates of the corner of origin (e.g. the top-left corner) for this tile matrix. This position is also a corner of the (0, 0) tile. In previous version, this was 'topLeftCorner' and 'cornerOfOrigin' did not exist.
-	PointOfOrigin TwoDPoint `validate:"required" json:"pointOfOrigin"`
+	PointOfOrigin *TwoDPoint `validate:"required" json:"pointOfOrigin"`
 	// Width of each tile of this tile matrix in pixels
 	TileWidth uint `validate:"required,min=1" json:"tileWidth"`
 	// Height of each tile of this tile matrix in pixels
@@ -540,10 +612,6 @@ const (
 	BottomLeft CornerOfOrigin = "bottomLeft"
 )
 
-func (c *CornerOfOrigin) UnmarshalJSON(data []byte) error {
-	return UnmarshalJSONMapUsingUnmarshalJSONFromMap(c, data)
-}
-
 func (c *CornerOfOrigin) UnmarshalJSONFromMap(data interface{}) error {
 	dataString, ok := data.(string)
 	if !ok {
@@ -573,7 +641,7 @@ type VariableMatrixWidth struct {
 }
 
 func (tms *TileMatrixSet) SRID() uint {
-	code, err := strconv.ParseUint(tms.CRS.AuthorityCode(), 10, 64)
+	code, err := strconv.ParseUint(tms.CRS.Code(), 10, 64)
 	if err != nil {
 		panic(fmt.Errorf(`could not parse uri authority code "%w"`, err))
 	}
@@ -598,10 +666,15 @@ func (tms *TileMatrixSet) FromNative(zoom uint, pt geom.Point) (*slippy.Tile, bo
 		panic("variable matrix widths not supported") // TODO support VariableMatrixWidths
 	}
 
+	pointOfOriginXY, err := ToXYPoint(tms, *tm.PointOfOrigin)
+	if err != nil {
+		panic(fmt.Errorf(`could not get pointOfOrigin coordinates: %w`, err))
+	}
+
 	// TODO use big decimals to prevent floating point rounding errors
 	tileSizeX := float64(tm.TileWidth) * tm.CellSize
-	minX := tm.PointOfOrigin.XY()[0]
-	x := int((pt.X() - minX) / tileSizeX)
+	minX := pointOfOriginXY[0]
+	x := (pt.X() - minX) / tileSizeX
 	if x < 0 {
 		return nil, false
 	}
@@ -611,16 +684,16 @@ func (tms *TileMatrixSet) FromNative(zoom uint, pt geom.Point) (*slippy.Tile, bo
 	}
 
 	tileSizeY := float64(tm.TileHeight) * tm.CellSize
-	var y int
+	var y float64
 	switch tm.CornerOfOrigin {
 	default:
 		fallthrough
 	case TopLeft:
-		maxY := tm.PointOfOrigin.XY()[1]
-		y = int((maxY - pt.Y()) / tileSizeY)
+		maxY := pointOfOriginXY[1]
+		y = (maxY - pt.Y()) / tileSizeY
 	case BottomLeft:
-		minY := tm.PointOfOrigin.XY()[1]
-		y = int((pt.Y() - minY) / tileSizeY)
+		minY := pointOfOriginXY[1]
+		y = (pt.Y() - minY) / tileSizeY
 	}
 	if y < 0 {
 		return nil, false
@@ -644,20 +717,25 @@ func (tms *TileMatrixSet) ToNative(tile *slippy.Tile) (geom.Point, bool) {
 		return topLeftPt, false
 	}
 
+	pointOfOriginXY, err := ToXYPoint(tms, *tm.PointOfOrigin)
+	if err != nil {
+		panic(fmt.Errorf(`could not get pointOfOrigin coordinates: %w`, err))
+	}
+
 	tileSizeX := float64(tm.TileWidth) * tm.CellSize
-	minX := tm.PointOfOrigin.XY()[0]
-	topLeftPt[0] = minX + float64(tile.X)*tileSizeX
+	minX := pointOfOriginXY[0]
+	topLeftPt[0] = roundFloat(minX+float64(tile.X)*tileSizeX, CoordPrecision)
 
 	tileSizeY := float64(tm.TileHeight) * tm.CellSize
 	switch tm.CornerOfOrigin {
 	default:
 		fallthrough
 	case TopLeft:
-		maxY := tm.PointOfOrigin.XY()[1]
-		topLeftPt[1] = maxY - float64(tile.Y)*tileSizeY
+		maxY := pointOfOriginXY[1]
+		topLeftPt[1] = roundFloat(maxY-float64(tile.Y)*tileSizeY, CoordPrecision)
 	case BottomLeft:
-		minY := tm.PointOfOrigin.XY()[1]
-		topLeftPt[1] = minY + float64(tile.Y+1)*tileSizeY
+		minY := pointOfOriginXY[1]
+		topLeftPt[1] = roundFloat(minY+float64(tile.Y+1)*tileSizeY, CoordPrecision)
 	}
 
 	return topLeftPt, true
@@ -670,4 +748,9 @@ func UnmarshalJSONMapUsingUnmarshalJSONFromMap(target marshmallow.UnmarshalerFro
 		return err
 	}
 	return target.UnmarshalJSONFromMap(dataMap)
+}
+
+func roundFloat(f float64, p uint) float64 {
+	r := math.Pow(10, float64(p))
+	return math.Round(f*r) / r
 }

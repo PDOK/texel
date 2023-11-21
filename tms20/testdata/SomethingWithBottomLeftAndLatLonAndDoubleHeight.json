@@ -1,0 +1,41 @@
+{
+  "title": "Something with bottom left origin and lat/lon axes order",
+  "id": "SomethingWithBottomLeftAndLatLonAndDoubleHeight",
+  "crs": {
+    "uri": "http://www.opengis.net/def/crs/CUSTOM/0/1"
+  },
+  "orderedAxes": [
+    "Y",
+    "X"
+  ],
+  "boundingBox": {
+    "crs": {
+      "uri": "http://www.opengis.net/def/crs/CUSTOM/0/2"
+    },
+    "lowerLeft": [
+      0.0,
+      0.0
+    ],
+    "upperRight": [
+      512.0,
+      1024.0
+    ],
+    "orderedAxes": ["X", "Y"]
+  },
+  "tileMatrices": [
+    {
+      "id": "0",
+      "pointOfOrigin": [
+        0.0,
+        0.0
+      ],
+      "scaleDenominator": 3571.42857143,
+      "cellSize": 1.0,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "matrixWidth": 2,
+      "matrixHeight": 4,
+      "cornerOfOrigin": "bottomLeft"
+    }
+  ]
+}
