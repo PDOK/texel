@@ -1,8 +1,9 @@
 package intgeom
 
 import (
-	"github.com/go-spatial/geom"
 	"log"
+
+	"github.com/go-spatial/geom"
 )
 
 // Line has exactly two points

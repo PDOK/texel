@@ -185,16 +185,15 @@ func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth uint, certai
 	pt2InfiniteQuadrantI := ix.getInfiniteQuadrant(intLine[1])
 	pt2IsInsideQuadrant := ix.containsPoint(intLine[1])
 
-	if pt1InfiniteQuadrantI == pt2InfiniteQuadrantI {
-		// line intersects at most this quadrant
+	switch {
+	case pt1InfiniteQuadrantI == pt2InfiniteQuadrantI:
 		if pt1IsInsideQuadrant && pt2IsInsideQuadrant {
 			// line intersects for sure this quadrant (only)
 			quadrantsToCheck = []quadrantToCheck{{pt1InfiniteQuadrantI, true, false}}
 		} else {
 			quadrantsToCheck = []quadrantToCheck{{pt1InfiniteQuadrantI, false, false}} // TODO check only outside edges
 		}
-	} else if quadrantsAreAdjacent(pt1InfiniteQuadrantI, pt2InfiniteQuadrantI) {
-		// line intersects at most these two quadrants
+	case quadrantsAreAdjacent(pt1InfiniteQuadrantI, pt2InfiniteQuadrantI):
 		if pt1IsInsideQuadrant && pt2IsInsideQuadrant {
 			quadrantsToCheck = []quadrantToCheck{
 				{pt1InfiniteQuadrantI, true, false},
@@ -206,9 +205,9 @@ func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth uint, certai
 				{pt2InfiniteQuadrantI, false, false},
 			} // TODO only need to check the outside edges of the quadrant
 		}
-	} else {
-		// line intersects at most three quadrants, but don't know which ones
-		if pt1IsInsideQuadrant {
+	default:
+		switch {
+		case pt1IsInsideQuadrant:
 			if pt2IsInsideQuadrant { // both points inside quadrant
 				quadrantsToCheck = []quadrantToCheck{
 					{pt1InfiniteQuadrantI, true, false},
@@ -224,14 +223,14 @@ func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth uint, certai
 					{pt2InfiniteQuadrantI, false, false},
 				}
 			}
-		} else if pt2IsInsideQuadrant { // pt1 outside, pt2 inside
+		case pt2IsInsideQuadrant:
 			quadrantsToCheck = []quadrantToCheck{
 				{pt1InfiniteQuadrantI, false, false},
 				{adjacentQuadrantX(pt1InfiniteQuadrantI), false, true},
 				{adjacentQuadrantY(pt1InfiniteQuadrantI), false, true},
 				{pt2InfiniteQuadrantI, true, false},
 			}
-		} else { // neither inside (worst case)
+		default:
 			quadrantsToCheck = []quadrantToCheck{
 				{pt1InfiniteQuadrantI, false, false},
 				{adjacentQuadrantX(pt1InfiniteQuadrantI), false, true},
@@ -394,15 +393,10 @@ func bool2int(b bool) int {
 	return 0
 }
 
-func oneIfLeft(quadrantI int) int {
-	return oneIfRight(quadrantI) ^ 1
-}
 func oneIfRight(quadrantI int) int {
 	return quadrantI & right
 }
-func oneIfBottom(quadrantI int) int {
-	return oneIfTop(quadrantI) ^ 1
-}
+
 func oneIfTop(quadrantI int) int {
 	return (quadrantI & top) >> 1
 }

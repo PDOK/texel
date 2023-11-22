@@ -82,6 +82,7 @@ func (source SourceGeopackage) Close() {
 	source.handle.Close()
 }
 
+//nolint:funlen,cyclop
 func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) {
 
 	rows, err := source.handle.Query(source.Table.selectSQL())
@@ -119,9 +120,7 @@ func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) 
 				switch v := vals[i].(type) {
 				case []uint8:
 					asBytes := make([]byte, len(v))
-					for j := 0; j < len(v); j++ {
-						asBytes[j] = v[j]
-					}
+					copy(asBytes, v)
 					c = append(c, string(asBytes))
 				case int64:
 					c = append(c, v)
@@ -152,7 +151,7 @@ func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) 
 
 func (source SourceGeopackage) GetTableInfo() []Table {
 	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
-	rows, err := source.handle.Query(query)
+	rows, err := source.handle.Query(query) //nolint:rowserrcheck
 	if err != nil {
 		log.Fatalf("error during closing rows: %v - %v", query, err)
 	}
@@ -215,13 +214,12 @@ func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Featu
 		if !hasMore {
 			target.writeFeatures(features)
 			break
-		} else {
-			features = append(features, feature)
+		}
+		features = append(features, feature)
 
-			if len(features)%target.pagesize == 0 {
-				target.writeFeatures(features)
-				features = nil
-			}
+		if len(features)%target.pagesize == 0 {
+			target.writeFeatures(features)
+			features = nil
 		}
 	}
 }
@@ -266,11 +264,11 @@ func (target *TargetGeopackage) writeFeatures(features []interface{}) {
 				continue
 			}
 		} else {
-			ext.AddGeometry(f.geometry)
+			_ = ext.AddGeometry(f.geometry)
 		}
 	}
-	stmt.Close()
-	tx.Commit()
+	stmt.Close() //nolint:sqlclosecheck
+	_ = tx.Commit()
 
 	err = target.handle.UpdateGeometryExtent(target.Table.Name, ext)
 	if err != nil {
@@ -294,10 +292,10 @@ func (t Table) createSQL() string {
 	for _, column := range t.columns {
 		columnpart := column.name + ` ` + column.ctype
 		if column.notnull == 1 {
-			columnpart = columnpart + ` NOT NULL`
+			columnpart += ` NOT NULL`
 		}
 		if column.pk == 1 {
-			columnpart = columnpart + ` PRIMARY KEY`
+			columnpart += ` PRIMARY KEY`
 		}
 
 		columnparts = append(columnparts, columnpart)
@@ -341,7 +339,7 @@ func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSyst
 
 	row := h.QueryRow(fmt.Sprintf(query, id))
 	var description *string
-	row.Scan(&srs.Name, &srs.ID, &srs.Organization, &srs.OrganizationCoordsysID, &srs.Definition, &description)
+	_ = row.Scan(&srs.Name, &srs.ID, &srs.Organization, &srs.OrganizationCoordsysID, &srs.Definition, &description)
 	if description != nil {
 		srs.Description = *description
 	}
@@ -353,7 +351,7 @@ func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSyst
 func getTableColumns(h *gpkg.Handle, table string) []column {
 	var columns []column
 	query := `PRAGMA table_info('%v');`
-	rows, err := h.Query(fmt.Sprintf(query, table))
+	rows, err := h.Query(fmt.Sprintf(query, table)) //nolint:rowserrcheck
 
 	if err != nil {
 		log.Fatalf("err during closing rows: %v - %v", query, err)
