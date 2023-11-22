@@ -18,7 +18,6 @@ func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
 	return newPolygon
 }
 
-//nolint:cyclop
 func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	newPolygon := make([][][2]float64, 0, len(*polygon))
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.

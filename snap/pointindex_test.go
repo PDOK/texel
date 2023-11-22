@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-//nolint:funlen
 func TestPointIndex_containsPoint(t *testing.T) {
 	tests := []struct {
 		name string
@@ -114,7 +113,6 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}
 }
 
-//nolint:funlen
 func TestPointIndex_InsertPoint(t *testing.T) {
 	tests := []struct {
 		name   string
