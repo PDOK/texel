@@ -57,7 +57,7 @@ func LoadEmbeddedTileMatrixSet(id string) (TileMatrixSet, error) {
 	if ok {
 		return *cached, nil
 	}
-	tmsJSON, err := embeddedTileMatrixSetsJSONFS.ReadFile(path.Join("tilematrixsets", id+".json"))
+	tmsJSON, err := embeddedTileMatrixSetsJSONFS.ReadFile(path.Join("tilematrixsets", id+extJSON))
 	if err != nil {
 		return tms, err
 	}
@@ -610,6 +610,7 @@ type CornerOfOrigin string
 const (
 	TopLeft    CornerOfOrigin = "topLeft"
 	BottomLeft CornerOfOrigin = "bottomLeft"
+	extJSON                   = ".json"
 )
 
 func (c *CornerOfOrigin) UnmarshalJSONFromMap(data interface{}) error {

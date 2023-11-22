@@ -41,7 +41,7 @@ func TestLoadEmbeddedTileMatrixSet(t *testing.T) {
 
 			remarshalled, err := json.Marshal(&got)
 			require.NoError(t, err)
-			rawJSON, err := embeddedTileMatrixSetsJSONFS.ReadFile("tilematrixsets/" + tt.id + ".json")
+			rawJSON, err := embeddedTileMatrixSetsJSONFS.ReadFile("tilematrixsets/" + tt.id + extJSON)
 			require.NoError(t, err)
 			require.JSONEq(t, string(rawJSON), string(remarshalled))
 
@@ -67,7 +67,7 @@ func TestLoadJSONTileMatrixSet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.id, func(t *testing.T) {
-			jsonFilePath, err := filepath.Abs(path.Join("testdata", tt.id+".json"))
+			jsonFilePath, err := filepath.Abs(path.Join("testdata", tt.id+extJSON))
 			require.NoError(t, err)
 			got, err := LoadJSONTileMatrixSet(jsonFilePath)
 			require.NoErrorf(t, err, "LoadJSONTileMatrixSet() error = %v", err)
@@ -215,7 +215,7 @@ func TestTileMatrixSet_ToNative(t *testing.T) {
 }
 
 func loadTestOrEmbeddedTileMatrix(id string) (TileMatrixSet, error) {
-	p, err := filepath.Abs(path.Join("testdata", id+".json"))
+	p, err := filepath.Abs(path.Join("testdata", id+extJSON))
 	if err != nil {
 		return TileMatrixSet{}, err
 	}
