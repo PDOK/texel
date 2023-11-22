@@ -1,16 +1,16 @@
 package snap
 
 import (
-	"github.com/go-spatial/geom/encoding/wkt"
-	"github.com/pdok/texel/intgeom"
 	"os"
 	"testing"
+
+	"github.com/go-spatial/geom/encoding/wkt"
+	"github.com/pdok/texel/intgeom"
 
 	"github.com/go-spatial/geom"
 	"github.com/stretchr/testify/assert"
 )
 
-//nolint:funlen
 func TestPointIndex_containsPoint(t *testing.T) {
 	tests := []struct {
 		name string
@@ -103,7 +103,7 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			extent, centroid := getQuadrantExtentAndCentroid(&tt.matrix, 0, 0, 0)
+			extent, centroid := getQuadrantExtentAndCentroid(&tt.matrix, 0, 0, 0) //nolint:gosec
 			if !assert.EqualValues(t, tt.want.extent, extent) {
 				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", extent, tt.want.extent)
 			}
@@ -114,7 +114,6 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}
 }
 
-//nolint:funlen
 func TestPointIndex_InsertPoint(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -298,7 +297,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := NewPointIndexFromTileMatrix(tt.matrix)
 			ix.InsertPoint(tt.point)
-			setRootMatrices(&tt.want, &tt.matrix)
+			setRootMatrices(&tt.want, &tt.matrix) //nolint:gosec
 			assert.EqualValues(t, tt.want, *ix)
 		})
 	}

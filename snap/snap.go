@@ -10,6 +10,14 @@ import (
 	"github.com/umpc/go-sortedmap"
 )
 
+// ToPointCloud snaps polygons' points to a tile's internal pixel grid
+// and adds points to lines to prevent intersections.
+func ToPointCloud(source processing.Source, target processing.Target, tileMatrix TileMatrix) {
+	processing.ProcessFeatures(source, target, func(p geom.Polygon) *geom.Polygon {
+		return snapPolygon(&p, tileMatrix)
+	})
+}
+
 func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
 	ix := NewPointIndexFromTileMatrix(tileMatrix)
 	ix.InsertPolygon(polygon)
@@ -18,7 +26,6 @@ func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
 	return newPolygon
 }
 
-//nolint:cyclop
 func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
 	newPolygon := make([][][2]float64, 0, len(*polygon))
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
@@ -332,12 +339,4 @@ func kmpTable(find [][2]float64, table []int) {
 			pos++
 		}
 	}
-}
-
-// SnapToPointCloud snaps polygons' points to a tile's internal pixel grid
-// and adds points to lines to prevent intersections.
-func SnapToPointCloud(source processing.Source, target processing.Target, tileMatrix TileMatrix) {
-	processing.ProcessFeatures(source, target, func(p geom.Polygon) *geom.Polygon {
-		return snapPolygon(&p, tileMatrix)
-	})
 }
