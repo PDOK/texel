@@ -62,7 +62,8 @@ Close thin polygons can turn into lines:
 ```sh
 go build .
 
-go run . -s=[source GPKG] -t=[target GPKG] -m=[tilematrix for filtering] \
+go run . -s=[source GPKG] -t=[target GPKG] \
+   -tms=[tile matrix set for filtering] -z=[tile matrix ids] \
    -p=[pagesize for writing to target GPKG] -o=[overwrite target GPKG]
 
 go test ./... -covermode=atomic
@@ -74,7 +75,7 @@ go test ./... -covermode=atomic
 docker build -t pdok/texel .
 docker run --rm --name texel -v `pwd`/example:/example pdok/texel ./texel \
    -s=./example/example.gpkg -t=./example/example-processed.gpkg \
-   -m="{\"MinX\": -285401.92, \"MaxY\": 903401.92, \"Level\": 5, \"CellSize\": 107.52}" \
+   -tms="NetherlandsRDNewQuad" -z '[5]' \
    -p=10 -o=false
 ```
 

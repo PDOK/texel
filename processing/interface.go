@@ -1,11 +1,17 @@
 package processing
 
-import "github.com/go-spatial/geom"
+import (
+	"github.com/go-spatial/geom"
+)
 
 type Feature interface {
 	Columns() []interface{}
 	Geometry() geom.Geometry
-	UpdateGeometry(geom.Geometry)
+}
+
+type FeatureForTileMatrix interface {
+	Feature
+	TileMatrixID() int
 }
 
 type Source interface {

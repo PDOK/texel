@@ -2,7 +2,12 @@ package snap
 
 import (
 	"os"
+	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/pdok/texel/tms20"
 
 	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/pdok/texel/intgeom"
@@ -65,7 +70,7 @@ func TestPointIndex_containsPoint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := NewPointIndexFromTileMatrix(newSimpleTileMatrix(1.0, 0, 1.0))
+			ix := newSimplePointIndex(0, 1.0)
 			got := ix.containsPoint(intgeom.FromGeomPoint(tt.pt))
 			if got != tt.want {
 				t.Errorf("containsPoint() = %v, want %v", got, tt.want)
@@ -80,21 +85,21 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 		centroid intgeom.Point
 	}
 	tests := []struct {
-		name   string
-		matrix TileMatrix
-		want   wants
+		name string
+		ix   *PointIndex
+		want wants
 	}{
 		{
-			name:   "simple",
-			matrix: newSimpleTileMatrix(1.0, 0, 1.0),
+			name: "simple",
+			ix:   newSimplePointIndex(0, 1.0),
 			want: wants{
-				extent:   intgeom.Extent{0, 0, 1000000000, 1000000000},
+				extent:   intgeom.Extent{0, 0, intOne, intOne},
 				centroid: intgeom.Point{intHalf, intHalf},
 			},
 		},
 		{
-			name:   "zero",
-			matrix: newSimpleTileMatrix(0.0, 0, 0.0),
+			name: "zero",
+			ix:   newSimplePointIndex(0, 0.0),
 			want: wants{
 				extent:   intgeom.Extent{0, 0, 0, 0},
 				centroid: intgeom.Point{0, 0},
@@ -103,7 +108,7 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			extent, centroid := getQuadrantExtentAndCentroid(&tt.matrix, 0, 0, 0) //nolint:gosec
+			extent, centroid := tt.ix.getQuadrantExtentAndCentroid(0, 0, 0)
 			if !assert.EqualValues(t, tt.want.extent, extent) {
 				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", extent, tt.want.extent)
 			}
@@ -116,15 +121,15 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 
 func TestPointIndex_InsertPoint(t *testing.T) {
 	tests := []struct {
-		name   string
-		matrix TileMatrix
-		point  geom.Point
-		want   PointIndex
+		name  string
+		ix    *PointIndex
+		point geom.Point
+		want  PointIndex
 	}{
 		{
-			name:   "leaf",
-			matrix: newSimpleTileMatrix(1.0, 0, 1.0),
-			point:  geom.Point{0.5, 0.5},
+			name:  "leaf",
+			ix:    newSimplePointIndex(0, 1.0),
+			point: geom.Point{0.5, 0.5},
 			want: PointIndex{
 				intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 				intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
@@ -134,9 +139,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			},
 		},
 		{
-			name:   "centroid",
-			matrix: newSimpleTileMatrix(1.0, 1, 0.5),
-			point:  geom.Point{0.5, 0.5},
+			name:  "centroid",
+			ix:    newSimplePointIndex(1, 0.5),
+			point: geom.Point{0.5, 0.5},
 			want: PointIndex{
 				intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 				intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
@@ -157,9 +162,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			},
 		},
 		{
-			name:   "deep",
-			matrix: newSimpleTileMatrix(4.0, 3, 0.5),
-			point:  geom.Point{2.8, 3.2},
+			name:  "deep",
+			ix:    newSimplePointIndex(3, 0.5),
+			point: geom.Point{2.8, 3.2},
 			want: PointIndex{
 				intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 4.0, 4.0}),
 				intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 2.0}),
@@ -211,9 +216,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			},
 		},
 		{
-			name:   "deeper",
-			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
-			point:  geom.Point{2.0, 6.0},
+			name:  "deeper",
+			ix:    newSimplePointIndex(5, 0.5),
+			point: geom.Point{2.0, 6.0},
 			want: PointIndex{
 				intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 16.0, 16.0}),
 				intCentroid: intgeom.FromGeomPoint(geom.Point{8.0, 8.0}),
@@ -295,9 +300,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := NewPointIndexFromTileMatrix(tt.matrix)
+			ix := tt.ix
 			ix.InsertPoint(tt.point)
-			setRootMatrices(&tt.want, &tt.matrix) //nolint:gosec
+			setRootExtents(&tt.want, ix.intRootExtent) //nolint:gosec
 			assert.EqualValues(t, tt.want, *ix)
 		})
 	}
@@ -306,43 +311,44 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 func TestPointIndex_SnapClosestPoints(t *testing.T) {
 	tests := []struct {
 		name   string
-		matrix TileMatrix
+		ix     *PointIndex
 		poly   geom.Polygon
 		line   geom.Line
-		want   [][2]float64
+		levels []Level
+		want   map[Level][][2]float64
 	}{
 		{
-			name:   "nowhere even close",
-			matrix: newSimpleTileMatrix(8.0, 4, 0.5),
+			name: "nowhere even close",
+			ix:   newSimplePointIndex(4, 0.5),
 			poly: geom.Polygon{
 				{{0.0, 0.0}, {0.0, 2.0}, {2.0, 2.0}, {2.0, 0.0}},
 			},
 			line: geom.Line{{4.0, 4.0}, {8.0, 8.0}},
-			want: make([][2]float64, 0), // nothing because the line is not part of the original geom so no points indexed
+			want: make(map[Level][][2]float64), // nothing because the line is not part of the original geom so no points indexed
 		},
 		{
-			name:   "no extra points",
-			matrix: newSimpleTileMatrix(16.0, 5, 0.5),
+			name: "no extra points",
+			ix:   newSimplePointIndex(5, 0.5),
 			poly: geom.Polygon{
 				{{0.0, 0.0}, {0.0, 8.0}, {8.0, 8.0}, {8.0, 0.0}},
 				{{2.0, 2.0}, {6.0, 2.0}, {6.0, 6.0}, {2.0, 6.0}},
 			},
 			line: geom.Line{{2.0, 2.0}, {6.0, 2.0}},
-			want: [][2]float64{{2.25, 2.25}, {6.25, 2.25}}, // same amount of points, but snapped to centroid
+			want: map[Level][][2]float64{5: {{2.25, 2.25}, {6.25, 2.25}}}, // same amount of points, but snapped to centroid
 		},
 		{
-			name:   "extra points (scary geom 1)",
-			matrix: newSimpleTileMatrix(8.0, 4, 0.5),
+			name: "extra points (scary geom 1)",
+			ix:   newSimplePointIndex(4, 0.5),
 			poly: geom.Polygon{
 				{{0.0, 5.0}, {5.0, 4.0}, {5.0, 0.0}, {3.0, 0.0}, {0.0, 2.0}},
 				{{1.0, 3.0}, {3.0, 3.0}, {3.0, 1.0}, {1.25, 1.25}},
 			},
 			line: geom.Line{{3.0, 0.0}, {0.0, 2.0}},
-			want: [][2]float64{{3.25, 0.25}, {1.25, 1.25}, {0.25, 2.25}}, // extra point in the middle
+			want: map[Level][][2]float64{4: {{3.25, 0.25}, {1.25, 1.25}, {0.25, 2.25}}}, // extra point in the middle
 		},
 		{
-			name:   "horizontal line",
-			matrix: newNetherlandsRDNewQuadTileMatrix(14),
+			name: "horizontal line",
+			ix:   newPointIndexFromEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad", []tms20.TMID{14}),
 			poly: geom.Polygon{{
 				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
 				{110907.64400000000023283, 504428.79999999998835847}, // horizontal line between quadrants
@@ -351,74 +357,79 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
 				{110907.64400000000023283, 504428.79999999998835847},
 			},
-			want: [][2]float64{
+			levels: []Level{14 + 8 + 4},
+			want: map[Level][][2]float64{14 + 8 + 4: {
 				{110906.8709375, 504428.8065625}, // horizontal line still here
 				{110907.6453125, 504428.8065625}, // horizontal line still here
-			},
+			}},
 		},
 		{
-			name:   "corner case topleft",
-			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
-			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line:   geom.Line{{0.0, 4.0}, {1.0, 3.0}},
-			want:   [][2]float64{},
+			name: "corner case topleft",
+			ix:   newSimplePointIndex(2, 1.0),
+			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line: geom.Line{{0.0, 4.0}, {1.0, 3.0}},
+			want: map[Level][][2]float64{},
 		},
 		{
-			name:   "corner case topright",
-			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
-			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line:   geom.Line{{4.0, 4.0}, {3.0, 3.0}},
-			want:   [][2]float64{},
+			name: "corner case topright",
+			ix:   newSimplePointIndex(2, 1.0),
+			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line: geom.Line{{4.0, 4.0}, {3.0, 3.0}},
+			want: map[Level][][2]float64{},
 		},
 		{
-			name:   "corner case bottomright",
-			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
-			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line:   geom.Line{{4.0, 0.0}, {3.0, 1.0}},
-			want:   [][2]float64{},
+			name: "corner case bottomright",
+			ix:   newSimplePointIndex(2, 1.0),
+			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line: geom.Line{{4.0, 0.0}, {3.0, 1.0}},
+			want: map[Level][][2]float64{},
 		},
 		{
-			name:   "corner case bottomleft",
-			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
-			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line:   geom.Line{{0.0, 0.0}, {1.0, 1.0}},
-			want:   [][2]float64{{1.5, 1.5}},
+			name: "corner case bottomleft",
+			ix:   newSimplePointIndex(2, 1.0),
+			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line: geom.Line{{0.0, 0.0}, {1.0, 1.0}},
+			want: map[Level][][2]float64{2: {{1.5, 1.5}}},
 		},
 		{
-			name:   "edge case top",
-			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
-			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line:   geom.Line{{0.0, 3.0}, {4.0, 3.0}},
-			want:   [][2]float64{},
+			name: "edge case top",
+			ix:   newSimplePointIndex(2, 1.0),
+			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line: geom.Line{{0.0, 3.0}, {4.0, 3.0}},
+			want: map[Level][][2]float64{},
 		},
 		{
-			name:   "edge case right",
-			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
-			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line:   geom.Line{{3.0, 4.0}, {3.0, 0.0}},
-			want:   [][2]float64{},
+			name: "edge case right",
+			ix:   newSimplePointIndex(2, 1.0),
+			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line: geom.Line{{3.0, 4.0}, {3.0, 0.0}},
+			want: map[Level][][2]float64{},
 		},
 		{
-			name:   "edge case bottom",
-			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
-			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line:   geom.Line{{0.0, 1.0}, {4.0, 1.0}},
-			want:   [][2]float64{{1.5, 1.5}, {2.5, 1.5}},
+			name: "edge case bottom",
+			ix:   newSimplePointIndex(2, 1.0),
+			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line: geom.Line{{0.0, 1.0}, {4.0, 1.0}},
+			want: map[Level][][2]float64{2: {{1.5, 1.5}, {2.5, 1.5}}},
 		},
 		{
-			name:   "edge case left",
-			matrix: newSimpleTileMatrix(4.0, 2, 1.0),
-			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line:   geom.Line{{1.0, 0.0}, {1.0, 4.0}},
-			want:   [][2]float64{{1.5, 1.5}, {1.5, 2.5}},
+			name: "edge case left",
+			ix:   newSimplePointIndex(2, 1.0),
+			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line: geom.Line{{1.0, 0.0}, {1.0, 4.0}},
+			want: map[Level][][2]float64{2: {{1.5, 1.5}, {1.5, 2.5}}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := NewPointIndexFromTileMatrix(tt.matrix)
+			ix := tt.ix
 			poly := tt.poly
 			ix.InsertPolygon(&poly)
-			got := ix.SnapClosestPoints(tt.line)
+			levels := tt.levels
+			if levels == nil {
+				levels = []Level{ix.maxDepth}
+			}
+			got := ix.SnapClosestPoints(tt.line, asKeys(levels))
 			if !assert.EqualValues(t, tt.want, got) {
 				ix.toWkt(os.Stdout)
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
@@ -463,33 +474,78 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 	}
 }
 
-func newSimpleTileMatrix(maxY float64, level uint, cellSize float64) TileMatrix {
-	return TileMatrix{
-		MaxY:      maxY,
-		PixelSize: 1,
-		TileSize:  1,
-		Level:     level,
-		CellSize:  cellSize,
+func newSimplePointIndex(maxDepth Level, cellSize float64) *PointIndex {
+	span := cellSize * float64(pow2(maxDepth))
+	ix := PointIndex{
+		intRootExtent: intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)},
+		maxDepth:      maxDepth,
 	}
+	ix.intExtent, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0)
+	return &ix
 }
 
-func newNetherlandsRDNewQuadTileMatrix(level uint) TileMatrix {
-	return TileMatrix{
-		MinX:      -285401.92,
-		MaxY:      903401.92,
-		PixelSize: 16,
-		TileSize:  256,
-		Level:     level,
-		CellSize:  3440.64 / float64(pow2(level)),
+//nolint:unparam
+func newSimpleTileMatrixSet(maxDepth Level, cellSize float64) *tms20.TileMatrixSet {
+	zeroZero := tms20.TwoDPoint([2]float64{0.0, 0.0})
+	tms := tms20.TileMatrixSet{
+		CRS:          fakeCRS{},
+		OrderedAxes:  []string{"X", "Y"},
+		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix),
 	}
+	for tmID := 0; tmID <= int(maxDepth); tmID++ {
+		tmCellSize := cellSize * float64(pow2(maxDepth-uint(tmID)))
+		tms.TileMatrices[tmID] = tms20.TileMatrix{
+			ID:               "0",
+			ScaleDenominator: tmCellSize / tms20.StandardizedRenderingPixelSize,
+			CellSize:         tmCellSize,
+			CornerOfOrigin:   tms20.BottomLeft,
+			PointOfOrigin:    &zeroZero,
+			TileWidth:        1,
+			TileHeight:       1,
+			MatrixWidth:      1,
+			MatrixHeight:     1,
+		}
+	}
+	return &tms
 }
 
-func setRootMatrices(pi *PointIndex, matrix *TileMatrix) {
-	pi.rootMatrix = matrix
-	for _, qu := range pi.quadrants {
+func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) *tms20.TileMatrixSet {
+	tms, err := tms20.LoadEmbeddedTileMatrixSet(tmsID)
+	require.NoError(t, err)
+	return &tms
+}
+
+func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, tmIDs []tms20.TMID) *PointIndex {
+	tms := loadEmbeddedTileMatrixSet(t, tmsID)
+	deepestID := slices.Max(tmIDs)
+	ix := newPointIndexFromTileMatrixSet(tms, deepestID)
+	return ix
+}
+
+func setRootExtents(ix *PointIndex, intRootExtent intgeom.Extent) {
+	ix.intRootExtent = intRootExtent
+	for _, qu := range ix.quadrants {
 		if qu == nil {
 			continue
 		}
-		setRootMatrices(qu, matrix)
+		setRootExtents(qu, intRootExtent)
 	}
+}
+
+type fakeCRS struct{}
+
+func (f fakeCRS) Description() string {
+	return ""
+}
+
+func (f fakeCRS) Authority() string {
+	return ""
+}
+
+func (f fakeCRS) Version() string {
+	return ""
+}
+
+func (f fakeCRS) Code() string {
+	return ""
 }

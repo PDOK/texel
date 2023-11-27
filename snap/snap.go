@@ -6,79 +6,173 @@ import (
 	"slices"
 
 	"github.com/go-spatial/geom"
+	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/processing"
+	"github.com/pdok/texel/tms20"
 	"github.com/umpc/go-sortedmap"
+	"golang.org/x/exp/constraints"
+)
+
+const (
+	internalPixelResolution = 16
 )
 
 // ToPointCloud snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
-func ToPointCloud(source processing.Source, target processing.Target, tileMatrix TileMatrix) {
-	processing.ProcessFeatures(source, target, func(p geom.Polygon) *geom.Polygon {
-		return snapPolygon(&p, tileMatrix)
+func ToPointCloud(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet *tms20.TileMatrixSet) {
+	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]*geom.Polygon {
+		return snapPolygon(&p, tileMatrixSet, tmIDs)
 	})
 }
 
-func snapPolygon(polygon *geom.Polygon, tileMatrix TileMatrix) *geom.Polygon {
-	ix := NewPointIndexFromTileMatrix(tileMatrix)
-	ix.InsertPolygon(polygon)
-	newPolygon := addPointsAndSnap(ix, polygon)
+func snapPolygon(polygon *geom.Polygon, tileMatrixSet *tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID]*geom.Polygon {
+	deepestID := slices.Max(tmIDs)
+	ix := newPointIndexFromTileMatrixSet(tileMatrixSet, deepestID)
+	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
+	levels := make([]Level, 0, len(tmIDsByLevels))
+	for level := range tmIDsByLevels {
+		levels = append(levels, level)
+	}
 
-	return newPolygon
+	ix.InsertPolygon(polygon)
+	newPolygonPerLevel := addPointsAndSnap(ix, polygon, levels)
+
+	newPolygonPerTileMatrixID := make(map[tms20.TMID]*geom.Polygon, len(newPolygonPerLevel))
+	for level, newPolygon := range newPolygonPerLevel {
+		newPolygonPerTileMatrixID[tmIDsByLevels[level]] = newPolygon
+	}
+
+	return newPolygonPerTileMatrixID
 }
 
-func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon) *geom.Polygon {
-	newPolygon := make([][][2]float64, 0, len(*polygon))
+func newPointIndexFromTileMatrixSet(tileMatrixSet *tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
+	// TODO ensure that the tile matrix set is actually a quad tree, starting at 0. just assuming now.
+	rootTM := tileMatrixSet.TileMatrices[0]
+	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(internalPixelResolution)))
+	maxDepth := uint(deepestTMID) + levelDiff
+	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
+	if err != nil {
+		panic(fmt.Errorf(`could not make PointIndex from TileMatrixSet %v: %w'`, tileMatrixSet.ID, err))
+	}
+	intBottomLeft := intgeom.FromGeomPoint(bottomLeft)
+	intTopRight := intgeom.FromGeomPoint(topRight)
+	intRootExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
+	ix := PointIndex{
+		intRootExtent: intRootExtent,
+		level:         0,
+		x:             0,
+		y:             0,
+		maxDepth:      maxDepth,
+	}
+	ix.intExtent, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0)
+
+	return &ix
+}
+
+func tileMatrixIDsByLevels(tms *tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Level]tms20.TMID {
+	rootTM := tms.TileMatrices[0]
+	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(internalPixelResolution)))
+	tmIDsByLevels := make(map[Level]tms20.TMID, len(tmIDs))
+	for _, tmID := range tmIDs {
+		// assuming 2^(tmID) = tm.MatrixWidth = tm.MatrixHeight
+		level := uint(tmID) + levelDiff
+		tmIDsByLevels[level] = tmID
+	}
+	return tmIDsByLevels
+}
+
+func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon, levels []Level) map[Level]*geom.Polygon {
+	levelMap := asKeys(levels)
+	newPolygon := make(map[Level][][][2]float64, len(*polygon))
+
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
 	for ringIdx, ring := range polygon.LinearRings() {
+		isOuter := ringIdx == 0
 		ringLen := len(ring)
-		newRing := make([][2]float64, 0, ringLen*2) // TODO better estimation of new amount of points
+		newRing := make(map[Level][][2]float64, len(levelMap))
+		for level := range levelMap {
+			newRing[level] = make([][2]float64, 0, 2*ringLen) // TODO better estimation of new amount of points for a ring
+		}
+
+		// walk through the vertices and append to the new ring (on all levels)
 		for vertexIdx, vertex := range ring {
 			// LinearRings(): "The last point in the linear ring will not match the first point."
 			// So also including that one.
 			nextVertexIdx := (vertexIdx + 1) % ringLen
 			segment := geom.Line{vertex, ring[nextVertexIdx]}
-			newVertices := ix.SnapClosestPoints(segment)
-			newVerticesCount := len(newVertices)
-			if newVerticesCount > 0 {
-				// 0 if len is 1, 1 otherwise
-				minus := min(newVerticesCount-1, 1)
-				// remove last vertex if there is more than 1 vertex, as the first vertex in the next segment will be the same
-				newVertices = newVertices[:newVerticesCount-minus]
-				// remove first element if it is equal to the last element added to newRing
-				if len(newRing) > 0 && newVertices[0] == newRing[len(newRing)-1] {
-					newVertices = newVertices[1:]
+			newVertices := ix.SnapClosestPoints(segment, levelMap)
+			for level := range levelMap {
+				cleanedNewVertices := cleanupNewVertices(newVertices[level], segment, level, lastElement(newRing[level]))
+				newRing[level] = append(newRing[level], cleanedNewVertices...)
+			}
+		}
+
+		// walk through the new ring and append to the polygon (on all levels)
+		for level := range levelMap {
+			cleanedRing := cleanupNewRing(newRing[level], isOuter)
+			if cleanedRing == nil {
+				if isOuter { // outer ring has become too small
+					delete(levelMap, level)
 				}
-				newRing = append(newRing, newVertices...)
-			} else {
-				panic(fmt.Sprintf("no points found for %v", segment))
+				continue
 			}
-		}
-		// LinearRings(): "The last point in the linear ring will not match the first point."
-		if len(newRing) > 1 && newRing[0] == newRing[len(newRing)-1] {
-			newRing = newRing[:len(newRing)-1]
-		}
-		switch len(newRing) {
-		case 0:
-			if ringIdx == 0 {
-				// outer ring has become too small
-				return nil
-			}
-		case 1, 2:
-			if ringIdx == 0 {
-				// keep outer ring as point or line
-				newPolygon = append(newPolygon, newRing)
-			}
-		default:
-			// deduplicate points in the ring, check winding order, then add to the polygon
-			deduplicatedRing, rightmostLowestPoint := kmpDeduplicate(newRing)
-			// inner rings (ringIdx != 0) should be clockwise
-			shouldBeClockwise := ringIdx != 0
-			// winding order is reversed if incorrect
-			ensureCorrectWindingOrder(deduplicatedRing, rightmostLowestPoint, shouldBeClockwise)
-			newPolygon = append(newPolygon, deduplicatedRing)
+			newPolygon[level] = append(newPolygon[level], cleanedRing)
 		}
 	}
-	return (*geom.Polygon)(&newPolygon)
+	return floatPolygonsToGeomPolygons(newPolygon)
+}
+
+// cleanupNewVertices cleans up the closest points for a line that were just retrieved inside addPointsAndSnap
+func cleanupNewVertices(newVertices [][2]float64, segment [2][2]float64, level Level, lastVertex *[2]float64) [][2]float64 {
+	newVerticesCount := len(newVertices)
+	if newVerticesCount == 0 {
+		panic(fmt.Sprintf("no points found for %v on level %v", segment, level))
+	}
+	// 0 if len is 1, 1 otherwise
+	minus := min(newVerticesCount-1, 1)
+	// remove last vertex if there is more than 1 vertex, as the first vertex in the next segment will be the same
+	newVertices = newVertices[:newVerticesCount-minus]
+	// remove first element if it is equal to the last element added to newRing
+	if lastVertex != nil && newVertices[0] == *lastVertex {
+		newVertices = newVertices[1:]
+	}
+	return newVertices
+}
+
+// cleanupNewRing cleans up a ring (if not too small) that was just crafted inside addPointsAndSnap
+func cleanupNewRing(newRing [][2]float64, isOuter bool) [][2]float64 {
+	newRingLen := len(newRing)
+	// LinearRings(): "The last point in the linear ring will not match the first point."
+	if newRingLen > 1 && newRing[0] == newRing[newRingLen-1] {
+		newRing = newRing[:newRingLen-1]
+	}
+	switch newRingLen {
+	case 0:
+		return nil
+	case 1, 2:
+		if isOuter {
+			// keep outer ring as point or line
+			return newRing
+		}
+	default:
+		// deduplicate points in the ring, check winding order, then add to the polygon
+		deduplicatedRing, rightmostLowestPoint := kmpDeduplicate(newRing)
+		// inner rings (ringIdx != 0) should be clockwise
+		shouldBeClockwise := !isOuter
+		// winding order is reversed if incorrect
+		ensureCorrectWindingOrder(deduplicatedRing, rightmostLowestPoint, shouldBeClockwise)
+		return deduplicatedRing
+	}
+	return nil
+}
+
+func floatPolygonsToGeomPolygons(floaters map[Level][][][2]float64) map[Level]*geom.Polygon {
+	geoms := make(map[Level]*geom.Polygon, len(floaters))
+	for l := range floaters {
+		floater := floaters[l]
+		geoms[l] = (*geom.Polygon)(&floater)
+	}
+	return geoms
 }
 
 // validate winding order (CCW for outer rings, CW for inner rings)
@@ -339,4 +433,20 @@ func kmpTable(find [][2]float64, table []int) {
 			pos++
 		}
 	}
+}
+
+func lastElement[T any](elements []T) *T {
+	length := len(elements)
+	if length > 1 {
+		return &elements[length-1]
+	}
+	return nil
+}
+
+func asKeys[T constraints.Ordered](elements []T) map[T]any {
+	mapped := make(map[T]any, len(elements))
+	for _, element := range elements {
+		mapped[element] = struct{}{}
+	}
+	return mapped
 }

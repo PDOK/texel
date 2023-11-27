@@ -3,7 +3,6 @@ package snap
 import (
 	"fmt"
 	"io"
-	"math"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/wkt"
@@ -22,6 +21,7 @@ const (
 	// topleft     = top | left     // 0b10
 	// topright    = top | right    // 0b11
 	intHalf = 500000000
+	intOne  = 1000000000
 )
 
 // PointIndex is a pointcloud annex quadtree to enable snapping lines to a grid accounting for those points.
@@ -45,32 +45,20 @@ const (
 //	   minX    0    maxX
 //	          inc
 type PointIndex struct {
-	rootMatrix  *TileMatrix
-	level       uint
-	x           int            // from the left
-	y           int            // from the bottom
-	intExtent   intgeom.Extent // maxX and MaxY are exclusive
-	intCentroid intgeom.Point
-	hasPoints   bool
-	maxDepth    uint // 0 means this is a leaf
-	quadrants   [4]*PointIndex
+	intRootExtent intgeom.Extent // extent of the entire/top/root/highest grid
+	level         Level
+	x             Ord            // from the left
+	y             Ord            // from the bottom
+	intExtent     intgeom.Extent // maxX and MaxY are exclusive
+	intCentroid   intgeom.Point
+	hasPoints     bool
+	maxDepth      Depth // 0 means this is a leaf
+	quadrants     [4]*PointIndex
 }
 
-func NewPointIndexFromTileMatrix(tm TileMatrix) *PointIndex {
-	// TODO support actual TMS or slippy grid
-	maxDepth := int(float64(tm.Level) + math.Log2(float64(tm.TileSize)) + math.Log2(float64(tm.PixelSize)))
-	intExtent, intCentroid := getQuadrantExtentAndCentroid(&tm, 0, 0, 0)
-	ix := PointIndex{
-		rootMatrix:  &tm,
-		level:       0, // TODO maybe adjust for actual matrixId
-		x:           0,
-		y:           0,
-		maxDepth:    uint(maxDepth),
-		intExtent:   intExtent,
-		intCentroid: intCentroid,
-	}
-	return &ix
-}
+type Level = uint
+type Ord = int
+type Depth = uint
 
 // InsertPolygon inserts all points from a Polygon
 func (ix *PointIndex) InsertPolygon(polygon *geom.Polygon) {
@@ -124,15 +112,15 @@ func (ix *PointIndex) ensureQuadrant(quadrantI int) *PointIndex {
 		x := ix.x*2 + oneIfRight(quadrantI)
 		y := ix.y*2 + oneIfTop(quadrantI)
 		level := ix.level + 1
-		extent, centroid := getQuadrantExtentAndCentroid(ix.rootMatrix, level, x, y)
+		extent, centroid := ix.getQuadrantExtentAndCentroid(level, x, y)
 		ix.quadrants[quadrantI] = &PointIndex{
-			rootMatrix:  ix.rootMatrix,
-			level:       level,
-			x:           x,
-			y:           y,
-			intExtent:   extent,
-			intCentroid: centroid,
-			maxDepth:    ix.maxDepth - 1,
+			intRootExtent: ix.intRootExtent,
+			level:         level,
+			x:             x,
+			y:             y,
+			intExtent:     extent,
+			intCentroid:   centroid,
+			maxDepth:      ix.maxDepth - 1,
 		}
 	}
 	return ix.quadrants[quadrantI]
@@ -142,41 +130,54 @@ func (ix *PointIndex) isLeaf() bool {
 	return ix.maxDepth == 0
 }
 
-func getQuadrantExtentAndCentroid(rootMatrix *TileMatrix, level uint, x, y int) (intgeom.Extent, intgeom.Point) {
-	intSpan := intgeom.FromGeomOrd(rootMatrix.GridSize()) / int64(pow2(level))
+func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y int) (intgeom.Extent, intgeom.Point) {
+	intQuadrantSpan := ix.intRootExtent.XSpan() / int64(pow2(level))
+	intMinX := ix.intRootExtent.MinX()
+	intMinY := ix.intRootExtent.MinY()
 	intExtent := intgeom.Extent{
-		intgeom.FromGeomOrd(rootMatrix.MinX) + int64(x)*intSpan,     // minx
-		intgeom.FromGeomOrd(rootMatrix.MinY()) + int64(y)*intSpan,   // miny
-		intgeom.FromGeomOrd(rootMatrix.MinX) + int64(x+1)*intSpan,   // maxx
-		intgeom.FromGeomOrd(rootMatrix.MinY()) + int64(y+1)*intSpan, // maxy
+		intMinX + int64(x)*intQuadrantSpan,   // minx
+		intMinY + int64(y)*intQuadrantSpan,   // miny
+		intMinX + int64(x+1)*intQuadrantSpan, // maxx
+		intMinY + int64(y+1)*intQuadrantSpan, // maxy
 	}
 	intCentroid := intgeom.Point{
-		intgeom.FromGeomOrd(rootMatrix.MinX) + (int64(x))*intSpan + intSpan/2, // <-- here is the plus 0.5 internal pixel size
-		intgeom.FromGeomOrd(rootMatrix.MinY()) + (int64(y))*intSpan + intSpan/2,
+		intMinX + (int64(x))*intQuadrantSpan + intQuadrantSpan/2, // <-- here is the plus 0.5 internal pixel size
+		intMinY + (int64(y))*intQuadrantSpan + intQuadrantSpan/2,
 	}
 	return intExtent, intCentroid
 }
 
-func (ix *PointIndex) SnapClosestPoints(line geom.Line) [][2]float64 {
+// SnapClosestPoints returns the points (centroids) in the index that are intersected by a line
+// on multiple levels
+func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any) map[Level][][2]float64 {
 	intLine := intgeom.FromGeomLine(line)
-	pointIndices := ix.snapClosestPoints(intLine, ix.maxDepth, false)
-	points := make([][2]float64, len(pointIndices))
-	for i, ixWithPoint := range pointIndices {
-		points[i] = ixWithPoint.intCentroid.ToGeomPoint()
+	pointIndicesPerLevel := ix.snapClosestPoints(intLine, ix.maxDepth, levelMap, false)
+
+	pointsPerLevel := make(map[Level][][2]float64, len(levelMap))
+	for level, pointIndices := range pointIndicesPerLevel {
+		points := make([][2]float64, len(pointIndices))
+		for i, ixWithPoint := range pointIndices {
+			points[i] = ixWithPoint.intCentroid.ToGeomPoint()
+		}
+		pointsPerLevel[level] = points
 	}
-	return points
+	return pointsPerLevel
 }
 
-//nolint:cyclop
-func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth uint, certainlyIntersects bool) []*PointIndex {
+//nolint:cyclop,funlen
+func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth Level, levelMap map[Level]any, certainlyIntersects bool) map[Level][]*PointIndex {
 	if !ix.hasPoints {
 		return nil
 	}
 	if !certainlyIntersects && !ix.lineIntersects(intLine) {
 		return nil
 	}
-	if depth == 0 {
-		return []*PointIndex{ix}
+	pointIndexesPerLevel := make(map[Level][]*PointIndex, len(levelMap))
+	if _, shouldReturnThisLevel := levelMap[ix.level]; shouldReturnThisLevel {
+		pointIndexesPerLevel[ix.level] = []*PointIndex{ix}
+	}
+	if depth == 0 { // finished
+		return pointIndexesPerLevel
 	}
 	var quadrantsToCheck []quadrantToCheck
 
@@ -241,23 +242,24 @@ func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth uint, certai
 	}
 
 	// Check all the possible quadrants
-	var intersectedQuadrantsWithPoints []*PointIndex
 	mutexed := false
 	for _, quadrantToCheck := range quadrantsToCheck {
 		if quadrantToCheck.mutex && mutexed {
 			continue
 		}
-		var found []*PointIndex
+		var found map[Level][]*PointIndex
 		quadrant := ix.quadrants[quadrantToCheck.i]
 		if quadrant != nil {
-			found = quadrant.snapClosestPoints(intLine, depth-1, quadrantToCheck.certain)
+			found = quadrant.snapClosestPoints(intLine, depth-1, levelMap, quadrantToCheck.certain)
 		}
 		if quadrantToCheck.mutex && len(found) > 0 {
 			mutexed = true
 		}
-		intersectedQuadrantsWithPoints = append(intersectedQuadrantsWithPoints, found...)
+		for level, pointIndices := range found {
+			pointIndexesPerLevel[level] = append(pointIndexesPerLevel[level], pointIndices...)
+		}
 	}
-	return intersectedQuadrantsWithPoints
+	return pointIndexesPerLevel
 }
 
 // containsPoint checks whether a point is contained in the extent.
