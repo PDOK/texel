@@ -24,10 +24,6 @@ func (f featureGPKG) Geometry() geom.Geometry {
 	return f.geometry
 }
 
-func (f *featureGPKG) UpdateGeometry(geometry geom.Geometry) {
-	f.geometry = geometry
-}
-
 type column struct {
 	cid       int
 	name      string
@@ -207,7 +203,7 @@ func (target *TargetGeopackage) CreateTables(tables []Table) error {
 }
 
 func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Feature) {
-	var features []interface{}
+	var features []processing.Feature
 
 	for {
 		feature, hasMore := <-inFeatures
@@ -224,7 +220,7 @@ func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Featu
 	}
 }
 
-func (target *TargetGeopackage) writeFeatures(features []interface{}) {
+func (target *TargetGeopackage) writeFeatures(features []processing.Feature) {
 	tx, err := target.handle.Begin()
 	if err != nil {
 		log.Fatalf("Could not start a transaction: %s", err)
@@ -237,14 +233,13 @@ func (target *TargetGeopackage) writeFeatures(features []interface{}) {
 
 	var ext *geom.Extent
 
-	for _, feature := range features {
-		f := feature.(*featureGPKG)
-		sb, err := gpkg.NewBinary(int32(target.Table.srs.ID), f.geometry)
+	for _, f := range features {
+		sb, err := gpkg.NewBinary(int32(target.Table.srs.ID), f.Geometry())
 		if err != nil {
 			log.Fatalf("Could not create a binary geometry: %s", err)
 		}
 
-		data := f.columns
+		data := f.Columns()
 		data = append(data, sb)
 
 		_, err = stmt.Exec(data...)
@@ -257,14 +252,14 @@ func (target *TargetGeopackage) writeFeatures(features []interface{}) {
 		}
 
 		if ext == nil {
-			ext, err = geom.NewExtentFromGeometry(f.geometry)
+			ext, err = geom.NewExtentFromGeometry(f.Geometry())
 			if err != nil {
 				ext = nil
 				log.Println("Failed to create new extent:", err)
 				continue
 			}
 		} else {
-			_ = ext.AddGeometry(f.geometry)
+			_ = ext.AddGeometry(f.Geometry())
 		}
 	}
 	stmt.Close() //nolint:sqlclosecheck

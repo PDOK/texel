@@ -1,23 +1,28 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
+	"path"
 	"syscall"
 
-	"github.com/creasty/defaults"
+	"github.com/pdok/texel/processing"
+	"github.com/pdok/texel/tms20"
+
 	"github.com/iancoleman/strcase"
 	"github.com/pdok/texel/processing/gpkg"
 	"github.com/pdok/texel/snap"
 	"github.com/urfave/cli/v2"
-	"gopkg.in/yaml.v3"
 )
 
 const SOURCE string = `sourceGpkg`
 const TARGET string = `targetGpkg`
 const OVERWRITE string = `overwrite`
-const TILEMATRIX string = `tilematrix`
+const TILEMATRIXSET string = `tilematrixset`
+const TILEMATRICES string = `tilematrices`
 const PAGESIZE string = `pagesize`
 
 //nolint:funlen
@@ -37,28 +42,35 @@ func main() {
 		&cli.StringFlag{
 			Name:     TARGET,
 			Aliases:  []string{"t"},
-			Usage:    "Target GPKG",
+			Usage:    "Target GPKG (prefix). One GPKG per tile matrix cq zoom level will be created and the filename will be suffixed. E.g. target_6.gpkg",
 			Required: true,
 			EnvVars:  []string{strcase.ToScreamingSnake(TARGET)},
 		},
 		&cli.BoolFlag{
 			Name:     OVERWRITE,
 			Aliases:  []string{"o"},
-			Usage:    "Overwrite the target GPKG if it exists",
+			Usage:    "Overwrite a target GPKG if it exists",
 			Required: false,
 			EnvVars:  []string{strcase.ToScreamingSnake(OVERWRITE)},
 		},
 		&cli.StringFlag{
-			Name:     TILEMATRIX,
-			Aliases:  []string{"m"},
-			Usage:    `TileMatrix (yaml or json encoded). E.g.: {"MinX": -285401.92, "MaxY": 903401.92, "Level": 5, "CellSize": 107.52}`,
+			Name:     TILEMATRIXSET,
+			Aliases:  []string{"tms"},
+			Usage:    `ID of a (built-in) tile matrix set. E.g.: NetherlandsRDNewQuad`,
 			Required: true,
-			EnvVars:  []string{strcase.ToScreamingSnake(TILEMATRIX)},
+			EnvVars:  []string{strcase.ToScreamingSnake(TILEMATRIXSET)},
+		},
+		&cli.StringFlag{
+			Name:     TILEMATRICES,
+			Aliases:  []string{"z"},
+			Usage:    `IDs (usually the same as the zoom levels) of the tile matrices in the tile matrix set that should be processed for. JSON array of integers. E.g.: [4,5,6,7,8]`,
+			Required: true,
+			EnvVars:  []string{strcase.ToScreamingSnake(TILEMATRICES)},
 		},
 		&cli.IntFlag{
 			Name:     PAGESIZE,
 			Aliases:  []string{"p"},
-			Usage:    "Page Size, how many features are written per transaction to the target GPKG",
+			Usage:    "Page Size, how many features are written per transaction to a target GPKG",
 			Value:    1000,
 			Required: false,
 			EnvVars:  []string{strcase.ToScreamingSnake(PAGESIZE)},
@@ -66,13 +78,12 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		var tileMatrix snap.TileMatrix
-		// set fields that weren't supplied to default values
-		err := defaults.Set(&tileMatrix)
+		tileMatrixSet, err := tms20.LoadEmbeddedTileMatrixSet(c.String(TILEMATRIXSET))
 		if err != nil {
 			return err
 		}
-		err = yaml.Unmarshal([]byte(c.String(TILEMATRIX)), &tileMatrix)
+		var tileMatrixIDs []int
+		err = json.Unmarshal([]byte(c.String(TILEMATRICES)), &tileMatrixIDs)
 		if err != nil {
 			return err
 		}
@@ -86,36 +97,39 @@ func main() {
 		source.Init(c.String(SOURCE))
 		defer source.Close()
 
-		targetPath := c.String(TARGET)
-		if c.Bool(OVERWRITE) {
-			err := os.Remove(targetPath)
-			var pathError *os.PathError
-			if err != nil {
-				if !(errors.As(err, &pathError) && errors.Is(pathError.Err, syscall.ENOENT)) {
-					log.Fatalf("could not remove target file: %e", err)
-				}
-			}
+		targetPathFmt := injectSuffixIntoPath(c.String(TARGET))
+
+		gpkgTargets := make(map[int]*gpkg.TargetGeopackage, len(tileMatrixIDs))
+		overwrite := c.Bool(OVERWRITE)
+		pagesize := c.Int(PAGESIZE) // TODO divide by tile matrices count
+		for _, tmID := range tileMatrixIDs {
+			gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize)
+			defer gpkgTargets[tmID].Close() // yes, supposed to go here, want to close all at end of func
 		}
 
-		target := gpkg.TargetGeopackage{}
-		target.Init(targetPath, c.Int(PAGESIZE))
-		defer target.Close()
-
 		tables := source.GetTableInfo()
-
-		err = target.CreateTables(tables)
-		if err != nil {
-			log.Fatalf("error initialization the target GeoPackage: %s", err)
+		for _, target := range gpkgTargets {
+			err = target.CreateTables(tables)
+			if err != nil {
+				log.Fatalf("error initialization the target GeoPackage: %s", err)
+			}
 		}
 
 		log.Println("=== start snapping ===")
 
+		// need a copied map because of type difference processing.Target vs gpkg.TargetGeopackage
+		targets := make(map[int]processing.Target, len(gpkgTargets))
+		for tmID, target := range gpkgTargets {
+			targets[tmID] = target
+		}
 		// Process the tables sequentially
 		for _, table := range tables {
 			log.Printf("  snapping %s", table.Name)
-			source.Table = table
-			target.Table = table
-			snap.ToPointCloud(source, &target, tileMatrix)
+			for _, target := range gpkgTargets {
+				source.Table = table
+				target.Table = table
+			}
+			snap.ToPointCloud(source, targets, &tileMatrixSet)
 			log.Printf("  finished %s", table.Name)
 		}
 
@@ -127,4 +141,27 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func initGPKGTarget(targetPathFmt string, tmID int, overwrite bool, pagesize int) *gpkg.TargetGeopackage {
+	targetPath := fmt.Sprintf(targetPathFmt, tmID)
+	if overwrite {
+		err := os.Remove(targetPath)
+		var pathError *os.PathError
+		if err != nil {
+			if !(errors.As(err, &pathError) && errors.Is(pathError.Err, syscall.ENOENT)) {
+				log.Fatalf("could not remove target file: %e", err)
+			}
+		}
+	}
+	target := gpkg.TargetGeopackage{}
+	target.Init(targetPath, pagesize)
+	return &target
+}
+
+func injectSuffixIntoPath(p string) string {
+	dir, file := path.Split(p)
+	ext := path.Ext(file)
+	name := file[:len(file)-len(ext)]
+	return path.Join(dir, name+"_%v"+ext)
 }

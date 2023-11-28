@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	CoordPrecision                 = 5
+	CoordPrecision                 = 9
 	StandardizedRenderingPixelSize = 0.00028
 )
 
@@ -92,14 +92,17 @@ type TileMatrixSet struct {
 	// Minimum bounding rectangle surrounding the tile matrix set, in the supported CRS
 	BoundingBox *TwoDBoundingBox `json:"boundingBox,omitempty"`
 	// Describes scale levels and its tile matrices
-	TileMatrices map[int]TileMatrix `validate:"required,min=1" json:"-"`
+	TileMatrices map[TMID]TileMatrix `validate:"required,min=1" json:"-"`
 }
+
+// TMID is a Tile Matrix ID
+type TMID = int
 
 func (tms *TileMatrixSet) MarshalJSON() ([]byte, error) {
 	var tileMatrices []*TileMatrix
-	for i := range tms.TileMatrices {
-		tm := tms.TileMatrices[i]
-		tileMatrices = append(tileMatrices, &(tm))
+	for tmID := range tms.TileMatrices {
+		tm := tms.TileMatrices[tmID]
+		tileMatrices = append(tileMatrices, &tm)
 	}
 	sort.Slice(tileMatrices, func(i, j int) bool {
 		iID, _ := strconv.ParseInt(tileMatrices[i].ID, 10, 64)
@@ -152,12 +155,12 @@ func (tms *TileMatrixSet) UnmarshalJSON(data []byte) error {
 	return validate.Struct(tms)
 }
 
-func unmarshalTileMatrices(rawTileMatrices interface{}) (map[int]TileMatrix, error) {
+func unmarshalTileMatrices(rawTileMatrices interface{}) (map[TMID]TileMatrix, error) {
 	rawTileMatricesList, ok := rawTileMatrices.([]interface{})
 	if !ok {
 		return nil, fmt.Errorf(`"tileMatrices" should be an array`)
 	}
-	tileMatrices := make(map[int]TileMatrix, len(rawTileMatricesList))
+	tileMatrices := make(map[TMID]TileMatrix, len(rawTileMatricesList))
 	for _, rawTileMatrix := range rawTileMatricesList {
 		rawTileMatrixMap, ok := rawTileMatrix.(map[string]interface{})
 		if !ok {
@@ -168,11 +171,11 @@ func unmarshalTileMatrices(rawTileMatrices interface{}) (map[int]TileMatrix, err
 		if err != nil {
 			return nil, err
 		}
-		tileMatrixID, err := strconv.ParseInt(tileMatrix.ID, 10, 64)
+		tmID, err := strconv.ParseInt(tileMatrix.ID, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("only integer-like ids are supported for tile matrices: %w", err)
 		}
-		tileMatrices[int(tileMatrixID)] = tileMatrix
+		tileMatrices[int(tmID)] = tileMatrix
 	}
 	return tileMatrices, nil
 }
@@ -250,7 +253,7 @@ func (crs *URICRS) MarshalJSON() ([]byte, error) {
 }
 
 func (crs *URICRS) UnmarshalJSON(data []byte) error {
-	return UnmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
+	return unmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
 }
 
 func (crs *URICRS) UnmarshalJSONFromMap(data interface{}) error {
@@ -335,7 +338,7 @@ func (crs *WKTCRS) MarshalJSON() ([]byte, error) {
 }
 
 func (crs *WKTCRS) UnmarshalJSON(data []byte) error {
-	return UnmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
+	return unmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
 }
 
 func (crs *WKTCRS) UnmarshalJSONFromMap(data interface{}) error {
@@ -405,7 +408,7 @@ func (crs *ReferenceSystemCRS) MarshalJSON() ([]byte, error) {
 }
 
 func (crs *ReferenceSystemCRS) UnmarshalJSON(data []byte) error {
-	return UnmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
+	return unmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
 }
 
 func (crs *ReferenceSystemCRS) UnmarshalJSONFromMap(data interface{}) error {
@@ -582,7 +585,7 @@ type TileMatrix struct {
 }
 
 func (tm *TileMatrix) UnmarshalJSON(data []byte) error {
-	return UnmarshalJSONMapUsingUnmarshalJSONFromMap(tm, data)
+	return unmarshalJSONMapUsingUnmarshalJSONFromMap(tm, data)
 }
 
 func (tm *TileMatrix) UnmarshalJSONFromMap(data interface{}) error {
@@ -742,7 +745,51 @@ func (tms *TileMatrixSet) ToNative(tile *slippy.Tile) (geom.Point, bool) {
 	return topLeftPt, true
 }
 
-func UnmarshalJSONMapUsingUnmarshalJSONFromMap(target marshmallow.UnmarshalerFromJSONMap, data []byte) error {
+// MatrixSize returns the width and height of a TileMatrix in native CRS units
+func (tms *TileMatrixSet) MatrixSize(tmID TMID) (width float64, height float64) {
+	tm := tms.TileMatrices[tmID]
+	if tm.VariableMatrixWidths != nil {
+		panic("variable matrix widths not supported") // TODO support VariableMatrixWidths
+	}
+	width = roundFloat(float64(tm.MatrixWidth)*float64(tm.TileWidth)*tm.CellSize, CoordPrecision)
+	height = roundFloat(float64(tm.MatrixHeight)*float64(tm.TileHeight)*tm.CellSize, CoordPrecision)
+	return width, height
+}
+
+// MatrixBoundingBox returns the bounding box of a TileMatrix, in native CRS
+func (tms *TileMatrixSet) MatrixBoundingBox(tmID TMID) (bottomLeft geom.Point, topRight geom.Point, err error) {
+	tm, ok := tms.TileMatrices[tmID]
+	if !ok {
+		return bottomLeft, topRight, fmt.Errorf(`tile matrix with id %v not found`, tmID)
+	}
+
+	gridWidth, gridHeight := tms.MatrixSize(tmID)
+	pointOfOriginXY, err := ToXYPoint(tms, *tm.PointOfOrigin)
+	if err != nil {
+		return bottomLeft, topRight, fmt.Errorf(`could not get pointOfOrigin coordinates: %w`, err)
+	}
+
+	minX := pointOfOriginXY[0]
+	bottomLeft[0] = minX
+	topRight[0] = roundFloat(minX+gridWidth, CoordPrecision)
+
+	switch tm.CornerOfOrigin {
+	default:
+		fallthrough
+	case TopLeft:
+		maxY := pointOfOriginXY[1]
+		topRight[1] = maxY
+		bottomLeft[1] = roundFloat(maxY-gridHeight, CoordPrecision)
+	case BottomLeft:
+		minY := pointOfOriginXY[1]
+		bottomLeft[1] = minY
+		topRight[1] = roundFloat(minY+gridHeight, CoordPrecision)
+	}
+
+	return bottomLeft, topRight, nil
+}
+
+func unmarshalJSONMapUsingUnmarshalJSONFromMap(target marshmallow.UnmarshalerFromJSONMap, data []byte) error {
 	var dataMap map[string]interface{}
 	err := json.Unmarshal(data, &dataMap)
 	if err != nil {
@@ -751,6 +798,7 @@ func UnmarshalJSONMapUsingUnmarshalJSONFromMap(target marshmallow.UnmarshalerFro
 	return target.UnmarshalJSONFromMap(dataMap)
 }
 
+//nolint:unparam
 func roundFloat(f float64, p uint) float64 {
 	r := math.Pow(10, float64(p))
 	return math.Round(f*r) / r
