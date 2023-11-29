@@ -424,7 +424,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := tt.ix
 			poly := tt.poly
-			ix.InsertPolygon(&poly)
+			ix.InsertPolygon(poly)
 			levels := tt.levels
 			if levels == nil {
 				levels = []Level{ix.maxDepth}
@@ -485,7 +485,7 @@ func newSimplePointIndex(maxDepth Level, cellSize float64) *PointIndex {
 }
 
 //nolint:unparam
-func newSimpleTileMatrixSet(maxDepth Level, cellSize float64) *tms20.TileMatrixSet {
+func newSimpleTileMatrixSet(maxDepth Level, cellSize float64) tms20.TileMatrixSet {
 	zeroZero := tms20.TwoDPoint([2]float64{0.0, 0.0})
 	tms := tms20.TileMatrixSet{
 		CRS:          fakeCRS{},
@@ -506,13 +506,13 @@ func newSimpleTileMatrixSet(maxDepth Level, cellSize float64) *tms20.TileMatrixS
 			MatrixHeight:     1,
 		}
 	}
-	return &tms
+	return tms
 }
 
-func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) *tms20.TileMatrixSet {
+func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 	tms, err := tms20.LoadEmbeddedTileMatrixSet(tmsID)
 	require.NoError(t, err)
-	return &tms
+	return tms
 }
 
 func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, tmIDs []tms20.TMID) *PointIndex {

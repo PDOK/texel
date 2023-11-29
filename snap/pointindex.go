@@ -61,7 +61,7 @@ type Ord = int
 type Depth = uint
 
 // InsertPolygon inserts all points from a Polygon
-func (ix *PointIndex) InsertPolygon(polygon *geom.Polygon) {
+func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
 	for _, ring := range polygon.LinearRings() {
 		for _, vertex := range ring {
 			ix.InsertPoint(vertex)
