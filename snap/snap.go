@@ -56,15 +56,16 @@ func newPointIndexFromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTM
 	}
 	intBottomLeft := intgeom.FromGeomPoint(bottomLeft)
 	intTopRight := intgeom.FromGeomPoint(topRight)
-	intRootExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
+	intExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
 	ix := PointIndex{
-		intRootExtent: intRootExtent,
-		level:         0,
-		x:             0,
-		y:             0,
-		maxDepth:      maxDepth,
+		Quadrant: Quadrant{
+			intExtent: intExtent,
+			z:         0,
+		},
+		maxDepth:  maxDepth,
+		quadrants: make(map[Level]map[Z]Quadrant, maxDepth+1),
 	}
-	ix.intExtent, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0)
+	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
 	return &ix
 }
