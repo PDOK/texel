@@ -9,6 +9,8 @@ import (
 	"path"
 	"syscall"
 
+	"github.com/carlmjohnson/versioninfo"
+
 	"github.com/pdok/texel/processing"
 	"github.com/pdok/texel/tms20"
 
@@ -30,6 +32,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "texel"
 	app.Usage = "A Golang Polygon Snapping application"
+	app.Version = versioninfo.Short()
 
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
