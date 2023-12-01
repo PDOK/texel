@@ -10,11 +10,12 @@ require (
 )
 
 require (
+	github.com/carlmjohnson/versioninfo v0.22.5
 	github.com/go-playground/validator/v10 v10.16.0
 	github.com/iancoleman/strcase v0.3.0
 	github.com/perimeterx/marshmallow v1.1.5
 	github.com/stretchr/testify v1.8.4
-	gopkg.in/yaml.v3 v3.0.1
+	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
 )
 
 require (
@@ -25,10 +26,10 @@ require (
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	golang.org/x/crypto v0.7.0 // indirect
-	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/net v0.8.0 // indirect
 	golang.org/x/sys v0.14.0 // indirect
 	golang.org/x/text v0.8.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 require (

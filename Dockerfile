@@ -23,7 +23,7 @@ ENV GOOS=linux
 # run tests
 RUN go test ./... -covermode=atomic
 
-RUN go build -v -ldflags='-s -w -linkmode auto' -a -installsuffix cgo -o /texel .
+RUN go build -v -buildvcs=true -ldflags='-s -w -linkmode auto' -a -installsuffix cgo -o /texel .
 
 # FROM scratch
 FROM golang:1.21-bullseye
@@ -39,4 +39,4 @@ WORKDIR /
 # Import from builder.
 COPY --from=build-env /texel /
 
-CMD ["/texel"]
+ENTRYPOINT ["/texel"]
