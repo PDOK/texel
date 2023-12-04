@@ -156,11 +156,11 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool) [][2]float64 {
 		}
 	default:
 		// deduplicate points in the ring, check winding order, then add to the polygon
-		deduplicatedRing, rightmostLowestPoint := kmpDeduplicate(newRing)
+		deduplicatedRing := kmpDeduplicate(newRing)
 		// inner rings (ringIdx != 0) should be clockwise
 		shouldBeClockwise := !isOuter
 		// winding order is reversed if incorrect
-		ensureCorrectWindingOrder(deduplicatedRing, rightmostLowestPoint, shouldBeClockwise)
+		ensureCorrectWindingOrder(deduplicatedRing, shouldBeClockwise)
 		return deduplicatedRing
 	}
 	return nil
@@ -177,12 +177,12 @@ func floatPolygonsToGeomPolygons(floaters map[Level][][][2]float64) map[Level]*g
 
 // validate winding order (CCW for outer rings, CW for inner rings)
 // if winding order is incorrect, ring is reversed to correct winding order
-func ensureCorrectWindingOrder(ring [][2]float64, rightmostLowestPoint [2]float64, shouldBeClockwise bool) {
+func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
 	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
 	mod := func(a, b int) int {
 		return (a%b + b) % b
 	}
-	i := slices.Index(ring, rightmostLowestPoint)
+	i, _ := findRightmostLowestPoint(ring)
 	// check angle between the vectors goint into and coming out of the rightmost lowest point
 	points := [3][2]float64{ring[mod(i-1, len(ring))], ring[i], ring[mod(i+1, len(ring))]}
 	if isClockwise(points, shouldBeClockwise) != shouldBeClockwise {
@@ -209,8 +209,7 @@ func isClockwise(points [3][2]float64, shouldBeClockwise bool) bool {
 // function also determines the rightmost lowest point of the ring, which is used to ensure correct winding order
 //
 //nolint:cyclop,funlen
-func kmpDeduplicate(newRing [][2]float64) ([][2]float64, [2]float64) {
-	rightmostLowestPoint := [2]float64{math.MinInt, math.MaxInt}
+func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 	deduplicatedRing := make([][2]float64, len(newRing))
 	copy(deduplicatedRing, newRing)
 	// map of indices to remove, sorted by starting index of each sequence to remove
@@ -221,13 +220,6 @@ func kmpDeduplicate(newRing [][2]float64) ([][2]float64, [2]float64) {
 	visitedPoints := [][2]float64{}
 	for i := 0; i < len(newRing); {
 		vertex := newRing[i]
-		// check if vertex is rightmost lowest point (either y is lower, or y is equal and x is higher)
-		if vertex[1] < rightmostLowestPoint[1] {
-			rightmostLowestPoint[0] = vertex[0]
-			rightmostLowestPoint[1] = vertex[1]
-		} else if vertex[1] == rightmostLowestPoint[1] && vertex[0] > rightmostLowestPoint[0] {
-			rightmostLowestPoint[0] = vertex[0]
-		}
 		// not a step back, continue
 		if len(visitedPoints) <= 1 || visitedPoints[len(visitedPoints)-2] != vertex {
 			visitedPoints = append(visitedPoints, vertex)
@@ -368,7 +360,24 @@ func kmpDeduplicate(newRing [][2]float64) ([][2]float64, [2]float64) {
 		deduplicatedRing = append(deduplicatedRing[:sequence[0]-offset], deduplicatedRing[sequence[1]-offset:]...)
 		offset += sequence[1] - sequence[0]
 	}
-	return deduplicatedRing, rightmostLowestPoint
+	return deduplicatedRing
+}
+
+func findRightmostLowestPoint(ring [][2]float64) (int, [2]float64) {
+	rightmostLowestPoint := [2]float64{math.MinInt, math.MaxInt}
+	j := 0
+	for i, vertex := range ring {
+		// check if vertex is rightmost lowest point (either y is lower, or y is equal and x is higher)
+		if vertex[1] < rightmostLowestPoint[1] {
+			rightmostLowestPoint[0] = vertex[0]
+			rightmostLowestPoint[1] = vertex[1]
+			j = i
+		} else if vertex[1] == rightmostLowestPoint[1] && vertex[0] > rightmostLowestPoint[0] {
+			rightmostLowestPoint[0] = vertex[0]
+			j = i
+		}
+	}
+	return j, rightmostLowestPoint
 }
 
 // repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'
