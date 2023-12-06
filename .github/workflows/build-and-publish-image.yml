@@ -1,7 +1,8 @@
+---
 name: build
 env:
   image: pdok/texel
-on:
+"on":
   push:
     tags:
       - '*'
@@ -9,10 +10,11 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Ensure master  # because master branch is protected and others not
+        if: "!endsWith(github.event.base_ref, 'master')"
+        run: exit -1
+      - name: Checkout  # for go build -buildvcs to be able to read git info
         uses: actions/checkout@v4
-        with:
-          fetch-tags: true
       - name: Docker meta
         id: docker_meta
         uses: docker/metadata-action@v5
@@ -30,9 +32,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build and push
-        id: docker_build
         uses: docker/build-push-action@v5
         with:
+          context: .  # for go build -buildvcs to be able to read git info
           push: true
           tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}

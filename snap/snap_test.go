@@ -188,12 +188,38 @@ func Test_snapPolygon(t *testing.T) {
 				{0.25, 2.25},
 			}}},
 		},
+		{
+			name:  "rightmostLowestPoint is one of the deduped points",
+			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs: []tms20.TMID{5},
+			polygon: &geom.Polygon{{
+				{69840.279, 445755.872},
+				{69842.666, 445755.289},
+				{69843.225, 445753.053},
+				{69838.492, 445706.609},
+				{69839.888, 445711.026},
+				{69844.08, 445714.626},
+				{69878.365, 445712.156},
+				{69879.413, 445710.912},
+				{69837.833, 445705.673},
+				{69840.279, 445755.872},
+			}},
+			want: map[tms20.TMID]*geom.Polygon{5: {{
+				{69840.8, 445753.12},
+				{69840.8, 445753.12},
+				{69840.8, 445712.8},
+				{69881.12, 445712.8},
+				{69840.8, 445712.8},
+			}}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := snapPolygon(tt.polygon, tt.tms, tt.tmIDs)
-			if !assert.EqualValues(t, tt.want, got) {
-				t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got), wkt.MustEncode(tt.want))
+			for tmID, wantPoly := range tt.want {
+				if !assert.EqualValues(t, wantPoly, got[tmID]) {
+					t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got[tmID]), wkt.MustEncode(wantPoly))
+				}
 			}
 		})
 	}
