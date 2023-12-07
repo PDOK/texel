@@ -190,7 +190,7 @@ func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level
 	return quadrantsIntersectedPerLevel
 }
 
-//nolint:cyclop,funlen
+//nolint:cyclop
 func findIntersectingQuadrants(intLine intgeom.Line, quadrants map[Q]Quadrant, parent Quadrant) []Q {
 	pt1InfiniteQuadrantI := getInfiniteQuadrant(intLine[0], parent.intCentroid)
 	pt1IsInsideQuadrant := containsPoint(intLine[0], parent.intExtent)

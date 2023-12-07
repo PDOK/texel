@@ -119,7 +119,6 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}
 }
 
-//nolint:funlen
 func TestPointIndex_InsertPoint(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -254,7 +253,6 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 	}
 }
 
-//nolint:funlen
 func TestPointIndex_SnapClosestPoints(t *testing.T) {
 	tests := []struct {
 		name   string
