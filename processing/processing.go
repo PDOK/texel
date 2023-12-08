@@ -3,6 +3,7 @@
 package processing
 
 import (
+	"fmt"
 	"log"
 	"sync"
 
@@ -48,7 +49,7 @@ func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTil
 		default:
 			postCount++
 			nonPolygonCount++
-			for tmID := range tmIDs {
+			for _, tmID := range tmIDs {
 				featuresOut <- wrapFeatureForTileMatrix(feature, tmID, nil)
 			}
 		}
@@ -89,6 +90,9 @@ func writeFeaturesToTargets(featuresForTileMatrices <-chan FeatureForTileMatrix,
 		}
 		tmID := feature.TileMatrixID()
 		channel := targetChannels[tmID]
+		if channel == nil { // should not happen
+			panic(fmt.Errorf(`no target channel for %v`, tmID))
+		}
 		channel <- feature
 	}
 
