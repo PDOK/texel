@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	keepPointsAndLines      = false // TODO do something with polys that collapsed into points and lines
 	internalPixelResolution = 16
 )
 
@@ -151,7 +152,7 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool) [][2]float64 {
 	case 0:
 		return nil
 	case 1, 2:
-		if isOuter {
+		if isOuter && keepPointsAndLines {
 			// keep outer ring as point or line
 			return newRing
 		}
