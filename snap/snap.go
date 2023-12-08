@@ -19,13 +19,13 @@ const (
 
 // ToPointCloud snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
-func ToPointCloud(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet *tms20.TileMatrixSet) {
-	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]*geom.Polygon {
-		return snapPolygon(&p, tileMatrixSet, tmIDs)
+func ToPointCloud(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet) {
+	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]geom.Polygon {
+		return snapPolygon(p, tileMatrixSet, tmIDs)
 	})
 }
 
-func snapPolygon(polygon *geom.Polygon, tileMatrixSet *tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID]*geom.Polygon {
+func snapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
 	ix := newPointIndexFromTileMatrixSet(tileMatrixSet, deepestID)
 	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
@@ -37,7 +37,7 @@ func snapPolygon(polygon *geom.Polygon, tileMatrixSet *tms20.TileMatrixSet, tmID
 	ix.InsertPolygon(polygon)
 	newPolygonPerLevel := addPointsAndSnap(ix, polygon, levels)
 
-	newPolygonPerTileMatrixID := make(map[tms20.TMID]*geom.Polygon, len(newPolygonPerLevel))
+	newPolygonPerTileMatrixID := make(map[tms20.TMID]geom.Polygon, len(newPolygonPerLevel))
 	for level, newPolygon := range newPolygonPerLevel {
 		newPolygonPerTileMatrixID[tmIDsByLevels[level]] = newPolygon
 	}
@@ -45,7 +45,7 @@ func snapPolygon(polygon *geom.Polygon, tileMatrixSet *tms20.TileMatrixSet, tmID
 	return newPolygonPerTileMatrixID
 }
 
-func newPointIndexFromTileMatrixSet(tileMatrixSet *tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
+func newPointIndexFromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
 	// TODO ensure that the tile matrix set is actually a quad tree, starting at 0. just assuming now.
 	rootTM := tileMatrixSet.TileMatrices[0]
 	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(internalPixelResolution)))
@@ -56,20 +56,21 @@ func newPointIndexFromTileMatrixSet(tileMatrixSet *tms20.TileMatrixSet, deepestT
 	}
 	intBottomLeft := intgeom.FromGeomPoint(bottomLeft)
 	intTopRight := intgeom.FromGeomPoint(topRight)
-	intRootExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
+	intExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
 	ix := PointIndex{
-		intRootExtent: intRootExtent,
-		level:         0,
-		x:             0,
-		y:             0,
-		maxDepth:      maxDepth,
+		Quadrant: Quadrant{
+			intExtent: intExtent,
+			z:         0,
+		},
+		maxDepth:  maxDepth,
+		quadrants: make(map[Level]map[Z]Quadrant, maxDepth+1),
 	}
-	ix.intExtent, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0)
+	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
 	return &ix
 }
 
-func tileMatrixIDsByLevels(tms *tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Level]tms20.TMID {
+func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Level]tms20.TMID {
 	rootTM := tms.TileMatrices[0]
 	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(internalPixelResolution)))
 	tmIDsByLevels := make(map[Level]tms20.TMID, len(tmIDs))
@@ -81,9 +82,9 @@ func tileMatrixIDsByLevels(tms *tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Lev
 	return tmIDsByLevels
 }
 
-func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon, levels []Level) map[Level]*geom.Polygon {
+func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[Level]geom.Polygon {
 	levelMap := asKeys(levels)
-	newPolygon := make(map[Level][][][2]float64, len(*polygon))
+	newPolygon := make(map[Level][][][2]float64, len(polygon))
 
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
 	for ringIdx, ring := range polygon.LinearRings() {
@@ -166,11 +167,10 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool) [][2]float64 {
 	return nil
 }
 
-func floatPolygonsToGeomPolygons(floaters map[Level][][][2]float64) map[Level]*geom.Polygon {
-	geoms := make(map[Level]*geom.Polygon, len(floaters))
+func floatPolygonsToGeomPolygons(floaters map[Level][][][2]float64) map[Level]geom.Polygon {
+	geoms := make(map[Level]geom.Polygon, len(floaters))
 	for l := range floaters {
-		floater := floaters[l]
-		geoms[l] = (*geom.Polygon)(&floater)
+		geoms[l] = floaters[l]
 	}
 	return geoms
 }

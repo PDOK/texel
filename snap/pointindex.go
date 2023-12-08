@@ -24,6 +24,12 @@ const (
 	intOne  = 1000000000
 )
 
+type Quadrant struct {
+	z           Z
+	intExtent   intgeom.Extent // maxX and MaxY are exclusive
+	intCentroid intgeom.Point
+}
+
 // PointIndex is a pointcloud annex quadtree to enable snapping lines to a grid accounting for those points.
 // Quadrants:
 //
@@ -45,23 +51,29 @@ const (
 //	   minX    0    maxX
 //	          inc
 type PointIndex struct {
-	intRootExtent intgeom.Extent // extent of the entire/top/root/highest grid
-	level         Level
-	x             Ord            // from the left
-	y             Ord            // from the bottom
-	intExtent     intgeom.Extent // maxX and MaxY are exclusive
-	intCentroid   intgeom.Point
-	hasPoints     bool
-	maxDepth      Depth // 0 means this is a leaf
-	quadrants     [4]*PointIndex
+	Quadrant
+	maxDepth  Level
+	quadrants map[Level]map[Z]Quadrant
 }
 
 type Level = uint
-type Ord = int
-type Depth = uint
+type Q = int // quadrant index (0, 1, 2 or 3)
 
 // InsertPolygon inserts all points from a Polygon
-func (ix *PointIndex) InsertPolygon(polygon *geom.Polygon) {
+func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
+	// initialize the quadrants map
+	pointsCount := 0
+	for _, ring := range polygon.LinearRings() {
+		pointsCount += len(ring)
+	}
+	var level uint
+	for level = 0; level <= ix.maxDepth; level++ {
+		if ix.quadrants[level] == nil {
+			ix.quadrants[level] = make(map[Z]Quadrant, pointsCount) // TODO smaller for the shallower levels
+		}
+		// TODO expand for another polygon?
+	}
+
 	for _, ring := range polygon.LinearRings() {
 		for _, vertex := range ring {
 			ix.InsertPoint(vertex)
@@ -91,49 +103,27 @@ func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
 
 // insertCoord adds a point into this pc, assuming the point is inside its extent
 func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
-	ix.hasPoints = true
-	if ix.isLeaf() {
-		return
-	}
-
-	// insert into one of the quadrants
-	indexSize := int(pow2(ix.maxDepth))
-	xAtDeepest := ix.x * indexSize
-	yAtDeepest := ix.y * indexSize
-
-	isRight := bool2int(deepestX >= xAtDeepest+indexSize/2)
-	isTop := bool2int(deepestY >= yAtDeepest+indexSize/2) << 1
-	quadrantI := isRight | isTop
-	ix.ensureQuadrant(quadrantI).insertCoord(deepestX, deepestY)
-}
-
-func (ix *PointIndex) ensureQuadrant(quadrantI int) *PointIndex {
-	if ix.quadrants[quadrantI] == nil {
-		x := ix.x*2 + oneIfRight(quadrantI)
-		y := ix.y*2 + oneIfTop(quadrantI)
-		level := ix.level + 1
-		extent, centroid := ix.getQuadrantExtentAndCentroid(level, x, y)
-		ix.quadrants[quadrantI] = &PointIndex{
-			intRootExtent: ix.intRootExtent,
-			level:         level,
-			x:             x,
-			y:             y,
-			intExtent:     extent,
-			intCentroid:   centroid,
-			maxDepth:      ix.maxDepth - 1,
+	var l Level
+	for l = 0; l <= ix.maxDepth; l++ {
+		x := uint(deepestX) / pow2(ix.maxDepth-l)
+		y := uint(deepestY) / pow2(ix.maxDepth-l)
+		z := mustToZ(x, y)
+		if ix.quadrants[l] == nil { // probably already initialized by InsertPolygon
+			ix.quadrants[l] = make(map[Z]Quadrant)
+		}
+		extent, centroid := getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
+		ix.quadrants[l][z] = Quadrant{
+			z:           z,
+			intExtent:   extent,
+			intCentroid: centroid,
 		}
 	}
-	return ix.quadrants[quadrantI]
 }
 
-func (ix *PointIndex) isLeaf() bool {
-	return ix.maxDepth == 0
-}
-
-func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y int) (intgeom.Extent, intgeom.Point) {
-	intQuadrantSpan := ix.intRootExtent.XSpan() / int64(pow2(level))
-	intMinX := ix.intRootExtent.MinX()
-	intMinY := ix.intRootExtent.MinY()
+func getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.Extent) (intgeom.Extent, intgeom.Point) {
+	intQuadrantSpan := intRootExtent.XSpan() / int64(pow2(level))
+	intMinX := intRootExtent.MinX()
+	intMinY := intRootExtent.MinY()
 	intExtent := intgeom.Extent{
 		intMinX + int64(x)*intQuadrantSpan,   // minx
 		intMinY + int64(y)*intQuadrantSpan,   // miny
@@ -151,41 +141,63 @@ func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y int) (intge
 // on multiple levels
 func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any) map[Level][][2]float64 {
 	intLine := intgeom.FromGeomLine(line)
-	pointIndicesPerLevel := ix.snapClosestPoints(intLine, ix.maxDepth, levelMap, false)
+	quadrantsPerLevel := ix.snapClosestPoints(intLine, levelMap)
 
 	pointsPerLevel := make(map[Level][][2]float64, len(levelMap))
-	for level, pointIndices := range pointIndicesPerLevel {
-		points := make([][2]float64, len(pointIndices))
-		for i, ixWithPoint := range pointIndices {
-			points[i] = ixWithPoint.intCentroid.ToGeomPoint()
+	for level, quadrants := range quadrantsPerLevel {
+		if len(quadrants) == 0 {
+			continue
+		}
+		points := make([][2]float64, len(quadrants))
+		for i, quadrant := range quadrants {
+			points[i] = quadrant.intCentroid.ToGeomPoint()
 		}
 		pointsPerLevel[level] = points
 	}
 	return pointsPerLevel
 }
 
-//nolint:cyclop,funlen
-func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth Level, levelMap map[Level]any, certainlyIntersects bool) map[Level][]*PointIndex {
-	if !ix.hasPoints {
+func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level]any) map[Level][]Quadrant {
+	if !lineIntersects(intLine, ix.intExtent) {
 		return nil
 	}
-	if !certainlyIntersects && !ix.lineIntersects(intLine) {
-		return nil
+	quadrantsIntersectedPerLevel := make(map[Level][]Quadrant, len(levelMap))
+	parents := []Quadrant{ix.Quadrant}
+	if _, includeLevelZero := levelMap[0]; includeLevelZero {
+		quadrantsIntersectedPerLevel[0] = parents
 	}
-	pointIndexesPerLevel := make(map[Level][]*PointIndex, len(levelMap))
-	if _, shouldReturnThisLevel := levelMap[ix.level]; shouldReturnThisLevel {
-		pointIndexesPerLevel[ix.level] = []*PointIndex{ix}
+
+	var level Level
+	for level = 1; level <= ix.maxDepth; level++ {
+		quadrantsIntersected := make([]Quadrant, 0, 10) // TODO good estimate of expected count, based on line length / quadrant span * geom points?
+		for _, parent := range parents {
+			quadrantZs := getQuadrantZs(parent.z)
+			quadrantsWithPoints := make(map[Q]Quadrant, 4)
+			for q, quadrantZ := range quadrantZs {
+				if quadrant, exists := ix.quadrants[level][quadrantZ]; exists {
+					quadrantsWithPoints[q] = quadrant
+				}
+			}
+			for _, q := range findIntersectingQuadrants(intLine, quadrantsWithPoints, parent) {
+				quadrantsIntersected = append(quadrantsIntersected, quadrantsWithPoints[q])
+			}
+		}
+		parents = quadrantsIntersected
+		if _, isLevelIncluded := levelMap[level]; isLevelIncluded {
+			quadrantsIntersectedPerLevel[level] = quadrantsIntersected
+		}
 	}
-	if depth == 0 { // finished
-		return pointIndexesPerLevel
-	}
+	return quadrantsIntersectedPerLevel
+}
+
+//nolint:cyclop
+func findIntersectingQuadrants(intLine intgeom.Line, quadrants map[Q]Quadrant, parent Quadrant) []Q {
+	pt1InfiniteQuadrantI := getInfiniteQuadrant(intLine[0], parent.intCentroid)
+	pt1IsInsideQuadrant := containsPoint(intLine[0], parent.intExtent)
+	pt2InfiniteQuadrantI := getInfiniteQuadrant(intLine[1], parent.intCentroid)
+	pt2IsInsideQuadrant := containsPoint(intLine[1], parent.intExtent)
+
 	var quadrantsToCheck []quadrantToCheck
-
-	pt1InfiniteQuadrantI := ix.getInfiniteQuadrant(intLine[0])
-	pt1IsInsideQuadrant := ix.containsPoint(intLine[0])
-	pt2InfiniteQuadrantI := ix.getInfiniteQuadrant(intLine[1])
-	pt2IsInsideQuadrant := ix.containsPoint(intLine[1])
-
 	switch {
 	case pt1InfiniteQuadrantI == pt2InfiniteQuadrantI:
 		if pt1IsInsideQuadrant && pt2IsInsideQuadrant {
@@ -241,25 +253,37 @@ func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, depth Level, level
 		}
 	}
 
+	found := make([]Q, 0, 4)
 	// Check all the possible quadrants
 	mutexed := false
 	for _, quadrantToCheck := range quadrantsToCheck {
 		if quadrantToCheck.mutex && mutexed {
 			continue
 		}
-		var found map[Level][]*PointIndex
-		quadrant := ix.quadrants[quadrantToCheck.i]
-		if quadrant != nil {
-			found = quadrant.snapClosestPoints(intLine, depth-1, levelMap, quadrantToCheck.certain)
+		quadrant, hasPoints := quadrants[quadrantToCheck.i]
+		if !hasPoints {
+			continue
 		}
-		if quadrantToCheck.mutex && len(found) > 0 {
-			mutexed = true
-		}
-		for level, pointIndices := range found {
-			pointIndexesPerLevel[level] = append(pointIndexesPerLevel[level], pointIndices...)
+		if quadrantToCheck.certain || lineIntersects(intLine, quadrant.intExtent) {
+			found = append(found, quadrantToCheck.i)
+			if quadrantToCheck.mutex {
+				mutexed = true
+			}
 		}
 	}
-	return pointIndexesPerLevel
+	return found
+}
+
+func getQuadrantZs(parentZ Z) [4]Z {
+	parentX, parentY := fromZ(parentZ)
+	quadrantZs := [4]Z{}
+	for i := 0; i < 4; i++ {
+		x := parentX*2 + uint(oneIfRight(i))
+		y := parentY*2 + uint(oneIfTop(i))
+		z := mustToZ(x, y)
+		quadrantZs[i] = z
+	}
+	return quadrantZs
 }
 
 // containsPoint checks whether a point is contained in the extent.
@@ -269,6 +293,13 @@ func (ix *PointIndex) containsPoint(intPt intgeom.Point) bool {
 		ix.intExtent.MinY() <= intPt[1] && intPt[1] < ix.intExtent.MaxY()
 }
 
+// containsPoint checks whether a point is contained in an extent.
+func containsPoint(intPt intgeom.Point, intExtent intgeom.Extent) bool {
+	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
+	return intExtent.MinX() <= intPt[0] && intPt[0] < intExtent.MaxX() &&
+		intExtent.MinY() <= intPt[1] && intPt[1] < intExtent.MaxY()
+}
+
 // A quadrant to check for an intersecting line and having points
 type quadrantToCheck struct {
 	i       int  // quadrant number
@@ -276,10 +307,10 @@ type quadrantToCheck struct {
 	mutex   bool // if the line intersects this one, the other cannot be intersected
 }
 
-// getInfiniteQuadrant determines in which infinite quadrant the point lies
-func (ix *PointIndex) getInfiniteQuadrant(intPt intgeom.Point) int {
-	isRight := bool2int(intPt[0] >= ix.intCentroid[0])
-	isTop := bool2int(intPt[1] >= ix.intCentroid[1]) << 1
+// getInfiniteQuadrant determines in which (infinite) quadrant a point lies
+func getInfiniteQuadrant(intPt intgeom.Point, intCentroid intgeom.Point) int {
+	isRight := bool2int(intPt[0] >= intCentroid[0])
+	isTop := bool2int(intPt[1] >= intCentroid[1]) << 1
 	return isRight | isTop
 }
 
@@ -296,17 +327,17 @@ func adjacentQuadrantY(quadrantI int) int {
 	return quadrantI ^ 0b10
 }
 
-// lineIntersects tests whether a line intersects with the extent.
+// lineIntersects tests whether a line intersects with an extent.
 // TODO this can probably be faster by reusing the edges for the other three quadrants and/or only testing relevant edges (hints)
-func (ix *PointIndex) lineIntersects(intLine intgeom.Line) bool {
+func lineIntersects(intLine intgeom.Line, intExtent intgeom.Extent) bool {
 	// First see if a point is inside (cheap test).
-	pt1IsInsideQuadrant := ix.containsPoint(intLine[0])
-	pt2IsInsideQuadrant := ix.containsPoint(intLine[1])
+	pt1IsInsideQuadrant := containsPoint(intLine[0], intExtent)
+	pt2IsInsideQuadrant := containsPoint(intLine[1], intExtent)
 	if pt1IsInsideQuadrant || pt2IsInsideQuadrant {
 		return true
 	}
 
-	for edgeI, intEdge := range ix.intExtent.Edges(nil) {
+	for edgeI, intEdge := range intExtent.Edges(nil) {
 		intersection, intersects := intgeom.SegmentIntersect(intLine, intEdge)
 		// Checking for intersection cq crossing is not enough. The right and top edges are exclusive.
 		// So there are exceptions ...:
@@ -405,15 +436,14 @@ func oneIfTop(quadrantI int) int {
 
 // toWkt creates a WKT representation of the pointcloud. For debugging/visualising.
 func (ix *PointIndex) toWkt(writer io.Writer) {
-	_ = wkt.Encode(writer, ix.intExtent.ToGeomExtent())
-	_, _ = fmt.Fprintf(writer, "\n")
-	if ix.isLeaf() && ix.hasPoints {
-		_ = wkt.Encode(writer, ix.intCentroid.ToGeomPoint())
-		_, _ = fmt.Fprintf(writer, "\n")
-	}
-	for _, quadrant := range ix.quadrants {
-		if quadrant != nil {
-			quadrant.toWkt(writer)
+	for level, quadrants := range ix.quadrants {
+		for _, quadrant := range quadrants {
+			_ = wkt.Encode(writer, quadrant.intExtent.ToGeomExtent())
+			_, _ = fmt.Fprintf(writer, "\n")
+			if level == ix.maxDepth {
+				_ = wkt.Encode(writer, quadrant.intCentroid.ToGeomPoint())
+				_, _ = fmt.Fprintf(writer, "\n")
+			}
 		}
 	}
 }

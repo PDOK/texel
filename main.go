@@ -132,7 +132,7 @@ func main() {
 				source.Table = table
 				target.Table = table
 			}
-			snap.ToPointCloud(source, targets, &tileMatrixSet)
+			snap.ToPointCloud(source, targets, tileMatrixSet)
 			log.Printf("  finished %s", table.Name)
 		}
 
