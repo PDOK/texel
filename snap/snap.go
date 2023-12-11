@@ -447,7 +447,7 @@ func kmpTable(find [][2]float64, table []int) {
 
 func lastElement[T any](elements []T) *T {
 	length := len(elements)
-	if length > 1 {
+	if length > 0 {
 		return &elements[length-1]
 	}
 	return nil

@@ -202,15 +202,25 @@ func Test_snapPolygon(t *testing.T) {
 				{69878.365, 445712.156},
 				{69879.413, 445710.912},
 				{69837.833, 445705.673},
-				{69840.279, 445755.872},
 			}},
 			want: map[tms20.TMID]geom.Polygon{5: {{
-				{69840.8, 445753.12},
 				{69840.8, 445753.12},
 				{69840.8, 445712.8},
 				{69881.12, 445712.8},
 				{69840.8, 445712.8},
 			}}},
+		},
+		{
+			name:  "lines and points are filtered out (for now)",
+			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs: []tms20.TMID{0},
+			polygon: geom.Polygon{{
+				{90713.55, 530388.466},
+				{90741.04, 530328.675},
+				{90673.689, 530324.552},
+				{90664.068, 530379.532},
+			}},
+			want: nil,
 		},
 	}
 	for _, tt := range tests {
