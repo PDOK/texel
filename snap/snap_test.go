@@ -220,7 +220,19 @@ func Test_snapPolygon(t *testing.T) {
 				{90673.689, 530324.552},
 				{90664.068, 530379.532},
 			}},
-			want: nil,
+			want: map[tms20.TMID]geom.Polygon{0: nil},
+		},
+		{
+			name:  "ring length < 3 _after_ deduping, also should be filtered out",
+			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs: []tms20.TMID{0},
+			polygon: geom.Polygon{{
+				{211124.566, 574932.941},
+				{211142.954, 574988.796},
+				{211059.858, 574971.321},
+				{211163.163, 574994.581},
+			}},
+			want: map[tms20.TMID]geom.Polygon{0: nil},
 		},
 	}
 	for _, tt := range tests {
