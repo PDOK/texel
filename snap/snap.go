@@ -147,25 +147,30 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool) [][2]float64 {
 	// LinearRings(): "The last point in the linear ring will not match the first point."
 	if newRingLen > 1 && newRing[0] == newRing[newRingLen-1] {
 		newRing = newRing[:newRingLen-1]
+		newRingLen--
 	}
-	switch newRingLen {
-	case 0:
+
+	// filter out too small rings
+	if newRingLen == 0 || newRingLen < 3 && !(isOuter && keepPointsAndLines) {
 		return nil
-	case 1, 2:
-		if isOuter && keepPointsAndLines {
-			// keep outer ring as point or line
-			return newRing
-		}
-	default:
+	}
+
+	if newRingLen > 2 {
 		// deduplicate points in the ring, check winding order, then add to the polygon
-		deduplicatedRing := kmpDeduplicate(newRing)
+		newRing = kmpDeduplicate(newRing)
 		// inner rings (ringIdx != 0) should be clockwise
 		shouldBeClockwise := !isOuter
 		// winding order is reversed if incorrect
-		ensureCorrectWindingOrder(deduplicatedRing, shouldBeClockwise)
-		return deduplicatedRing
+		ensureCorrectWindingOrder(newRing, shouldBeClockwise)
+		newRingLen = len(newRing)
 	}
-	return nil
+
+	// filter out too small rings again after deduping
+	if newRingLen == 0 || newRingLen < 3 && !(isOuter && keepPointsAndLines) {
+		return nil
+	}
+
+	return newRing
 }
 
 func floatPolygonsToGeomPolygons(floaters map[Level][][][2]float64) map[Level]geom.Polygon {
@@ -207,7 +212,6 @@ func isClockwise(points [3][2]float64, shouldBeClockwise bool) bool {
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
-// function also determines the rightmost lowest point of the ring, which is used to ensure correct winding order
 //
 //nolint:cyclop,funlen
 func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
