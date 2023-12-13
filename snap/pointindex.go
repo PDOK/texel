@@ -299,14 +299,7 @@ func getQuadrantZs(parentZ Z) [4]Z {
 	return quadrantZs
 }
 
-// containsPoint checks whether a point is contained in the extent.
-func (ix *PointIndex) containsPoint(intPt intgeom.Point) bool {
-	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
-	return ix.intExtent.MinX() <= intPt[0] && intPt[0] < ix.intExtent.MaxX() &&
-		ix.intExtent.MinY() <= intPt[1] && intPt[1] < ix.intExtent.MaxY()
-}
-
-// containsPoint checks whether a point is contained in an extent.
+// containsPoint checks whether a point is contained in a quadrant's extent.
 func containsPoint(intPt intgeom.Point, intExtent intgeom.Extent) bool {
 	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
 	return intExtent.MinX() <= intPt[0] && intPt[0] < intExtent.MaxX() &&

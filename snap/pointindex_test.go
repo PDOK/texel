@@ -68,10 +68,10 @@ func TestPointIndex_containsPoint(t *testing.T) {
 			want: false,
 		},
 	}
+	extent := intgeom.Extent{0, 0, intOne, intOne}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := newSimplePointIndex(0, 1.0)
-			got := ix.containsPoint(intgeom.FromGeomPoint(tt.pt))
+			got := containsPoint(intgeom.FromGeomPoint(tt.pt), extent)
 			if got != tt.want {
 				t.Errorf("containsPoint() = %v, want %v", got, tt.want)
 			}
