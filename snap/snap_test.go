@@ -3,9 +3,9 @@ package snap
 import (
 	"testing"
 
-	"github.com/pdok/texel/tms20"
+	"log"
 
-	"github.com/go-spatial/geom/encoding/wkt"
+	"github.com/pdok/texel/tms20"
 
 	"github.com/go-spatial/geom"
 	"github.com/stretchr/testify/assert"
@@ -212,14 +212,100 @@ func Test_snapPolygon(t *testing.T) {
 				{69840.8, 445712.8},
 			}}},
 		},
+		{
+			name:  "outer ring only, needs splitting",
+			tms:   newSimpleTileMatrixSet(1, 8),
+			tmIDs: []tms20.TMID{1},
+			polygon: &geom.Polygon{{
+				{0.0, 3.0},
+				{3.0, 0.0},
+				{6.0, 3.0},
+				{9.0, 3.0},
+				{12.0, 0.0},
+				{15.0, 3.0},
+				{12.0, 6.0},
+				{9.0, 3.0},
+				{6.0, 3.0},
+				{3.0, 6.0},
+			}},
+			want: map[tms20.TMID]*geom.Polygon{1: {
+				{
+					{0.25, 3.25},
+					{3.25, 0.25},
+					{6.25, 3.25},
+					{3.25, 6.25},
+				},
+				{
+					{6.25, 3.25},
+					{9.25, 3.25},
+				},
+				{
+					{9.25, 3.25},
+					{12.25, 0.25},
+					{15.25, 3.25},
+					{12.25, 6.25},
+				},
+			}},
+		},
+		{
+			name:  "outer ring with one inner ring, outer needs splitting",
+			tms:   newSimpleTileMatrixSet(1, 8),
+			tmIDs: []tms20.TMID{1},
+			polygon: &geom.Polygon{
+				{
+					{0.0, 3.0},
+					{3.0, 0.0},
+					{6.0, 3.0},
+					{9.0, 3.0},
+					{12.0, 0.0},
+					{15.0, 3.0},
+					{12.0, 6.0},
+					{9.0, 3.0},
+					{6.0, 3.0},
+					{3.0, 6.0},
+				},
+				{
+					{2.0, 3.0},
+					{3.0, 4.0},
+					{4.0, 3.0},
+					{3.0, 2.0},
+				},
+			},
+			want: map[tms20.TMID]*geom.Polygon{1: {
+				{
+					{0.25, 3.25},
+					{3.25, 0.25},
+					{6.25, 3.25},
+					{3.25, 6.25},
+				},
+				{
+					{6.25, 3.25},
+					{9.25, 3.25},
+				},
+				{
+					{9.25, 3.25},
+					{12.25, 0.25},
+					{15.25, 3.25},
+					{12.25, 6.25},
+				},
+				{
+					{2.25, 3.25},
+					{3.25, 4.25},
+					{4.25, 3.25},
+					{3.25, 2.25},
+				},
+			}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := snapPolygon(tt.polygon, tt.tms, tt.tmIDs)
 			for tmID, wantPoly := range tt.want {
 				if !assert.EqualValues(t, wantPoly, got[tmID]) {
-					t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got[tmID]), wkt.MustEncode(wantPoly))
+					// t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got[tmID]), wkt.MustEncode(wantPoly))
+					t.Errorf("snapPolygon(...) = %v, want %v", got[tmID], wantPoly)
 				}
+				log.Printf("snapPolygon(...) = %v", got[tmID])
 			}
 		})
 	}

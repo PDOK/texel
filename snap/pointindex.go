@@ -3,6 +3,7 @@ package snap
 import (
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/wkt"
@@ -54,6 +55,8 @@ type PointIndex struct {
 	hasPoints     bool
 	maxDepth      Depth // 0 means this is a leaf
 	quadrants     [4]*PointIndex
+	hitOnce       map[uint]map[intgeom.Point][]int
+	hitMultiple   map[uint]map[intgeom.Point][]int
 }
 
 type Level = uint
@@ -149,15 +152,25 @@ func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y int) (intge
 
 // SnapClosestPoints returns the points (centroids) in the index that are intersected by a line
 // on multiple levels
-func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any) map[Level][][2]float64 {
+func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, ringId int) map[Level][][2]float64 {
 	intLine := intgeom.FromGeomLine(line)
 	pointIndicesPerLevel := ix.snapClosestPoints(intLine, ix.maxDepth, levelMap, false)
 
 	pointsPerLevel := make(map[Level][][2]float64, len(levelMap))
 	for level, pointIndices := range pointIndicesPerLevel {
+		if ix.hitOnce[level] == nil {
+			ix.hitOnce[level] = make(map[intgeom.Point][]int)
+		}
+		if ix.hitMultiple[level] == nil {
+			ix.hitMultiple[level] = make(map[intgeom.Point][]int)
+		}
 		points := make([][2]float64, len(pointIndices))
 		for i, ixWithPoint := range pointIndices {
 			points[i] = ixWithPoint.intCentroid.ToGeomPoint()
+			// ignore first point to avoid superfluous duplicates
+			if i > 0 {
+				checkPointHits(ix, ixWithPoint.intCentroid, ringId, level)
+			}
 		}
 		pointsPerLevel[level] = points
 	}
@@ -330,6 +343,23 @@ func (ix *PointIndex) lineIntersects(intLine intgeom.Line) bool {
 		}
 	}
 	return false
+}
+
+func checkPointHits(ix *PointIndex, vertex intgeom.Point, ringId int, level uint) {
+	levelHitOnce := ix.hitOnce[level]
+	levelHitMultiple := ix.hitMultiple[level]
+	if len(levelHitOnce[vertex]) > 0 {
+		if !slices.Contains(levelHitOnce[vertex], ringId) {
+			// point has been hit before, but not by this ring
+			levelHitOnce[vertex] = append(levelHitOnce[vertex], ringId)
+		} else if !slices.Contains(levelHitMultiple[vertex], ringId) {
+			// point has been hit before by this ring, add to hitMultiple (if not already present)
+			levelHitMultiple[vertex] = append(levelHitMultiple[vertex], ringId)
+		}
+	} else {
+		// first hit of this point by any ring
+		levelHitOnce[vertex] = append(levelHitOnce[vertex], ringId)
+	}
 }
 
 func isExclusiveEdge(edgeI int) bool {
