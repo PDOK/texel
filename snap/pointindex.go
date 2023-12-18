@@ -171,7 +171,7 @@ func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, 
 }
 
 func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level]any) map[Level][]Quadrant {
-	if !lineIntersects(intLine, ix.intExtent) {
+	if len(levelMap) == 0 || !lineIntersects(intLine, ix.intExtent) {
 		return nil
 	}
 	quadrantsIntersectedPerLevel := make(map[Level][]Quadrant, len(levelMap))

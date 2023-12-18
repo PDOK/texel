@@ -96,6 +96,9 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
 	for ringIdx, ring := range polygon.LinearRings() {
+		if len(levelMap) == 0 { // level could have been obsoleted
+			continue
+		}
 		isOuter := ringIdx == 0
 		ringLen := len(ring)
 		newRing := make(map[Level][][2]float64, len(levelMap))
