@@ -3,6 +3,7 @@
 package processing
 
 import (
+	"fmt"
 	"log"
 	"sync"
 
@@ -48,7 +49,7 @@ func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTil
 		default:
 			postCount++
 			nonPolygonCount++
-			for tmID := range tmIDs {
+			for _, tmID := range tmIDs {
 				featuresOut <- wrapFeatureForTileMatrix(feature, tmID, nil)
 			}
 		}
@@ -89,6 +90,9 @@ func writeFeaturesToTargets(featuresForTileMatrices <-chan FeatureForTileMatrix,
 		}
 		tmID := feature.TileMatrixID()
 		channel := targetChannels[tmID]
+		if channel == nil { // should not happen
+			panic(fmt.Errorf(`no target channel for %v`, tmID))
+		}
 		channel <- feature
 	}
 
@@ -106,13 +110,13 @@ func processMultiPolygon(mp geom.MultiPolygon, tileMatrixIDs []int, f processPol
 	for _, p := range mp {
 		newPolygonPerTileMatrix := f(p, tileMatrixIDs)
 		for tmID, newPolygon := range newPolygonPerTileMatrix {
-			newMultiPolygonPerTileMatrix[tmID] = append(newMultiPolygonPerTileMatrix[tmID], *newPolygon)
+			newMultiPolygonPerTileMatrix[tmID] = append(newMultiPolygonPerTileMatrix[tmID], newPolygon)
 		}
 	}
 	return newMultiPolygonPerTileMatrix
 }
 
-type processPolygonFunc func(p geom.Polygon, tileMatrixIDs []int) map[int]*geom.Polygon
+type processPolygonFunc func(p geom.Polygon, tileMatrixIDs []int) map[int]geom.Polygon
 
 // ProcessFeatures applies the processing function/operation to each Target.
 func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f processPolygonFunc) {

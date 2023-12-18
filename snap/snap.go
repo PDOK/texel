@@ -17,18 +17,19 @@ import (
 )
 
 const (
+	keepPointsAndLines      = false // TODO do something with polys that collapsed into points and lines
 	internalPixelResolution = 16
 )
 
 // ToPointCloud snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
-func ToPointCloud(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet *tms20.TileMatrixSet) {
-	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]*geom.Polygon {
-		return snapPolygon(&p, tileMatrixSet, tmIDs)
+func ToPointCloud(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet) {
+	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]geom.Polygon {
+		return snapPolygon(p, tileMatrixSet, tmIDs)
 	})
 }
 
-func snapPolygon(polygon *geom.Polygon, tileMatrixSet *tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID]*geom.Polygon {
+func snapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
 	ix := newPointIndexFromTileMatrixSet(tileMatrixSet, deepestID)
 	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
@@ -40,7 +41,7 @@ func snapPolygon(polygon *geom.Polygon, tileMatrixSet *tms20.TileMatrixSet, tmID
 	ix.InsertPolygon(polygon)
 	newPolygonPerLevel := addPointsAndSnap(ix, polygon, levels)
 
-	newPolygonPerTileMatrixID := make(map[tms20.TMID]*geom.Polygon, len(newPolygonPerLevel))
+	newPolygonPerTileMatrixID := make(map[tms20.TMID]geom.Polygon, len(newPolygonPerLevel))
 	for level, newPolygon := range newPolygonPerLevel {
 		newPolygonPerTileMatrixID[tmIDsByLevels[level]] = newPolygon
 	}
@@ -48,7 +49,7 @@ func snapPolygon(polygon *geom.Polygon, tileMatrixSet *tms20.TileMatrixSet, tmID
 	return newPolygonPerTileMatrixID
 }
 
-func newPointIndexFromTileMatrixSet(tileMatrixSet *tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
+func newPointIndexFromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
 	// TODO ensure that the tile matrix set is actually a quad tree, starting at 0. just assuming now.
 	rootTM := tileMatrixSet.TileMatrices[0]
 	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(internalPixelResolution)))
@@ -59,22 +60,23 @@ func newPointIndexFromTileMatrixSet(tileMatrixSet *tms20.TileMatrixSet, deepestT
 	}
 	intBottomLeft := intgeom.FromGeomPoint(bottomLeft)
 	intTopRight := intgeom.FromGeomPoint(topRight)
-	intRootExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
+	intExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
 	ix := PointIndex{
-		intRootExtent: intRootExtent,
-		level:         0,
-		x:             0,
-		y:             0,
-		maxDepth:      maxDepth,
+		Quadrant: Quadrant{
+			intExtent: intExtent,
+			z:         0,
+		},
+		maxDepth:  maxDepth,
+		quadrants: make(map[Level]map[Z]Quadrant, maxDepth+1),
 		hitOnce:       make(map[uint]map[intgeom.Point][]int),
 		hitMultiple:   make(map[uint]map[intgeom.Point][]int),
 	}
-	ix.intExtent, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0)
+	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
 	return &ix
 }
 
-func tileMatrixIDsByLevels(tms *tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Level]tms20.TMID {
+func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Level]tms20.TMID {
 	rootTM := tms.TileMatrices[0]
 	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(internalPixelResolution)))
 	tmIDsByLevels := make(map[Level]tms20.TMID, len(tmIDs))
@@ -86,9 +88,9 @@ func tileMatrixIDsByLevels(tms *tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Lev
 	return tmIDsByLevels
 }
 
-func addPointsAndSnap(ix *PointIndex, polygon *geom.Polygon, levels []Level) map[Level]*geom.Polygon {
+func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[Level]geom.Polygon {
 	levelMap := asKeys(levels)
-	newPolygon := make(map[Level][][][2]float64, len(*polygon))
+	newPolygon := make(map[Level][][][2]float64, len(polygon))
 
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
 	for ringIdx, ring := range polygon.LinearRings() {
@@ -151,24 +153,25 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 	// LinearRings(): "The last point in the linear ring will not match the first point."
 	if newRingLen > 1 && newRing[0] == newRing[newRingLen-1] {
 		newRing = newRing[:newRingLen-1]
+		newRingLen--
 	}
-	switch newRingLen {
-	case 0:
+
+	// filter out too small rings
+	if newRingLen == 0 || newRingLen < 3 && !(isOuter && keepPointsAndLines) {
 		return nil
-	case 1, 2:
-		if isOuter {
-			// keep outer ring as point or line
-			return [][][2]float64{newRing}
-		}
-	default:
+	}
+
+	if newRingLen > 2 {
 		// deduplicate points in the ring, check winding order, then add to the polygon
-		deduplicatedRing := kmpDeduplicate(newRing)
+		newRing = kmpDeduplicate(newRing)
 		// inner rings (ringIdx != 0) should be clockwise
 		shouldBeClockwise := !isOuter
 		// winding order is reversed if incorrect
-		ensureCorrectWindingOrder(deduplicatedRing, shouldBeClockwise)
+		ensureCorrectWindingOrder(newRing, shouldBeClockwise)
+		newRingLen = len(newRing)
+		// TODO check again for ring len here, also before returning
 		// split ring into multiple rings if necessary
-		outerRings, innerRings := splitRing(deduplicatedRing, isOuter, hitMultiple, ringIdx)
+		outerRings, innerRings := splitRing(newRing, isOuter, hitMultiple, ringIdx)
 		if isOuter {
 			return outerRings
 		} else if len(outerRings) > 0 {
@@ -180,14 +183,19 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 			return innerRings
 		}
 	}
-	return nil
+
+	// filter out too small rings again after deduping
+	if newRingLen == 0 || newRingLen < 3 && !(isOuter && keepPointsAndLines) {
+		return nil
+	}
+
+	return [][][2]float64{newRing}
 }
 
-func floatPolygonsToGeomPolygons(floaters map[Level][][][2]float64) map[Level]*geom.Polygon {
-	geoms := make(map[Level]*geom.Polygon, len(floaters))
+func floatPolygonsToGeomPolygons(floaters map[Level][][][2]float64) map[Level]geom.Polygon {
+	geoms := make(map[Level]geom.Polygon, len(floaters))
 	for l := range floaters {
-		floater := floaters[l]
-		geoms[l] = (*geom.Polygon)(&floater)
+		geoms[l] = floaters[l]
 	}
 	return geoms
 }
@@ -325,7 +333,6 @@ func isClockwise(points [3][2]float64, shouldBeClockwise bool) bool {
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
-// function also determines the rightmost lowest point of the ring, which is used to ensure correct winding order
 //
 //nolint:cyclop,funlen
 func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
@@ -565,7 +572,7 @@ func kmpTable(find [][2]float64, table []int) {
 
 func lastElement[T any](elements []T) *T {
 	length := len(elements)
-	if length > 1 {
+	if length > 0 {
 		return &elements[length-1]
 	}
 	return nil
