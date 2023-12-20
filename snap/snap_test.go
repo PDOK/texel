@@ -250,24 +250,17 @@ func Test_snapPolygon(t *testing.T) {
 				{6.0, 3.0},
 				{3.0, 6.0},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{1: {{
-				{
-					{0.25, 3.25},
-					{3.25, 0.25},
-					{6.25, 3.25},
-					{3.25, 6.25},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
+				{ // left wing
+					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
 				},
-				{
-					{6.25, 3.25},
-					{9.25, 3.25},
+				{ // right wing
+					{{9.25, 3.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
 				},
-				{
-					{9.25, 3.25},
-					{12.25, 0.25},
-					{15.25, 3.25},
-					{12.25, 6.25},
+				{ // line in between (last)
+					{{6.25, 3.25}, {9.25, 3.25}},
 				},
-			}}},
+			}},
 		},
 		{
 			name:  "outer ring with one inner ring, outer needs splitting",
@@ -293,30 +286,18 @@ func Test_snapPolygon(t *testing.T) {
 					{3.0, 2.0},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: {{
-				{
-					{0.25, 3.25},
-					{3.25, 0.25},
-					{6.25, 3.25},
-					{3.25, 6.25},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
+				{ // left wing, including inner ring
+					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
+					{{2.25, 3.25}, {3.25, 4.25}, {4.25, 3.25}, {3.25, 2.25}},
 				},
-				{
-					{6.25, 3.25},
-					{9.25, 3.25},
+				{ // right wing
+					{{9.25, 3.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
 				},
-				{
-					{9.25, 3.25},
-					{12.25, 0.25},
-					{15.25, 3.25},
-					{12.25, 6.25},
+				{ // line in between (last)
+					{{6.25, 3.25}, {9.25, 3.25}},
 				},
-				{
-					{2.25, 3.25},
-					{3.25, 4.25},
-					{4.25, 3.25},
-					{3.25, 2.25},
-				},
-			}}},
+			}},
 		},
 	}
 	for _, tt := range tests {
@@ -329,6 +310,36 @@ func Test_snapPolygon(t *testing.T) {
 				}
 				log.Printf("snapPolygon(...) = %v", got[tmID])
 			}
+		})
+	}
+}
+
+func Test_ringContains(t *testing.T) {
+	type args struct {
+		ring  [][2]float64
+		point [2]float64
+	}
+	tests := []struct {
+		name           string
+		args           args
+		wantContains   bool
+		wantOnBoundary bool
+	}{
+		{
+			name: "fully contained",
+			args: args{
+				ring:  [][2]float64{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
+				point: [2]float64{2.25, 3.25},
+			},
+			wantContains:   true,
+			wantOnBoundary: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotContains, gotOnBoundary := ringContains(tt.args.ring, tt.args.point)
+			assert.Equalf(t, tt.wantContains, gotContains, "ringContains(%v, %v)", tt.args.ring, tt.args.point)
+			assert.Equalf(t, tt.wantOnBoundary, gotOnBoundary, "ringContains(%v, %v)", tt.args.ring, tt.args.point)
 		})
 	}
 }
