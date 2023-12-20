@@ -53,10 +53,10 @@ type Quadrant struct {
 //	          inc
 type PointIndex struct {
 	Quadrant
-	maxDepth  Level
-	quadrants map[Level]map[Z]Quadrant
-	hitOnce       map[uint]map[intgeom.Point][]int
-	hitMultiple   map[uint]map[intgeom.Point][]int
+	maxDepth    Level
+	quadrants   map[Level]map[Z]Quadrant
+	hitOnce     map[Z]map[intgeom.Point][]int
+	hitMultiple map[Z]map[intgeom.Point][]int
 }
 
 type Level = uint
@@ -142,7 +142,7 @@ func getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.
 
 // SnapClosestPoints returns the points (centroids) in the index that are intersected by a line
 // on multiple levels
-func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, ringId int) map[Level][][2]float64 {
+func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, ringID int) map[Level][][2]float64 {
 	intLine := intgeom.FromGeomLine(line)
 	quadrantsPerLevel := ix.snapClosestPoints(intLine, levelMap)
 
@@ -162,7 +162,7 @@ func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, 
 			points[i] = quadrant.intCentroid.ToGeomPoint()
 			// ignore first point to avoid superfluous duplicates
 			if i > 0 {
-				checkPointHits(ix, quadrant.intCentroid, ringId, level)
+				checkPointHits(ix, quadrant.intCentroid, ringID, level)
 			}
 		}
 		pointsPerLevel[level] = points

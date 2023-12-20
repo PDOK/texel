@@ -17,7 +17,7 @@ func Test_snapPolygon(t *testing.T) {
 		tms     tms20.TileMatrixSet
 		tmIDs   []tms20.TMID
 		polygon geom.Polygon
-		want    map[tms20.TMID]geom.Polygon
+		want    map[tms20.TMID][]geom.Polygon
 	}{
 		{
 			name:  "missing corner",
@@ -31,14 +31,14 @@ func Test_snapPolygon(t *testing.T) {
 				{117221.990, 440133.510},
 				{117220.500, 440133.380},
 			}},
-			want: map[tms20.TMID]geom.Polygon{14: {{
+			want: map[tms20.TMID][]geom.Polygon{14: {{{
 				{117220.2846875, 440135.9021875},
 				{117210.7165625, 440135.1015625},
 				{117211.1234375, 440130.1009375},
 				{117222.2009375, 440131.0065625},
 				{117221.9909375, 440133.5134375},
 				{117220.4946875, 440133.3821875},
-			}}},
+			}}}},
 		},
 		{
 			name:  "horizontal line on edge",
@@ -53,7 +53,7 @@ func Test_snapPolygon(t *testing.T) {
 				{110929.44700000000011642, 504407.8219999999855645},
 				{110892.93099999999685679, 504407.8219999999855645},
 			}},
-			want: map[tms20.TMID]geom.Polygon{14: {{
+			want: map[tms20.TMID][]geom.Polygon{14: {{{
 				{110892.9321875, 504407.8196875},
 				{110929.4459375, 504407.8196875},
 				{110920.0353125, 504436.0778125},
@@ -61,7 +61,7 @@ func Test_snapPolygon(t *testing.T) {
 				{110907.6453125, 504428.8065625}, // horizontal line still here
 				{110906.8709375, 504428.8065625}, // horizontal line still here
 				{110899.1928125, 504431.1559375},
-			}}},
+			}}}},
 		},
 		{
 			name:  "needs deduplication",
@@ -82,13 +82,13 @@ func Test_snapPolygon(t *testing.T) {
 				{2.0, 2.4},
 				{0.0, 2.4},
 			}},
-			want: map[tms20.TMID]geom.Polygon{1: {{
+			want: map[tms20.TMID][]geom.Polygon{1: {{{
 				{0.25, 0.25},
 				{15.25, 0.25},
 				{15.25, 2.25},
 				{2.25, 2.25},
 				{0.25, 2.25},
-			}}},
+			}}}},
 		},
 		{
 			name:  "needs deduplication and reversal",
@@ -109,13 +109,13 @@ func Test_snapPolygon(t *testing.T) {
 				{15.0, 0.0},
 				{0.0, 0.0},
 			}},
-			want: map[tms20.TMID]geom.Polygon{1: {{
+			want: map[tms20.TMID][]geom.Polygon{1: {{{
 				{0.25, 0.25},
 				{15.25, 0.25},
 				{15.25, 2.25},
 				{2.25, 2.25},
 				{0.25, 2.25},
-			}}},
+			}}}},
 		},
 		{
 			name:  "needs deduplication with one zigzag",
@@ -141,14 +141,14 @@ func Test_snapPolygon(t *testing.T) {
 				{2.0, 2.4},
 				{0.0, 2.4},
 			}},
-			want: map[tms20.TMID]geom.Polygon{1: {{
+			want: map[tms20.TMID][]geom.Polygon{1: {{{
 				{0.25, 0.25},
 				{15.25, 0.25},
 				{15.25, 2.25},
 				{7.25, 2.25},
 				{2.25, 2.25},
 				{0.25, 2.25},
-			}}},
+			}}}},
 		},
 		{
 			name:  "needs deduplication with more than one zigzag",
@@ -178,7 +178,7 @@ func Test_snapPolygon(t *testing.T) {
 				{2.0, 2.4},
 				{0.0, 2.4},
 			}},
-			want: map[tms20.TMID]geom.Polygon{1: {{
+			want: map[tms20.TMID][]geom.Polygon{1: {{{
 				{0.25, 0.25},
 				{2.25, 0.25},
 				{15.25, 0.25},
@@ -186,7 +186,7 @@ func Test_snapPolygon(t *testing.T) {
 				{7.25, 2.25},
 				{2.25, 2.25},
 				{0.25, 2.25},
-			}}},
+			}}}},
 		},
 		{
 			name:  "rightmostLowestPoint is one of the deduped points",
@@ -203,12 +203,12 @@ func Test_snapPolygon(t *testing.T) {
 				{69879.413, 445710.912},
 				{69837.833, 445705.673},
 			}},
-			want: map[tms20.TMID]geom.Polygon{5: {{
+			want: map[tms20.TMID][]geom.Polygon{5: {{{
 				{69840.8, 445753.12},
 				{69840.8, 445712.8},
 				{69881.12, 445712.8},
 				{69840.8, 445712.8},
-			}}},
+			}}}},
 		},
 		{
 			name:  "lines and points are filtered out (for now)",
@@ -220,7 +220,7 @@ func Test_snapPolygon(t *testing.T) {
 				{90673.689, 530324.552},
 				{90664.068, 530379.532},
 			}},
-			want: map[tms20.TMID]geom.Polygon{0: nil},
+			want: map[tms20.TMID][]geom.Polygon{0: nil},
 		},
 		{
 			name:  "ring length < 3 _after_ deduping, also should be filtered out",
@@ -232,7 +232,7 @@ func Test_snapPolygon(t *testing.T) {
 				{211059.858, 574971.321},
 				{211163.163, 574994.581},
 			}},
-			want: map[tms20.TMID]geom.Polygon{0: nil},
+			want: map[tms20.TMID][]geom.Polygon{0: nil},
 		},
 		{
 			name:  "outer ring only, needs splitting",
@@ -250,7 +250,7 @@ func Test_snapPolygon(t *testing.T) {
 				{6.0, 3.0},
 				{3.0, 6.0},
 			}},
-			want: map[tms20.TMID]geom.Polygon{1: {
+			want: map[tms20.TMID][]geom.Polygon{1: {{
 				{
 					{0.25, 3.25},
 					{3.25, 0.25},
@@ -267,7 +267,7 @@ func Test_snapPolygon(t *testing.T) {
 					{15.25, 3.25},
 					{12.25, 6.25},
 				},
-			}},
+			}}},
 		},
 		{
 			name:  "outer ring with one inner ring, outer needs splitting",
@@ -293,7 +293,7 @@ func Test_snapPolygon(t *testing.T) {
 					{3.0, 2.0},
 				},
 			},
-			want: map[tms20.TMID]geom.Polygon{1: {
+			want: map[tms20.TMID][]geom.Polygon{1: {{
 				{
 					{0.25, 3.25},
 					{3.25, 0.25},
@@ -316,7 +316,7 @@ func Test_snapPolygon(t *testing.T) {
 					{4.25, 3.25},
 					{3.25, 2.25},
 				},
-			}},
+			}}},
 		},
 	}
 	for _, tt := range tests {
