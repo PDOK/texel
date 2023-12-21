@@ -15,10 +15,13 @@ require (
 	github.com/iancoleman/strcase v0.3.0
 	github.com/perimeterx/marshmallow v1.1.5
 	github.com/stretchr/testify v1.8.4
+	github.com/wk8/go-ordered-map/v2 v2.1.8
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
 )
 
 require (
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect

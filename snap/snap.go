@@ -7,6 +7,8 @@ import (
 	"slices"
 	"sort"
 
+	orderedmap "github.com/wk8/go-ordered-map/v2"
+
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/processing"
@@ -16,7 +18,7 @@ import (
 )
 
 const (
-	keepPointsAndLines      = false // TODO do something with polys that collapsed into points and lines
+	keepPointsAndLines      = true // TODO do something with polys that collapsed into points and lines
 	internalPixelResolution = 16
 )
 
@@ -182,7 +184,6 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 	if newRingLen < 3 {
 		return nil, nil, [][][2]float64{newRing}
 	}
-
 	return splitRing(newRing, isOuter, hitMultiple, ringIdx)
 }
 
@@ -228,15 +229,19 @@ func removeByValue(l *list.List, r int) {
 // split ring into multiple rings at any point where the ring goes through the point more than once
 func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]int, ringIdx int) (outerRings, innerRings, pointsAndLines [][][2]float64) {
 	partialRingIdx := 0
-	stack := make(map[int][][2]float64)
-	stack[partialRingIdx] = [][2]float64{}
+	stack := orderedmap.New[int, [][2]float64]()
+	stack.Set(partialRingIdx, [][2]float64{})
 	stackKeys := list.New()
 	stackKeys.PushBack(partialRingIdx)
 	completeRings := make(map[int][][2]float64)
 	completeRingKeys := []int{}
 	for vertexIdx, vertex := range ring {
 		if vertexIdx == 0 || !slices.Contains(hitMultiple[intgeom.FromGeomPoint(vertex)], ringIdx) {
-			stack[partialRingIdx] = append(stack[partialRingIdx], vertex)
+			if partialRing, inited := stack.Get(partialRingIdx); !inited {
+				stack.Set(partialRingIdx, make([][2]float64, 0, len(ring)))
+			} else {
+				stack.Set(partialRingIdx, append(partialRing, vertex))
+			}
 			if vertexIdx < len(ring)-1 {
 				continue
 			}
@@ -245,28 +250,29 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		for r := stackKeys.Back(); r != nil; r = r.Prev() {
 			stackIdx := r.Value.(int)
 			// TODO: handle self-tangency over multiple points
-			if vertex == stack[stackIdx][0] {
+			partialRing := stack.Value(stackIdx)
+			if vertex == partialRing[0] {
 				if partialRingIdx == stackIdx {
 					// check winding order to avoid closing partial rings incorrectly
-					if !windingOrderIsCorrect(stack[partialRingIdx], !isOuter) {
+					if !windingOrderIsCorrect(partialRing, !isOuter) {
 						break
 					}
-					completeRings[partialRingIdx] = stack[partialRingIdx]
+					completeRings[partialRingIdx] = partialRing
 					completeRingKeys = append(completeRingKeys, partialRingIdx)
 					// remove partial ring from stack
-					delete(stack, partialRingIdx)
+					stack.Delete(partialRingIdx)
 					stackKeys.Remove(r)
-				} else if stack[partialRingIdx][0] == stack[stackIdx][len(stack[stackIdx])-1] {
+				} else if stack.Value(partialRingIdx)[0] == partialRing[len(partialRing)-1] {
 					// check winding order to avoid closing partial rings incorrectly
-					combinedRing := append(stack[stackIdx], stack[partialRingIdx][1:]...)
+					combinedRing := append(partialRing, stack.Value(partialRingIdx)[1:]...) // TODO append to what?
 					if !windingOrderIsCorrect(combinedRing, !isOuter) {
 						break
 					}
 					completeRings[stackIdx] = combinedRing
 					completeRingKeys = append(completeRingKeys, stackIdx)
 					// remove partial rings from stack
-					delete(stack, partialRingIdx)
-					delete(stack, stackIdx)
+					stack.Delete(partialRingIdx)
+					stack.Delete(stackIdx)
 					removeByValue(stackKeys, partialRingIdx)
 					stackKeys.Remove(r)
 				}
@@ -275,17 +281,19 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 			}
 		}
 		if !closed {
-			stack[partialRingIdx] = append(stack[partialRingIdx], vertex)
+			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
 		}
 		if vertexIdx < len(ring)-1 {
 			partialRingIdx++
 			stackKeys.PushBack(partialRingIdx)
-			stack[partialRingIdx] = append(stack[partialRingIdx], vertex)
-		} else if len(stack) > 0 {
+			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
+		} else if stack.Len() > 0 {
 			// last point of the ring, combine any remaining partial rings
 			lastRing := [][2]float64{}
-			lowestIdx := 2 * len(stack)
-			for stackIdx, stackRing := range stack {
+			lowestIdx := 2 * stack.Len()
+			for p := stack.Oldest(); p != nil; p = p.Next() {
+				stackIdx := p.Key
+				stackRing := p.Value
 				if stackIdx < lowestIdx {
 					lowestIdx = stackIdx
 				}
