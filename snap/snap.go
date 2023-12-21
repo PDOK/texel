@@ -122,7 +122,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		// walk through the new ring and append to the polygon (on all levels)
 		for level := range levelMap {
 			outerRings, innerRings, pointsAndLines := cleanupNewRing(newRing[level], isOuter, ix.hitMultiple[level], ringIdx)
-			if isOuter && len(outerRings) == 0 {
+			if isOuter && len(outerRings) == 0 && (!keepPointsAndLines || len(pointsAndLines) == 0) {
 				delete(levelMap, level) // outer ring has become too small
 				continue
 			}
