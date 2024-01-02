@@ -36,7 +36,7 @@ func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTil
 			}
 			for tmID, newPolygons := range newPolygonsPerTileMatrix {
 				var newGeometry geom.Geometry
-				if len(newPolygons) == 0 {
+				if len(newPolygons) == 0 { // should never happen
 					panic(fmt.Errorf("no new polygon for level %v", tmID))
 				}
 				if len(newPolygons) == 1 {
@@ -101,7 +101,7 @@ func writeFeaturesToTargets(featuresForTileMatrices <-chan FeatureForTileMatrix,
 		}
 		tmID := feature.TileMatrixID()
 		channel := targetChannels[tmID]
-		if channel == nil { // should not happen
+		if channel == nil { // should never happen
 			panic(fmt.Errorf(`no target channel for %v`, tmID))
 		}
 		channel <- feature

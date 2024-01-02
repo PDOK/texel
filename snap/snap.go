@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
-	"github.com/pdok/texel/processing"
 	"github.com/pdok/texel/tms20"
 	"github.com/umpc/go-sortedmap"
 	"golang.org/x/exp/constraints"
@@ -22,15 +21,11 @@ const (
 	internalPixelResolution = 16
 )
 
-// ToPointCloud snaps polygons' points to a tile's internal pixel grid
+// SnapPolygon snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
-func ToPointCloud(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet) {
-	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
-		return snapPolygon(p, tileMatrixSet, tmIDs)
-	})
-}
-
-func snapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
+//
+//nolint:revive
+func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
 	ix := newPointIndexFromTileMatrixSet(tileMatrixSet, deepestID)
 	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
@@ -89,6 +84,7 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Leve
 	return tmIDsByLevels
 }
 
+//nolint:cyclop
 func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[Level][]geom.Polygon {
 	levelMap := asKeys(levels)
 	newPolygons := make(map[Level][][][][2]float64, len(levels))
@@ -96,6 +92,9 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
 	for ringIdx, ring := range polygon.LinearRings() {
+		if len(levelMap) == 0 { // level could have been obsoleted
+			continue
+		}
 		isOuter := ringIdx == 0
 		ringLen := len(ring)
 		newRing := make(map[Level][][2]float64, len(levelMap))
@@ -119,18 +118,20 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		// walk through the new ring and append to the polygon (on all levels)
 		for level := range levelMap {
 			outerRings, innerRings, pointsAndLines := cleanupNewRing(newRing[level], isOuter, ix.hitMultiple[level], ringIdx)
-			if isOuter && len(outerRings) == 0 {
+			if isOuter && len(outerRings) == 0 && (!keepPointsAndLines || len(pointsAndLines) == 0) {
 				delete(levelMap, level) // outer ring has become too small
 				continue
 			}
-			for _, outerRing := range outerRings {
+			for _, outerRing := range outerRings { // (there are only outer rings if isOuter)
 				newPolygons[level] = append(newPolygons[level], [][][2]float64{outerRing})
 			}
-			for _, innerRing := range innerRings {
-				// TODO find the correct outer ring to append to PDOK-15889
-				newPolygons[level][0] = append(newPolygons[level][0], innerRing)
+			if len(newPolygons[level]) == 0 && len(innerRings) > 0 { // should never happen
+				panic(fmt.Errorf("inner rings but no outer rings, for %v on level %v", polygon, level))
 			}
-			newPointsAndLines[level] = append(newPointsAndLines[level], pointsAndLines...)
+			newPolygons[level] = matchInnersToPolygon(newPolygons[level], innerRings)
+			if keepPointsAndLines {
+				newPointsAndLines[level] = append(newPointsAndLines[level], pointsAndLines...)
+			}
 		}
 	}
 	// points and lines at the end, as outer rings
@@ -142,10 +143,137 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 	return floatPolygonsToGeomPolygons(newPolygons)
 }
 
+func matchInnersToPolygon(polygons [][][][2]float64, innerRings [][][2]float64) [][][][2]float64 {
+	lenPolygons := len(polygons)
+	if lenPolygons == 0 {
+		return polygons
+	} else if lenPolygons == 1 {
+		polygons[0] = append(polygons[0], innerRings...)
+		return polygons
+	}
+matchInners:
+	for _, innerRing := range innerRings {
+		containsPerPolyI := make(map[int]uint, lenPolygons)
+		// this is pretty nested, but usually breaks early
+		for _, vertex := range innerRing {
+			for polyI := range polygons {
+				contains, onBoundary := ringContains(polygons[polyI][0], vertex)
+				if contains {
+					if !onBoundary {
+						polygons[polyI] = append(polygons[polyI], innerRing)
+						continue matchInners
+					}
+					containsPerPolyI[polyI]++
+				}
+			}
+			matchingPolyI, _, matchCount := findKeyWithMaxValue(containsPerPolyI)
+			if matchCount == 1 {
+				polygons[matchingPolyI] = append(polygons[matchingPolyI], innerRing)
+				continue matchInners
+			}
+		}
+		// no (single) matching outer ring was found (should never happen)
+		if len(containsPerPolyI) == 0 {
+			panic(fmt.Errorf("no matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
+		}
+		panic(fmt.Errorf("more than one matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
+	}
+	return polygons
+}
+
+// from paulmach/orb, modified to also return whether it's on the boundary
+// ringContains returns true if the point is inside the ring.
+// Points on the boundary are also considered in. In which case the second returned var is true too.
+func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary bool) {
+	// TODO check first if the point is in the extent/bound/envelop
+
+	c, on := rayIntersect(point, ring[0], ring[len(ring)-1])
+	if on {
+		return true, true
+	}
+
+	for i := 0; i < len(ring)-1; i++ {
+		intersects, on := rayIntersect(point, ring[i], ring[i+1])
+		if on {
+			return true, true
+		}
+
+		if intersects {
+			c = !c // https://en.wikipedia.org/wiki/Even-odd_rule
+		}
+	}
+
+	return c, false
+}
+
+// from paulmach/orb
+// Original implementation: http://rosettacode.org/wiki/Ray-casting_algorithm#Go
+//
+//nolint:cyclop
+func rayIntersect(p, s, e [2]float64) (intersects, on bool) {
+	if s[0] > e[0] {
+		s, e = e, s
+	}
+
+	if p[0] == s[0] {
+		if p[1] == s[1] {
+			// p == start
+			return false, true
+		} else if s[0] == e[0] {
+			// vertical segment (s -> e)
+			// return true if within the line, check to see if start or end is greater.
+			if s[1] > e[1] && s[1] >= p[1] && p[1] >= e[1] {
+				return false, true
+			}
+
+			if e[1] > s[1] && e[1] >= p[1] && p[1] >= s[1] {
+				return false, true
+			}
+		}
+
+		// Move the y coordinate to deal with degenerate case
+		p[0] = math.Nextafter(p[0], math.Inf(1))
+	} else if p[0] == e[0] {
+		if p[1] == e[1] {
+			// matching the end point
+			return false, true
+		}
+
+		p[0] = math.Nextafter(p[0], math.Inf(1))
+	}
+
+	if p[0] < s[0] || p[0] > e[0] {
+		return false, false
+	}
+
+	if s[1] > e[1] {
+		if p[1] > s[1] {
+			return false, false
+		} else if p[1] < e[1] {
+			return true, false
+		}
+	} else {
+		if p[1] > e[1] {
+			return false, false
+		} else if p[1] < s[1] {
+			return true, false
+		}
+	}
+
+	rs := (p[1] - s[1]) / (p[0] - s[0])
+	ds := (e[1] - s[1]) / (e[0] - s[0])
+
+	if rs == ds {
+		return false, true
+	}
+
+	return rs <= ds, false
+}
+
 // cleanupNewVertices cleans up the closest points for a line that were just retrieved inside addPointsAndSnap
 func cleanupNewVertices(newVertices [][2]float64, segment [2][2]float64, level Level, lastVertex *[2]float64) [][2]float64 {
 	newVerticesCount := len(newVertices)
-	if newVerticesCount == 0 {
+	if newVerticesCount == 0 { // should never happen, SnapClosestPoints should have returned at least one point
 		panic(fmt.Sprintf("no points found for %v on level %v", segment, level))
 	}
 	// 0 if len is 1, 1 otherwise
@@ -215,15 +343,6 @@ func windingOrderIsCorrect(ring [][2]float64, shouldBeClockwise bool) bool {
 	// check angle between the vectors goint into and coming out of the rightmost lowest point
 	points := [3][2]float64{ring[mod(i-1, len(ring))], ring[i], ring[mod(i+1, len(ring))]}
 	return isClockwise(points, shouldBeClockwise) == shouldBeClockwise
-}
-
-// helper function to remove element from linked list by value
-func removeByValue(l *list.List, r int) {
-	for e := l.Front(); e != nil; e = e.Next() {
-		if e.Value.(int) == r {
-			l.Remove(e)
-		}
-	}
 }
 
 // split ring into multiple rings at any point where the ring goes through the point more than once
@@ -311,11 +430,12 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 	sort.Ints(completeRingKeys)
 	for completeRingKey := range completeRingKeys {
 		// inner rings with 0 area (defined as having less than 3 points) become outer rings
-		if len(completeRings[completeRingKey]) < 3 {
+		switch {
+		case len(completeRings[completeRingKey]) < 3:
 			pointsAndLines = append(pointsAndLines, completeRings[completeRingKey])
-		} else if isOuter {
+		case isOuter:
 			outerRings = append(outerRings, completeRings[completeRingKey])
-		} else {
+		default:
 			innerRings = append(innerRings, completeRings[completeRingKey])
 		}
 	}
@@ -589,4 +709,30 @@ func asKeys[T constraints.Ordered](elements []T) map[T]any {
 		mapped[element] = struct{}{}
 	}
 	return mapped
+}
+
+// helper function to remove element from linked list by value
+func removeByValue(l *list.List, r int) {
+	for e := l.Front(); e != nil; e = e.Next() {
+		if e.Value.(int) == r {
+			l.Remove(e)
+		}
+	}
+}
+
+func findKeyWithMaxValue[K comparable, V constraints.Ordered](m map[K]V) (maxK K, maxV V, winners uint) {
+	first := true
+	for k, v := range m {
+		if first || v > maxV {
+			maxK = k
+			maxV = v
+			winners = 1
+			first = false
+			continue
+		}
+		if v == maxV {
+			winners++
+		}
+	}
+	return
 }

@@ -96,10 +96,10 @@ func (ix *PointIndex) InsertPoint(point geom.Point) {
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
-	// TODO panic if outside grid
 	deepestSize := int(pow2(ix.maxDepth))
 	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
-		return // the point is outside the extent
+		// should never happen
+		panic(fmt.Errorf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, deepestSize, deepestSize))
 	}
 	ix.insertCoord(deepestX, deepestY)
 }
@@ -171,7 +171,7 @@ func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, 
 }
 
 func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level]any) map[Level][]Quadrant {
-	if !lineIntersects(intLine, ix.intExtent) {
+	if len(levelMap) == 0 || !lineIntersects(intLine, ix.intExtent) {
 		return nil
 	}
 	quadrantsIntersectedPerLevel := make(map[Level][]Quadrant, len(levelMap))
@@ -299,14 +299,7 @@ func getQuadrantZs(parentZ Z) [4]Z {
 	return quadrantZs
 }
 
-// containsPoint checks whether a point is contained in the extent.
-func (ix *PointIndex) containsPoint(intPt intgeom.Point) bool {
-	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
-	return ix.intExtent.MinX() <= intPt[0] && intPt[0] < ix.intExtent.MaxX() &&
-		ix.intExtent.MinY() <= intPt[1] && intPt[1] < ix.intExtent.MaxY()
-}
-
-// containsPoint checks whether a point is contained in an extent.
+// containsPoint checks whether a point is contained in a quadrant's extent.
 func containsPoint(intPt intgeom.Point, intExtent intgeom.Extent) bool {
 	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
 	return intExtent.MinX() <= intPt[0] && intPt[0] < intExtent.MaxX() &&
@@ -430,9 +423,6 @@ func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.
 	eOrd2 := intEdge[1][varAx]
 
 	exclusiveTip := getExclusiveTip(edgeI, intEdge)
-	// if exclusiveTip[constAx] != eConstOrd || !betweenInc(exclusiveTip[varAx], eOrd1, eOrd2) {
-	// 	 panic(fmt.Sprintf("exclusive point not on edge: %v, %v", exclusiveTip, edge))
-	// }
 	lOrd1 := intLine[0][varAx]
 	lOrd2 := intLine[1][varAx]
 	return lOrd1 != lOrd2 && (betweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || betweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)

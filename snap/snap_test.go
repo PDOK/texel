@@ -203,15 +203,16 @@ func Test_snapPolygon(t *testing.T) {
 				{69879.413, 445710.912},
 				{69837.833, 445705.673},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{5: {{{
-				{69840.8, 445753.12},
-				{69840.8, 445712.8},
-				{69881.12, 445712.8},
-				{69840.8, 445712.8},
-			}}}},
+			want: map[tms20.TMID][]geom.Polygon{5: {
+				{
+					{{69840.8, 445753.12}, {69840.8, 445712.8}},
+				}, {
+					{{69840.8, 445712.8}, {69881.12, 445712.8}},
+				},
+			}},
 		},
 		{
-			name:  "lines and points are filtered out (for now)",
+			name:  "lines and points are not filtered out",
 			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
 			tmIDs: []tms20.TMID{0},
 			polygon: geom.Polygon{{
@@ -220,10 +221,14 @@ func Test_snapPolygon(t *testing.T) {
 				{90673.689, 530324.552},
 				{90664.068, 530379.532},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{0: nil},
+			want: map[tms20.TMID][]geom.Polygon{0: {
+				{
+					{{90810.56, 530415.04}, {90595.52, 530415.04}},
+				},
+			}},
 		},
 		{
-			name:  "ring length < 3 _after_ deduping, also should be filtered out",
+			name:  "ring length < 3 _after_ deduping, also not filtered out",
 			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
 			tmIDs: []tms20.TMID{0},
 			polygon: geom.Polygon{{
@@ -232,7 +237,11 @@ func Test_snapPolygon(t *testing.T) {
 				{211059.858, 574971.321},
 				{211163.163, 574994.581},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{0: nil},
+			want: map[tms20.TMID][]geom.Polygon{0: {
+				{
+					{{211017.92, 574928.32}, {211232.96, 574928.32}},
+				},
+			}},
 		},
 		{
 			name:  "outer ring only, needs splitting",
@@ -250,24 +259,17 @@ func Test_snapPolygon(t *testing.T) {
 				{6.0, 3.0},
 				{3.0, 6.0},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{1: {{
-				{
-					{0.25, 3.25},
-					{3.25, 0.25},
-					{6.25, 3.25},
-					{3.25, 6.25},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
+				{ // left wing
+					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
 				},
-				{
-					{6.25, 3.25},
-					{9.25, 3.25},
+				{ // right wing
+					{{9.25, 3.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
 				},
-				{
-					{9.25, 3.25},
-					{12.25, 0.25},
-					{15.25, 3.25},
-					{12.25, 6.25},
+				{ // line in between (last)
+					{{6.25, 3.25}, {9.25, 3.25}},
 				},
-			}}},
+			}},
 		},
 		{
 			name:  "outer ring with one inner ring, outer needs splitting",
@@ -293,35 +295,23 @@ func Test_snapPolygon(t *testing.T) {
 					{3.0, 2.0},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: {{
-				{
-					{0.25, 3.25},
-					{3.25, 0.25},
-					{6.25, 3.25},
-					{3.25, 6.25},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
+				{ // left wing, including inner ring
+					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
+					{{2.25, 3.25}, {3.25, 4.25}, {4.25, 3.25}, {3.25, 2.25}},
 				},
-				{
-					{6.25, 3.25},
-					{9.25, 3.25},
+				{ // right wing
+					{{9.25, 3.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
 				},
-				{
-					{9.25, 3.25},
-					{12.25, 0.25},
-					{15.25, 3.25},
-					{12.25, 6.25},
+				{ // line in between (last)
+					{{6.25, 3.25}, {9.25, 3.25}},
 				},
-				{
-					{2.25, 3.25},
-					{3.25, 4.25},
-					{4.25, 3.25},
-					{3.25, 2.25},
-				},
-			}}},
+			}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := snapPolygon(tt.polygon, tt.tms, tt.tmIDs)
+			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs)
 			for tmID, wantPoly := range tt.want {
 				if !assert.EqualValues(t, wantPoly, got[tmID]) {
 					// t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got[tmID]), wkt.MustEncode(wantPoly))
@@ -329,6 +319,36 @@ func Test_snapPolygon(t *testing.T) {
 				}
 				log.Printf("snapPolygon(...) = %v", got[tmID])
 			}
+		})
+	}
+}
+
+func Test_ringContains(t *testing.T) {
+	type args struct {
+		ring  [][2]float64
+		point [2]float64
+	}
+	tests := []struct {
+		name           string
+		args           args
+		wantContains   bool
+		wantOnBoundary bool
+	}{
+		{
+			name: "fully contained",
+			args: args{
+				ring:  [][2]float64{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
+				point: [2]float64{2.25, 3.25},
+			},
+			wantContains:   true,
+			wantOnBoundary: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotContains, gotOnBoundary := ringContains(tt.args.ring, tt.args.point)
+			assert.Equalf(t, tt.wantContains, gotContains, "ringContains(%v, %v)", tt.args.ring, tt.args.point)
+			assert.Equalf(t, tt.wantOnBoundary, gotOnBoundary, "ringContains(%v, %v)", tt.args.ring, tt.args.point)
 		})
 	}
 }
