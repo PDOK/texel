@@ -311,7 +311,7 @@ func Test_snapPolygon(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := snapPolygon(tt.polygon, tt.tms, tt.tmIDs)
+			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs)
 			for tmID, wantPoly := range tt.want {
 				if !assert.EqualValues(t, wantPoly, got[tmID]) {
 					// t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got[tmID]), wkt.MustEncode(wantPoly))

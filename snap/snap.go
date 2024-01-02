@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
-	"github.com/pdok/texel/processing"
 	"github.com/pdok/texel/tms20"
 	"github.com/umpc/go-sortedmap"
 	"golang.org/x/exp/constraints"
@@ -22,15 +21,9 @@ const (
 	internalPixelResolution = 16
 )
 
-// ToPointCloud snaps polygons' points to a tile's internal pixel grid
+// SnapPolygon snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
-func ToPointCloud(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet) {
-	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
-		return snapPolygon(p, tileMatrixSet, tmIDs)
-	})
-}
-
-func snapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
+func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
 	ix := newPointIndexFromTileMatrixSet(tileMatrixSet, deepestID)
 	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)

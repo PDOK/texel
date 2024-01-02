@@ -9,6 +9,8 @@ import (
 	"path"
 	"syscall"
 
+	"github.com/go-spatial/geom"
+
 	"github.com/carlmjohnson/versioninfo"
 
 	"github.com/pdok/texel/processing"
@@ -132,7 +134,7 @@ func main() {
 				source.Table = table
 				target.Table = table
 			}
-			snap.ToPointCloud(source, targets, tileMatrixSet)
+			processBySnapping(source, targets, tileMatrixSet)
 			log.Printf("  finished %s", table.Name)
 		}
 
@@ -167,4 +169,10 @@ func injectSuffixIntoPath(p string) string {
 	ext := path.Ext(file)
 	name := file[:len(file)-len(ext)]
 	return path.Join(dir, name+"_%v"+ext)
+}
+
+func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet) {
+	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
+		return snap.SnapPolygon(p, tileMatrixSet, tmIDs)
+	})
 }
