@@ -122,7 +122,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 			for _, outerRing := range outerRings { // (there are only outer rings if isOuter)
 				newPolygons[level] = append(newPolygons[level], [][][2]float64{outerRing})
 			}
-			if len(newPolygons[level]) == 0 && len(innerRings) > 0 {
+			if len(newPolygons[level]) == 0 && len(innerRings) > 0 { // should never happen
 				panic(fmt.Errorf("inner rings but no outer rings, for %v on level %v", polygon, level))
 			}
 			newPolygons[level] = matchInnersToPolygon(newPolygons[level], innerRings)
@@ -169,12 +169,11 @@ matchInners:
 				continue matchInners
 			}
 		}
-		// no (single) matching outer ring was found
+		// no (single) matching outer ring was found (should never happen)
 		if len(containsPerPolyI) == 0 {
-			panic(fmt.Errorf("no matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing)) // TODO shouldn't happen?
+			panic(fmt.Errorf("no matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
 		}
 		panic(fmt.Errorf("more than one matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
-		// TODO remove all outer rings?
 	}
 	return polygons
 }
@@ -271,7 +270,7 @@ func rayIntersect(p, s, e [2]float64) (intersects, on bool) {
 // cleanupNewVertices cleans up the closest points for a line that were just retrieved inside addPointsAndSnap
 func cleanupNewVertices(newVertices [][2]float64, segment [2][2]float64, level Level, lastVertex *[2]float64) [][2]float64 {
 	newVerticesCount := len(newVertices)
-	if newVerticesCount == 0 {
+	if newVerticesCount == 0 { // should never happen, SnapClosestPoints should have returned at least one point
 		panic(fmt.Sprintf("no points found for %v on level %v", segment, level))
 	}
 	// 0 if len is 1, 1 otherwise

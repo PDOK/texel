@@ -96,10 +96,10 @@ func (ix *PointIndex) InsertPoint(point geom.Point) {
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
-	// TODO panic if outside grid
 	deepestSize := int(pow2(ix.maxDepth))
 	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
-		return // the point is outside the extent
+		// should never happen
+		panic(fmt.Errorf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, deepestSize, deepestSize))
 	}
 	ix.insertCoord(deepestX, deepestY)
 }
@@ -423,9 +423,6 @@ func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.
 	eOrd2 := intEdge[1][varAx]
 
 	exclusiveTip := getExclusiveTip(edgeI, intEdge)
-	// if exclusiveTip[constAx] != eConstOrd || !betweenInc(exclusiveTip[varAx], eOrd1, eOrd2) {
-	// 	 panic(fmt.Sprintf("exclusive point not on edge: %v, %v", exclusiveTip, edge))
-	// }
 	lOrd1 := intLine[0][varAx]
 	lOrd2 := intLine[1][varAx]
 	return lOrd1 != lOrd2 && (betweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || betweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
