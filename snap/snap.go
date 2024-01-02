@@ -23,6 +23,8 @@ const (
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
+//
+//nolint:revive
 func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
 	ix := newPointIndexFromTileMatrixSet(tileMatrixSet, deepestID)
@@ -82,6 +84,7 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Leve
 	return tmIDsByLevels
 }
 
+//nolint:cyclop
 func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[Level][]geom.Polygon {
 	levelMap := asKeys(levels)
 	newPolygons := make(map[Level][][][][2]float64, len(levels))
@@ -182,9 +185,7 @@ matchInners:
 // ringContains returns true if the point is inside the ring.
 // Points on the boundary are also considered in. In which case the second returned var is true too.
 func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary bool) {
-	//if !ring.Bound().Contains(point) {
-	//	return
-	//}
+	// TODO check first if the point is in the extent/bound/envelop
 
 	c, on := rayIntersect(point, ring[0], ring[len(ring)-1])
 	if on {
@@ -207,6 +208,8 @@ func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary boo
 
 // from paulmach/orb
 // Original implementation: http://rosettacode.org/wiki/Ray-casting_algorithm#Go
+//
+//nolint:cyclop
 func rayIntersect(p, s, e [2]float64) (intersects, on bool) {
 	if s[0] > e[0] {
 		s, e = e, s
@@ -427,11 +430,12 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 	sort.Ints(completeRingKeys)
 	for completeRingKey := range completeRingKeys {
 		// inner rings with 0 area (defined as having less than 3 points) become outer rings
-		if len(completeRings[completeRingKey]) < 3 {
+		switch {
+		case len(completeRings[completeRingKey]) < 3:
 			pointsAndLines = append(pointsAndLines, completeRings[completeRingKey])
-		} else if isOuter {
+		case isOuter:
 			outerRings = append(outerRings, completeRings[completeRingKey])
-		} else {
+		default:
 			innerRings = append(innerRings, completeRings[completeRingKey])
 		}
 	}
