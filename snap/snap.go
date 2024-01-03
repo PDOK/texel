@@ -369,21 +369,22 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		for r := stackKeys.Back(); r != nil; r = r.Prev() {
 			stackIdx := r.Value.(int)
 			// TODO: handle self-tangency over multiple points
-			partialRing := stack.Value(stackIdx)
-			if vertex == partialRing[0] {
+			partialRingFromStack := stack.Value(stackIdx)
+			currentPartialRing := stack.Value(partialRingIdx)
+			if vertex == partialRingFromStack[0] {
 				if partialRingIdx == stackIdx {
 					// check winding order to avoid closing partial rings incorrectly
-					if !windingOrderIsCorrect(partialRing, !isOuter) {
+					if !windingOrderIsCorrect(partialRingFromStack, !isOuter) {
 						break
 					}
-					completeRings[partialRingIdx] = partialRing
+					completeRings[partialRingIdx] = partialRingFromStack
 					completeRingKeys = append(completeRingKeys, partialRingIdx)
 					// remove partial ring from stack
 					stack.Delete(partialRingIdx)
 					stackKeys.Remove(r)
-				} else if stack.Value(partialRingIdx)[0] == partialRing[len(partialRing)-1] {
+				} else if currentPartialRing[0] == partialRingFromStack[len(partialRingFromStack)-1] {
 					// check winding order to avoid closing partial rings incorrectly
-					combinedRing := append(partialRing, stack.Value(partialRingIdx)[1:]...) // TODO append to what?
+					combinedRing := append(partialRingFromStack, currentPartialRing[1:]...)
 					if !windingOrderIsCorrect(combinedRing, !isOuter) {
 						break
 					}
@@ -409,7 +410,7 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		} else if stack.Len() > 0 {
 			// last point of the ring, combine any remaining partial rings
 			lastRing := [][2]float64{}
-			lowestIdx := 2 * stack.Len()
+			lowestIdx := math.MaxInt
 			for p := stack.Oldest(); p != nil; p = p.Next() {
 				stackIdx := p.Key
 				stackRing := p.Value
@@ -428,7 +429,7 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		}
 	}
 	sort.Ints(completeRingKeys)
-	for completeRingKey := range completeRingKeys {
+	for _, completeRingKey := range completeRingKeys {
 		// inner rings with 0 area (defined as having less than 3 points) become outer rings
 		switch {
 		case len(completeRings[completeRingKey]) < 3:
