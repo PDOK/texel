@@ -369,20 +369,20 @@ func lineIntersects(intLine intgeom.Line, intExtent intgeom.Extent) bool {
 	return false
 }
 
-func checkPointHits(ix *PointIndex, vertex intgeom.Point, ringId int, level uint) {
+func checkPointHits(ix *PointIndex, vertex intgeom.Point, ringID int, level uint) {
 	levelHitOnce := ix.hitOnce[level]
 	levelHitMultiple := ix.hitMultiple[level]
 	if len(levelHitOnce[vertex]) > 0 {
-		if !slices.Contains(levelHitOnce[vertex], ringId) {
+		if !slices.Contains(levelHitOnce[vertex], ringID) {
 			// point has been hit before, but not by this ring
-			levelHitOnce[vertex] = append(levelHitOnce[vertex], ringId)
-		} else if !slices.Contains(levelHitMultiple[vertex], ringId) {
+			levelHitOnce[vertex] = append(levelHitOnce[vertex], ringID)
+		} else if !slices.Contains(levelHitMultiple[vertex], ringID) {
 			// point has been hit before by this ring, add to hitMultiple (if not already present)
-			levelHitMultiple[vertex] = append(levelHitMultiple[vertex], ringId)
+			levelHitMultiple[vertex] = append(levelHitMultiple[vertex], ringID)
 		}
 	} else {
 		// first hit of this point by any ring
-		levelHitOnce[vertex] = append(levelHitOnce[vertex], ringId)
+		levelHitOnce[vertex] = append(levelHitOnce[vertex], ringID)
 	}
 }
 
