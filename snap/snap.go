@@ -3,6 +3,7 @@ package snap
 import (
 	"container/list"
 	"fmt"
+	"log"
 	"math"
 	"slices"
 	"sort"
@@ -174,7 +175,9 @@ matchInners:
 		}
 		// no (single) matching outer ring was found (should never happen)
 		if len(containsPerPolyI) == 0 {
-			panic(fmt.Errorf("no matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
+			// panic(fmt.Errorf("no matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
+			log.Printf("no matching outer ring for inner ring.\n#polygons: %d\ninner: %v", len(polygons), innerRing)
+			return polygons
 		}
 		panic(fmt.Errorf("more than one matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
 	}
@@ -381,6 +384,18 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 					completeRingKeys = append(completeRingKeys, partialRingIdx)
 					// remove partial ring from stack
 					stack.Delete(partialRingIdx)
+					stackKeys.Remove(r)
+				} else if len(partialRingFromStack) == 2 &&
+					len(currentPartialRing) == 1 &&
+					currentPartialRing[0] == partialRingFromStack[len(partialRingFromStack)-1] &&
+					vertex == partialRingFromStack[0] {
+					// self-tangent line, add as complete ring
+					completeRings[stackIdx] = partialRingFromStack
+					completeRingKeys = append(completeRingKeys, stackIdx)
+					// remove partial rings from stack
+					stack.Delete(partialRingIdx)
+					stack.Delete(stackIdx)
+					removeByValue(stackKeys, partialRingIdx)
 					stackKeys.Remove(r)
 				} else if currentPartialRing[0] == partialRingFromStack[len(partialRingFromStack)-1] {
 					// check winding order to avoid closing partial rings incorrectly

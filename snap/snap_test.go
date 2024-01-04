@@ -309,6 +309,175 @@ func Test_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
+			name:  "outer ring with two inner ring, outer needs splitting, inner rings must be matched to new outer rings",
+			tms:   newSimpleTileMatrixSet(1, 8),
+			tmIDs: []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{
+					{0.0, 3.0},
+					{3.0, 0.0},
+					{6.0, 3.0},
+					{9.0, 3.0},
+					{12.0, 0.0},
+					{15.0, 3.0},
+					{12.0, 6.0},
+					{9.0, 3.0},
+					{6.0, 3.0},
+					{3.0, 6.0},
+				},
+				{
+					{2.0, 3.0},
+					{3.0, 4.0},
+					{4.0, 3.0},
+					{3.0, 2.0},
+				},
+				{
+					{11.0, 3.0},
+					{12.0, 4.0},
+					{13.0, 3.0},
+					{12.0, 2.0},
+				},
+			},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
+				{ // left wing, including inner ring
+					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
+					{{2.25, 3.25}, {3.25, 4.25}, {4.25, 3.25}, {3.25, 2.25}},
+				},
+				{ // right wing
+					{{9.25, 3.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
+					{{11.25, 3.25}, {12.25, 4.25}, {13.25, 3.25}, {12.25, 2.25}},
+				},
+				{ // line in between (last)
+					{{6.25, 3.25}, {9.25, 3.25}},
+				},
+			}},
+		},
+		{
+			name:  "outer ring only, needs splitting, expect two lines",
+			tms:   newSimpleTileMatrixSet(1, 8),
+			tmIDs: []tms20.TMID{1},
+			polygon: geom.Polygon{{
+				{0.0, 3.0},
+				{3.0, 0.0},
+				{6.0, 3.0},
+				{9.0, 3.0},
+				{12.0, 0.0},
+				{15.0, 3.0},
+				{12.0, 6.0},
+				{12.0, 0.0},
+				{9.0, 3.0},
+				{6.0, 3.0},
+				{3.0, 6.0},
+			}},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 4 separate polygons:
+				{ // left wing
+					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
+				},
+				{ // right wing
+					{{12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
+				},
+				{ // line 1
+					{{6.25, 3.25}, {9.25, 3.25}},
+				},
+				{ // line 2
+					{{9.25, 3.25}, {12.25, 0.25}},
+				},
+			}},
+		},
+		{
+			name:  "outer ring with one inner ring, inner needs splitting",
+			tms:   newSimpleTileMatrixSet(1, 8),
+			tmIDs: []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{
+					{0.0, 3.0},
+					{3.0, 0.0},
+					{12.0, 0.0},
+					{15.0, 3.0},
+					{12.0, 6.0},
+					{3.0, 6.0},
+				},
+				{
+					{2.0, 3.0},
+					{3.0, 4.0},
+					{4.0, 3.0},
+					{11.0, 3.0},
+					{12.0, 4.0},
+					{13.0, 3.0},
+					{12.0, 2.0},
+					{11.0, 3.0},
+					{4.0, 3.0},
+					{3.0, 2.0},
+				},
+			},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 2 separate polygons:
+				{ // outer ring, including two inner rings
+					{{0.25, 3.25}, {3.25, 0.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}, {3.25, 6.25}},
+					{{2.25, 3.25}, {3.25, 4.25}, {4.25, 3.25}, {3.25, 2.25}},
+					{{11.25, 3.25}, {12.25, 4.25}, {13.25, 3.25}, {12.25, 2.25}},
+				},
+				{ // line in between inner rings (last)
+					{{4.25, 3.25}, {11.25, 3.25}},
+				},
+			}},
+		},
+		{
+			name:  "outer ring only, with external line",
+			tms:   newSimpleTileMatrixSet(1, 8),
+			tmIDs: []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{
+					{0.0, 0.0},
+					{2.0, 0.0},
+					{2.0, 10.0},
+					{2.0, 12.0},
+					{2.0, 10.0},
+					{0.0, 10.0},
+				},
+			},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 2 separate polygons:
+				{ // outer ring
+					{{0.25, 0.25}, {2.25, 0.25}, {2.25, 10.25}, {0.25, 10.25}},
+				},
+				{ // line
+					{{2.25, 10.25}, {2.25, 12.25}},
+				},
+			}},
+		},
+		{
+			name:  "outer ring with 'false' inner rings",
+			tms:   newSimpleTileMatrixSet(1, 8),
+			tmIDs: []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{
+					{0.0, 0.0},
+					{12.0, 0.0},
+					{12.0, 6.0},
+					{9.0, 3.0},
+					{6.0, 6.0},
+					{3.0, 3.0},
+					{0.0, 6.0},
+					{6.0, 6.0},
+					{12.0, 6.0},
+					{12.0, 12.0},
+					{6.0, 6.0},
+					{6.0, 12.0},
+					{0.0, 6.0},
+				},
+			},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
+				{ // outer ring 1 ('crown')
+					{{0.25, 0.25}, {12.25, 0.25}, {12.25, 6.25}, {9.25, 3.25}, {6.25, 6.25}, {3.25, 3.25}, {0.25, 6.25}},
+				},
+				{ // outer ring 2 ('triangle' 1)
+					{{0.25, 6.25}, {6.25, 6.25}, {6.25, 12.25}},
+				},
+				{ // outer ring 3 ('triangle' 2)
+					{{6.25, 6.25}, {12.25, 6.25}, {12.25, 12.25}},
+				},
+			}},
+		},
+		{
 			name:  "splitting of outer and inner ring produces duplicate lines",
 			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
 			tmIDs: []tms20.TMID{5},
