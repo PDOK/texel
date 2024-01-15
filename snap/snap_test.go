@@ -465,15 +465,46 @@ func Test_snapPolygon(t *testing.T) {
 					{0.0, 6.0},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
-				{ // outer ring 1 ('crown')
-					{{0.25, 0.25}, {12.25, 0.25}, {12.25, 6.25}, {9.25, 3.25}, {6.25, 6.25}, {3.25, 3.25}, {0.25, 6.25}},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 1 polygon with 2 inner rings:
+				{
+					{{0.25, 0.25}, {12.25, 0.25}, {12.25, 6.25}, {12.25, 12.25}, {6.25, 6.25}, {6.25, 12.25}, {0.25, 6.25}},
+					{{6.25, 6.25}, {3.25, 3.25}, {0.25, 6.25}},
+					{{12.25, 6.25}, {9.25, 3.25}, {6.25, 6.25}},
 				},
-				{ // outer ring 2 ('triangle' 1)
-					{{0.25, 6.25}, {6.25, 6.25}, {6.25, 12.25}},
+			}},
+		},
+		{
+			name:  "snapping creates a new inner ring",
+			tms:   newSimpleTileMatrixSet(1, 8),
+			tmIDs: []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{
+					{0.0, 0.0},
+					{15.0, 0.0},
+					{15.0, 2.0},
+					{2.0, 2.0},
+					{2.0, 4.0},
+					{5.0, 4.0},
+					{5.0, 2.1},
+					{12.0, 2.1},
+					{12.0, 6.0},
+					{0.0, 6.0},
 				},
-				{ // outer ring 3 ('triangle' 2)
-					{{6.25, 6.25}, {12.25, 6.25}, {12.25, 12.25}},
+				{
+					{7.0, 4.0},
+					{10.0, 4.0},
+					{10.0, 2.5},
+					{7.0, 2.5},
+				},
+			},
+			want: map[tms20.TMID][]geom.Polygon{1: { // 2 separate polygons:
+				{ // original outer ring with 2 inner rings
+					{{0.25, 0.25}, {15.25, 0.25}, {15.25, 2.25}, {12.25, 2.25}, {12.25, 6.25}, {0.25, 6.25}},
+					{{5.25, 2.25}, {2.25, 2.25}, {2.25, 4.25}, {5.25, 4.25}},   // inner ring created by snapping
+					{{7.25, 4.25}, {10.25, 4.25}, {10.25, 2.75}, {7.25, 2.75}}, // original inner ring
+				},
+				{ // self-tangent line split off as outer ring
+					{{12.25, 2.25}, {5.25, 2.25}},
 				},
 			}},
 		},

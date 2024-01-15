@@ -212,7 +212,7 @@ func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary boo
 // from paulmach/orb
 // Original implementation: http://rosettacode.org/wiki/Ray-casting_algorithm#Go
 //
-//nolint:cyclop
+//nolint:cyclop,nestif
 func rayIntersect(p, s, e [2]float64) (intersects, on bool) {
 	if s[0] > e[0] {
 		s, e = e, s
@@ -348,7 +348,18 @@ func windingOrderIsCorrect(ring [][2]float64, shouldBeClockwise bool) bool {
 	return isClockwise(points, shouldBeClockwise) == shouldBeClockwise
 }
 
+func isHitMultiple(hitMultiple map[intgeom.Point][]int, vertex [2]float64, ringIdx int) bool {
+	intVertex := intgeom.FromGeomPoint(vertex)
+	return slices.Contains(hitMultiple[intVertex], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] + 1, intVertex[1]}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] - 1, intVertex[1]}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] + 1}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] - 1}], ringIdx)
+}
+
 // split ring into multiple rings at any point where the ring goes through the point more than once
+//
+//nolint:funlen,nestif,cyclop,gocritic
 func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]int, ringIdx int) (outerRings, innerRings, pointsAndLines [][][2]float64) {
 	partialRingIdx := 0
 	stack := orderedmap.New[int, [][2]float64]()
@@ -358,7 +369,7 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 	completeRings := make(map[int][][2]float64)
 	completeRingKeys := []int{}
 	for vertexIdx, vertex := range ring {
-		if vertexIdx == 0 || !slices.Contains(hitMultiple[intgeom.FromGeomPoint(vertex)], ringIdx) {
+		if vertexIdx == 0 || !isHitMultiple(hitMultiple, vertex, ringIdx) {
 			if partialRing, inited := stack.Get(partialRingIdx); !inited {
 				stack.Set(partialRingIdx, make([][2]float64, 0, len(ring)))
 			} else {
@@ -376,12 +387,17 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 			currentPartialRing := stack.Value(partialRingIdx)
 			if vertex == partialRingFromStack[0] {
 				if partialRingIdx == stackIdx {
-					// check winding order to avoid closing partial rings incorrectly
+					// check winding order, add ring to appropriate list if it is incorrect
 					if !windingOrderIsCorrect(partialRingFromStack, !isOuter) {
-						break
+						if isOuter {
+							innerRings = append(innerRings, partialRingFromStack)
+						} else {
+							outerRings = append(outerRings, partialRingFromStack)
+						}
+					} else {
+						completeRings[partialRingIdx] = partialRingFromStack
+						completeRingKeys = append(completeRingKeys, partialRingIdx)
 					}
-					completeRings[partialRingIdx] = partialRingFromStack
-					completeRingKeys = append(completeRingKeys, partialRingIdx)
 					// remove partial ring from stack
 					stack.Delete(partialRingIdx)
 					stackKeys.Remove(r)
@@ -398,13 +414,18 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 					removeByValue(stackKeys, partialRingIdx)
 					stackKeys.Remove(r)
 				} else if currentPartialRing[0] == partialRingFromStack[len(partialRingFromStack)-1] {
-					// check winding order to avoid closing partial rings incorrectly
+					// check winding order, add ring to appropriate list if it is incorrect
 					combinedRing := append(partialRingFromStack, currentPartialRing[1:]...)
 					if !windingOrderIsCorrect(combinedRing, !isOuter) {
-						break
+						if isOuter {
+							innerRings = append(innerRings, combinedRing)
+						} else {
+							outerRings = append(outerRings, combinedRing)
+						}
+					} else {
+						completeRings[stackIdx] = combinedRing
+						completeRingKeys = append(completeRingKeys, stackIdx)
 					}
-					completeRings[stackIdx] = combinedRing
-					completeRingKeys = append(completeRingKeys, stackIdx)
 					// remove partial rings from stack
 					stack.Delete(partialRingIdx)
 					stack.Delete(stackIdx)
@@ -437,7 +458,8 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 						lastRing = append(lastRing, stackVertex)
 					}
 				}
-				stackKeys.Remove(&list.Element{Value: stackIdx})
+				// stack.Delete(stackIdx)
+				// removeByValue(stackKeys, stackIdx)
 			}
 			completeRings[lowestIdx] = lastRing
 			completeRingKeys = append(completeRingKeys, lowestIdx)
@@ -454,6 +476,14 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		default:
 			innerRings = append(innerRings, completeRings[completeRingKey])
 		}
+	}
+	if isOuter && len(outerRings) == 0 && len(innerRings) > 0 {
+		// outer ring(s) incorrectly saved as inner ring(s) due to winding order, fix and move to outerRings, empty innerRings
+		for _, innerRing := range innerRings {
+			ensureCorrectWindingOrder(innerRing, false)
+			outerRings = append(outerRings, innerRing)
+		}
+		innerRings = [][][2]float64{}
 	}
 	return outerRings, innerRings, pointsAndLines
 }
