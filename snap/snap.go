@@ -306,7 +306,7 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 	}
 
 	// deduplicate points in the ring, check winding order, then add to the polygon
-	newRing = kmpDeduplicate(newRing)
+	// newRing = kmpDeduplicate(newRing)
 	// winding order is reversed if incorrect
 	ensureCorrectWindingOrder(newRing, !isOuter)
 	newRingLen = len(newRing)
@@ -315,6 +315,7 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 	if newRingLen < 3 {
 		return nil, nil, [][][2]float64{newRing}
 	}
+	log.Printf("splitting ring %v\n", newRing)
 	return splitRing(newRing, isOuter, hitMultiple, ringIdx)
 }
 
@@ -350,11 +351,20 @@ func windingOrderIsCorrect(ring [][2]float64, shouldBeClockwise bool) bool {
 
 func isHitMultiple(hitMultiple map[intgeom.Point][]int, vertex [2]float64, ringIdx int) bool {
 	intVertex := intgeom.FromGeomPoint(vertex)
-	return slices.Contains(hitMultiple[intVertex], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] + 1, intVertex[1]}], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] - 1, intVertex[1]}], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] + 1}], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] - 1}], ringIdx)
+	// exact match
+	if slices.Contains(hitMultiple[intVertex], ringIdx) {
+		return true
+	}
+	// fuzzy search
+	for i := int64(1); i < 10; i++ {
+		if slices.Contains(hitMultiple[intgeom.Point{intVertex[0] + i, intVertex[1]}], ringIdx) ||
+			slices.Contains(hitMultiple[intgeom.Point{intVertex[0] - i, intVertex[1]}], ringIdx) ||
+			slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] + i}], ringIdx) ||
+			slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] - i}], ringIdx) {
+			return true
+		}
+	}
+	return false
 }
 
 // split ring into multiple rings at any point where the ring goes through the point more than once
@@ -369,11 +379,13 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 	completeRings := make(map[int][][2]float64)
 	completeRingKeys := []int{}
 	for vertexIdx, vertex := range ring {
+		vertexSkipped := true
 		if vertexIdx == 0 || !isHitMultiple(hitMultiple, vertex, ringIdx) {
 			if partialRing, inited := stack.Get(partialRingIdx); !inited {
 				stack.Set(partialRingIdx, make([][2]float64, 0, len(ring)))
 			} else {
 				stack.Set(partialRingIdx, append(partialRing, vertex))
+				vertexSkipped = false
 			}
 			if vertexIdx < len(ring)-1 {
 				continue
@@ -438,31 +450,41 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		}
 		if !closed {
 			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
+			vertexSkipped = false
 		}
 		if vertexIdx < len(ring)-1 {
 			partialRingIdx++
 			stackKeys.PushBack(partialRingIdx)
 			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
+			vertexSkipped = false
 		} else if stack.Len() > 0 {
 			// last point of the ring, combine any remaining partial rings
 			lastRing := [][2]float64{}
 			lowestIdx := math.MaxInt
+			debugMsg := fmt.Sprintf("combined remaining %d partial rings [ ", stack.Len())
 			for p := stack.Oldest(); p != nil; p = p.Next() {
 				stackIdx := p.Key
 				stackRing := p.Value
+				debugMsg = fmt.Sprintf("%v%v ", debugMsg, stackRing)
 				if stackIdx < lowestIdx {
 					lowestIdx = stackIdx
 				}
 				for _, stackVertex := range stackRing {
-					if !slices.Contains(lastRing, stackVertex) {
-						lastRing = append(lastRing, stackVertex)
+					// avoid having the same point twice in the ring
+					if len(lastRing) > 0 && lastRing[len(lastRing)-1] == stackVertex {
+						continue
 					}
+					lastRing = append(lastRing, stackVertex)
 				}
 				// stack.Delete(stackIdx)
 				// removeByValue(stackKeys, stackIdx)
 			}
+			log.Printf("%v] into lastRing %v", debugMsg, lastRing)
 			completeRings[lowestIdx] = lastRing
 			completeRingKeys = append(completeRingKeys, lowestIdx)
+		}
+		if vertexSkipped {
+			log.Printf("!!! skipped vertex %v (vertex at index %d of %d) !!!", vertex, vertexIdx, len(ring)-1)
 		}
 	}
 	sort.Ints(completeRingKeys)
@@ -484,6 +506,8 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 			outerRings = append(outerRings, innerRing)
 		}
 		innerRings = [][][2]float64{}
+	} else if !isOuter && len(innerRings) == 0 && len(outerRings) > 0 {
+		outerRings = [][][2]float64{}
 	}
 	return outerRings, innerRings, pointsAndLines
 }
