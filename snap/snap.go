@@ -3,7 +3,6 @@ package snap
 import (
 	"container/list"
 	"fmt"
-	"log"
 	"math"
 	"slices"
 	"sort"
@@ -97,6 +96,8 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 			continue
 		}
 		isOuter := ringIdx == 0
+		// winding order is reversed if incorrect
+		ensureCorrectWindingOrder(ring, !isOuter)
 		ringLen := len(ring)
 		newRing := make(map[Level][][2]float64, len(levelMap))
 		for level := range levelMap {
@@ -175,9 +176,7 @@ matchInners:
 		}
 		// no (single) matching outer ring was found (should never happen)
 		if len(containsPerPolyI) == 0 {
-			// panic(fmt.Errorf("no matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
-			log.Printf("no matching outer ring for inner ring.\n#polygons: %d\ninner: %v", len(polygons), innerRing)
-			return polygons
+			panic(fmt.Errorf("no matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
 		}
 		panic(fmt.Errorf("more than one matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
 	}
@@ -291,7 +290,6 @@ func cleanupNewVertices(newVertices [][2]float64, segment [2][2]float64, level L
 }
 
 // cleanupNewRing cleans up a ring (if not too small) that was just crafted inside addPointsAndSnap
-// TODO maybe also return pointsAndLines besides outerRings and innerRings, instead of pointsAndLines as outerRings
 func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]int, ringIdx int) (outerRings, innerRings, pointsAndLines [][][2]float64) {
 	newRingLen := len(newRing)
 	// LinearRings(): "The last point in the linear ring will not match the first point."
@@ -299,23 +297,18 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 		newRing = newRing[:newRingLen-1]
 		newRingLen--
 	}
-
 	// filter out too small rings
 	if newRingLen < 3 {
 		return nil, nil, [][][2]float64{newRing}
 	}
-
-	// deduplicate points in the ring, check winding order, then add to the polygon
-	// newRing = kmpDeduplicate(newRing)
-	// winding order is reversed if incorrect
-	ensureCorrectWindingOrder(newRing, !isOuter)
+	// deduplicate points in the ring
+	newRing = kmpDeduplicate(newRing)
 	newRingLen = len(newRing)
-
 	// again filter out too small rings, after deduping
 	if newRingLen < 3 {
 		return nil, nil, [][][2]float64{newRing}
 	}
-	log.Printf("splitting ring %v\n", newRing)
+	// split ring and return results
 	return splitRing(newRing, isOuter, hitMultiple, ringIdx)
 }
 
@@ -346,30 +339,22 @@ func windingOrderIsCorrect(ring [][2]float64, shouldBeClockwise bool) bool {
 	i, _ := findRightmostLowestPoint(ring)
 	// check angle between the vectors goint into and coming out of the rightmost lowest point
 	points := [3][2]float64{ring[mod(i-1, len(ring))], ring[i], ring[mod(i+1, len(ring))]}
-	return isClockwise(points, shouldBeClockwise) == shouldBeClockwise
+	return isClockwise(points) == shouldBeClockwise
 }
 
+// TODO: rewrite by using intgeoms for as long as possible
 func isHitMultiple(hitMultiple map[intgeom.Point][]int, vertex [2]float64, ringIdx int) bool {
 	intVertex := intgeom.FromGeomPoint(vertex)
-	// exact match
-	if slices.Contains(hitMultiple[intVertex], ringIdx) {
-		return true
-	}
-	// fuzzy search
-	for i := int64(1); i < 10; i++ {
-		if slices.Contains(hitMultiple[intgeom.Point{intVertex[0] + i, intVertex[1]}], ringIdx) ||
-			slices.Contains(hitMultiple[intgeom.Point{intVertex[0] - i, intVertex[1]}], ringIdx) ||
-			slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] + i}], ringIdx) ||
-			slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] - i}], ringIdx) {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(hitMultiple[intVertex], ringIdx) || // exact match
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] + 1, intVertex[1]}], ringIdx) || // fuzzy search
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] - 1, intVertex[1]}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] + 1}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] - 1}], ringIdx)
 }
 
 // split ring into multiple rings at any point where the ring goes through the point more than once
 //
-//nolint:funlen,nestif,cyclop,gocritic
+//nolint:cyclop,funlen,gocritic
 func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]int, ringIdx int) (outerRings, innerRings, pointsAndLines [][][2]float64) {
 	partialRingIdx := 0
 	stack := orderedmap.New[int, [][2]float64]()
@@ -378,142 +363,94 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 	stackKeys.PushBack(partialRingIdx)
 	completeRings := make(map[int][][2]float64)
 	completeRingKeys := []int{}
-	for vertexIdx, vertex := range ring {
-		vertexSkipped := true
+	checkRing := append(ring, ring[0])
+	for vertexIdx, vertex := range checkRing {
 		if vertexIdx == 0 || !isHitMultiple(hitMultiple, vertex, ringIdx) {
 			if partialRing, inited := stack.Get(partialRingIdx); !inited {
-				stack.Set(partialRingIdx, make([][2]float64, 0, len(ring)))
+				stack.Set(partialRingIdx, make([][2]float64, 0, len(checkRing)))
 			} else {
 				stack.Set(partialRingIdx, append(partialRing, vertex))
-				vertexSkipped = false
 			}
-			if vertexIdx < len(ring)-1 {
+			if vertexIdx < len(checkRing)-1 {
 				continue
 			}
+		} else {
+			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
 		}
-		closed := false
-		for r := stackKeys.Back(); r != nil; r = r.Prev() {
-			stackIdx := r.Value.(int)
-			// TODO: handle self-tangency over multiple points
-			partialRingFromStack := stack.Value(stackIdx)
-			currentPartialRing := stack.Value(partialRingIdx)
-			if vertex == partialRingFromStack[0] {
-				if partialRingIdx == stackIdx {
-					// check winding order, add ring to appropriate list if it is incorrect
-					if !windingOrderIsCorrect(partialRingFromStack, !isOuter) {
-						if isOuter {
-							innerRings = append(innerRings, partialRingFromStack)
-						} else {
-							outerRings = append(outerRings, partialRingFromStack)
-						}
-					} else {
-						completeRings[partialRingIdx] = partialRingFromStack
-						completeRingKeys = append(completeRingKeys, partialRingIdx)
-					}
-					// remove partial ring from stack
-					stack.Delete(partialRingIdx)
-					stackKeys.Remove(r)
-				} else if len(partialRingFromStack) == 2 &&
-					len(currentPartialRing) == 1 &&
-					currentPartialRing[0] == partialRingFromStack[len(partialRingFromStack)-1] &&
-					vertex == partialRingFromStack[0] {
-					// self-tangent line, add as complete ring
-					completeRings[stackIdx] = partialRingFromStack
-					completeRingKeys = append(completeRingKeys, stackIdx)
-					// remove partial rings from stack
-					stack.Delete(partialRingIdx)
-					stack.Delete(stackIdx)
-					removeByValue(stackKeys, partialRingIdx)
-					stackKeys.Remove(r)
-				} else if currentPartialRing[0] == partialRingFromStack[len(partialRingFromStack)-1] {
-					// check winding order, add ring to appropriate list if it is incorrect
-					combinedRing := append(partialRingFromStack, currentPartialRing[1:]...)
-					if !windingOrderIsCorrect(combinedRing, !isOuter) {
-						if isOuter {
-							innerRings = append(innerRings, combinedRing)
-						} else {
-							outerRings = append(outerRings, combinedRing)
-						}
-					} else {
-						completeRings[stackIdx] = combinedRing
-						completeRingKeys = append(completeRingKeys, stackIdx)
-					}
-					// remove partial rings from stack
-					stack.Delete(partialRingIdx)
-					stack.Delete(stackIdx)
-					removeByValue(stackKeys, partialRingIdx)
-					stackKeys.Remove(r)
+		tempRing := stack.Value(partialRingIdx)
+		if tempRing[0] == tempRing[len(tempRing)-1] {
+			// tempRing is already a complete ring
+			completeRings[partialRingIdx] = tempRing[:len(tempRing)-1]
+			completeRingKeys = append(completeRingKeys, partialRingIdx)
+			stack.Delete(partialRingIdx)
+			removeByValue(stackKeys, partialRingIdx)
+		} else {
+			// keep prepending partial rings from the stack until tempRing is a complete ring, or the end of the stack is reached
+			partialsToRemove := []int{partialRingIdx}
+			for r := stackKeys.Back().Prev(); r != nil; r = r.Prev() {
+				stackIdx := r.Value.(int)
+				partialRingFromStack := stack.Value(stackIdx)
+				// add previous partial ring if it connects to the start of the temp ring
+				if partialRingFromStack[len(partialRingFromStack)-1] == tempRing[0] {
+					partialsToRemove = append(partialsToRemove, stackIdx)
+					tempRing = append(partialRingFromStack, tempRing[1:]...)
+				} else {
+					break
 				}
-				closed = true
-				break
+				// closed ring, clean up partials
+				if tempRing[0] == tempRing[len(tempRing)-1] {
+					completeRings[stackIdx] = tempRing[:len(tempRing)-1]
+					completeRingKeys = append(completeRingKeys, stackIdx)
+					for _, idx := range partialsToRemove {
+						stack.Delete(idx)
+						removeByValue(stackKeys, idx)
+					}
+					break
+				}
 			}
 		}
-		if !closed {
-			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
-			vertexSkipped = false
-		}
-		if vertexIdx < len(ring)-1 {
+		if vertexIdx < len(checkRing)-1 {
 			partialRingIdx++
 			stackKeys.PushBack(partialRingIdx)
 			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
-			vertexSkipped = false
 		} else if stack.Len() > 0 {
-			// last point of the ring, combine any remaining partial rings
-			lastRing := [][2]float64{}
-			lowestIdx := math.MaxInt
-			debugMsg := fmt.Sprintf("combined remaining %d partial rings [ ", stack.Len())
-			for p := stack.Oldest(); p != nil; p = p.Next() {
-				stackIdx := p.Key
-				stackRing := p.Value
-				debugMsg = fmt.Sprintf("%v%v ", debugMsg, stackRing)
-				if stackIdx < lowestIdx {
-					lowestIdx = stackIdx
-				}
-				for _, stackVertex := range stackRing {
-					// avoid having the same point twice in the ring
-					if len(lastRing) > 0 && lastRing[len(lastRing)-1] == stackVertex {
-						continue
-					}
-					lastRing = append(lastRing, stackVertex)
-				}
-				// stack.Delete(stackIdx)
-				// removeByValue(stackKeys, stackIdx)
+			// if partial rings remain on stack when end of ring is reached, something has gone wrong
+			panicMsg := fmt.Sprintf("reached end of ring with stack length %d, expected 0\nremaining stack:\n", stack.Len())
+			for r := stackKeys.Front(); r != nil; r = r.Next() {
+				stackIdx := r.Value.(int)
+				panicMsg = fmt.Sprintf("%s\tkey %d: %v\n", panicMsg, stackIdx, stack.Value(stackIdx))
 			}
-			log.Printf("%v] into lastRing %v", debugMsg, lastRing)
-			completeRings[lowestIdx] = lastRing
-			completeRingKeys = append(completeRingKeys, lowestIdx)
-		}
-		if vertexSkipped {
-			log.Printf("!!! skipped vertex %v (vertex at index %d of %d) !!!", vertex, vertexIdx, len(ring)-1)
+			panic(panicMsg)
 		}
 	}
 	sort.Ints(completeRingKeys)
 	for _, completeRingKey := range completeRingKeys {
-		// inner rings with 0 area (defined as having less than 3 points) become outer rings
+		completeRing := completeRings[completeRingKey]
+		// rings with 0 area (defined as having fewer than 3 points) are separated
 		switch {
-		case len(completeRings[completeRingKey]) < 3:
-			pointsAndLines = append(pointsAndLines, completeRings[completeRingKey])
+		case len(completeRing) < 3:
+			pointsAndLines = append(pointsAndLines, completeRing)
 		case isOuter:
-			outerRings = append(outerRings, completeRings[completeRingKey])
+			// check winding order, add to inner rings if incorrect
+			if !windingOrderIsCorrect(completeRing, false) {
+				innerRings = append(innerRings, completeRing)
+			} else {
+				outerRings = append(outerRings, completeRing)
+			}
 		default:
-			innerRings = append(innerRings, completeRings[completeRingKey])
+			// check winding order, add to outer rings if incorrect
+			if !windingOrderIsCorrect(completeRing, true) {
+				outerRings = append(outerRings, completeRing)
+			} else {
+				innerRings = append(innerRings, completeRing)
+			}
 		}
-	}
-	if isOuter && len(outerRings) == 0 && len(innerRings) > 0 {
-		// outer ring(s) incorrectly saved as inner ring(s) due to winding order, fix and move to outerRings, empty innerRings
-		for _, innerRing := range innerRings {
-			ensureCorrectWindingOrder(innerRing, false)
-			outerRings = append(outerRings, innerRing)
-		}
-		innerRings = [][][2]float64{}
-	} else if !isOuter && len(innerRings) == 0 && len(outerRings) > 0 {
-		outerRings = [][][2]float64{}
 	}
 	return outerRings, innerRings, pointsAndLines
 }
 
 // determines whether a pair of vectors turns clockwise by examining the relationship of their relative angle to the angles of the vectors
-func isClockwise(points [3][2]float64, shouldBeClockwise bool) bool {
+func isClockwise(points [3][2]float64) bool {
 	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
 	mod := func(a, b float64) float64 {
 		return math.Mod(math.Mod(a, b)+b, b)
@@ -521,9 +458,6 @@ func isClockwise(points [3][2]float64, shouldBeClockwise bool) bool {
 	vector1 := vector2d{x: (points[1][0] - points[0][0]), y: (points[1][1] - points[0][1])}
 	vector2 := vector2d{x: (points[2][0] - points[1][0]), y: (points[2][1] - points[1][1])}
 	relativeAngle := math.Acos(vector1.dot(vector2)/(vector1.magnitude()*vector2.magnitude())) * (180 / math.Pi)
-	if math.Round(relativeAngle) == 0.0 || math.Round(relativeAngle) == 180.0 {
-		return shouldBeClockwise
-	}
 	return math.Round(mod((vector2.angle()-relativeAngle), 360)) != math.Round(vector1.angle())
 }
 
