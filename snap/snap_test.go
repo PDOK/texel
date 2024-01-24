@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_snapPolygon(t *testing.T) {
+func TestSnap_snapPolygon(t *testing.T) {
 	tests := []struct {
 		name    string
 		tms     tms20.TileMatrixSet
@@ -223,7 +223,7 @@ func Test_snapPolygon(t *testing.T) {
 			}},
 			want: map[tms20.TMID][]geom.Polygon{0: {
 				{
-					{{90810.56, 530415.04}, {90595.52, 530415.04}},
+					{{90595.52, 530415.04}, {90810.56, 530415.04}},
 				},
 			}},
 		},
@@ -239,7 +239,7 @@ func Test_snapPolygon(t *testing.T) {
 			}},
 			want: map[tms20.TMID][]geom.Polygon{0: {
 				{
-					{{211017.92, 574928.32}, {211232.96, 574928.32}},
+					{{211232.96, 574928.32}, {211017.92, 574928.32}},
 				},
 			}},
 		},
@@ -468,8 +468,8 @@ func Test_snapPolygon(t *testing.T) {
 			want: map[tms20.TMID][]geom.Polygon{1: { // 1 polygon with 2 inner rings:
 				{
 					{{0.25, 0.25}, {12.25, 0.25}, {12.25, 6.25}, {12.25, 12.25}, {6.25, 6.25}, {6.25, 12.25}, {0.25, 6.25}},
-					{{6.25, 6.25}, {3.25, 3.25}, {0.25, 6.25}},
 					{{12.25, 6.25}, {9.25, 3.25}, {6.25, 6.25}},
+					{{6.25, 6.25}, {3.25, 3.25}, {0.25, 6.25}},
 				},
 			}},
 		},
@@ -559,7 +559,7 @@ func Test_snapPolygon(t *testing.T) {
 	}
 }
 
-func Test_ringContains(t *testing.T) {
+func TestSnap_ringContains(t *testing.T) {
 	type args struct {
 		ring  [][2]float64
 		point [2]float64
