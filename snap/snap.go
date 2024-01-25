@@ -7,13 +7,13 @@ import (
 	"slices"
 	"sort"
 
-	orderedmap "github.com/wk8/go-ordered-map/v2"
-
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/tms20"
 	"github.com/umpc/go-sortedmap"
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"golang.org/x/exp/constraints"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -359,10 +359,7 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 	partialRingIdx := 0
 	stack := orderedmap.New[int, [][2]float64]()
 	stack.Set(partialRingIdx, [][2]float64{})
-	stackKeys := list.New()
-	stackKeys.PushBack(partialRingIdx)
 	completeRings := make(map[int][][2]float64)
-	completeRingKeys := []int{}
 	checkRing := append(ring, ring[0])
 	for vertexIdx, vertex := range checkRing {
 		if vertexIdx == 0 || !isHitMultiple(hitMultiple, vertex, ringIdx) {
@@ -381,15 +378,13 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		if tempRing[0] == tempRing[len(tempRing)-1] {
 			// tempRing is already a complete ring
 			completeRings[partialRingIdx] = tempRing[:len(tempRing)-1]
-			completeRingKeys = append(completeRingKeys, partialRingIdx)
 			stack.Delete(partialRingIdx)
-			removeByValue(stackKeys, partialRingIdx)
 		} else {
 			// keep prepending partial rings from the stack until tempRing is a complete ring, or the end of the stack is reached
 			partialsToRemove := []int{partialRingIdx}
-			for r := stackKeys.Back().Prev(); r != nil; r = r.Prev() {
-				stackIdx := r.Value.(int)
-				partialRingFromStack := stack.Value(stackIdx)
+			for r := stack.Newest().Prev(); r != nil; r = r.Prev() {
+				stackIdx := r.Key
+				partialRingFromStack := r.Value
 				// add previous partial ring if it connects to the start of the temp ring
 				if partialRingFromStack[len(partialRingFromStack)-1] == tempRing[0] {
 					partialsToRemove = append(partialsToRemove, stackIdx)
@@ -400,10 +395,8 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 				// closed ring, clean up partials
 				if tempRing[0] == tempRing[len(tempRing)-1] {
 					completeRings[stackIdx] = tempRing[:len(tempRing)-1]
-					completeRingKeys = append(completeRingKeys, stackIdx)
 					for _, idx := range partialsToRemove {
 						stack.Delete(idx)
-						removeByValue(stackKeys, idx)
 					}
 					break
 				}
@@ -411,18 +404,17 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		}
 		if vertexIdx < len(checkRing)-1 {
 			partialRingIdx++
-			stackKeys.PushBack(partialRingIdx)
 			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
 		} else if stack.Len() > 0 {
 			// if partial rings remain on stack when end of ring is reached, something has gone wrong
 			panicMsg := fmt.Sprintf("reached end of ring with stack length %d, expected 0\nremaining stack:\n", stack.Len())
-			for r := stackKeys.Front(); r != nil; r = r.Next() {
-				stackIdx := r.Value.(int)
-				panicMsg = fmt.Sprintf("%s\tkey %d: %v\n", panicMsg, stackIdx, stack.Value(stackIdx))
+			for r := stack.Oldest(); r != nil; r = r.Next() {
+				panicMsg = fmt.Sprintf("%s\tkey %d: %v\n", panicMsg, r.Key, r.Value)
 			}
 			panic(panicMsg)
 		}
 	}
+	completeRingKeys := maps.Keys(completeRings)
 	sort.Ints(completeRingKeys)
 	for _, completeRingKey := range completeRingKeys {
 		completeRing := completeRings[completeRingKey]
