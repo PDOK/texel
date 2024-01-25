@@ -354,7 +354,7 @@ func isHitMultiple(hitMultiple map[intgeom.Point][]int, vertex [2]float64, ringI
 
 // split ring into multiple rings at any point where the ring goes through the point more than once
 //
-//nolint:cyclop,funlen,gocritic
+//nolint:cyclop,gocritic
 func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]int, ringIdx int) (outerRings, innerRings, pointsAndLines [][][2]float64) {
 	partialRingIdx := 0
 	stack := orderedmap.New[int, [][2]float64]()
