@@ -205,9 +205,13 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 			want: map[tms20.TMID][]geom.Polygon{5: {
 				{
-					{{69840.8, 445753.12}, {69840.8, 445712.8}},
-				}, {
-					{{69840.8, 445712.8}, {69881.12, 445712.8}},
+					{{69840.8, 445706.08}, {69881.12, 445712.8}, {69840.8, 445712.8}},
+				},
+				{
+					{{69840.8, 445706.08}, {69840.8, 445712.8}},
+				},
+				{
+					{{69840.8, 445712.8}, {69840.8, 445753.12}},
 				},
 			}},
 		},
@@ -509,35 +513,35 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "splitting of outer and inner ring produces duplicate lines",
+			name:  "splitting of outer and inner ring produces (mirrored) duplicate lines",
 			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
 			tmIDs: []tms20.TMID{5},
 			polygon: geom.Polygon{
 				{{27435.253, 392410.493}, {27339.366, 392266.876}, {27156.23, 392261.72}, {27150.921, 392265.803}, {27153.05, 392268.68}, {27337.2, 392270.744}, {27431.77, 392409.367}, {27435.253, 392410.493}},
 				{{27325.12, 392269.53}, {27157.488, 392265.29}, {27153.165, 392267.869}, {27151.622, 392266.309}, {27156.228, 392262.52}, {27339.052, 392267.615}, {27434.775, 392409.844}, {27338.787, 392271.126}, {27337.382, 392269.953}, {27325.12, 392269.53}},
 			},
-			want: map[tms20.TMID][]geom.Polygon{5: { // 8 separate polygons:
+			want: map[tms20.TMID][]geom.Polygon{5: { // 8 separate polygons - TODO: remove (mirrored) duplicates in lines:
 				{ // outer ring with inner ring
 					{{27323.36, 392268.64}, {27155.36, 392268.64}, {27148.64, 392268.64}, {27155.36, 392261.92}},
 					{{27323.36, 392268.64}, {27155.36, 392261.92}, {27155.36, 392268.64}},
 				},
-				{ // line 1
+				{ // line 1 == line 6 mirrored
+					{{27437.6, 392409.76}, {27430.88, 392409.76}},
+				},
+				{ // line 2 == line 5 mirrored
 					{{27430.88, 392409.76}, {27336.8, 392268.64}},
 				},
-				{ // line 2 == line 6 - TODO: remove duplicates
+				{ // line 3 == line 4 mirrored
 					{{27336.8, 392268.64}, {27323.36, 392268.64}},
 				},
-				{ // line 3 == line 5 - TODO: remove duplicates
-					{{27430.88, 392409.76}, {27437.6, 392409.76}},
+				{ // line 4 == line 3 mirrored
+					{{27323.36, 392268.64}, {27336.8, 392268.64}},
 				},
-				{ // line 4
+				{ // line 5 == line 2 mirrored
 					{{27336.8, 392268.64}, {27430.88, 392409.76}},
 				},
-				{ // line 5 == line 3 - TODO: remove duplicates
+				{ // line 6 == line 1 mirrored
 					{{27430.88, 392409.76}, {27437.6, 392409.76}},
-				},
-				{ // line 6 == line 2 - TODO: remove duplicates
-					{{27336.8, 392268.64}, {27323.36, 392268.64}},
 				},
 				{ // line 7
 					{{27155.36, 392268.64}, {27148.64, 392268.64}},
