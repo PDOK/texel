@@ -3,6 +3,7 @@ package snap
 import (
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/wkt"
@@ -52,8 +53,10 @@ type Quadrant struct {
 //	          inc
 type PointIndex struct {
 	Quadrant
-	maxDepth  Level
-	quadrants map[Level]map[Z]Quadrant
+	maxDepth    Level
+	quadrants   map[Level]map[Z]Quadrant
+	hitOnce     map[Z]map[intgeom.Point][]int
+	hitMultiple map[Z]map[intgeom.Point][]int
 }
 
 type Level = uint
@@ -93,10 +96,10 @@ func (ix *PointIndex) InsertPoint(point geom.Point) {
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
-	// TODO panic if outside grid
 	deepestSize := int(pow2(ix.maxDepth))
 	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
-		return // the point is outside the extent
+		// should never happen
+		panic(fmt.Errorf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, deepestSize, deepestSize))
 	}
 	ix.insertCoord(deepestX, deepestY)
 }
@@ -139,7 +142,7 @@ func getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.
 
 // SnapClosestPoints returns the points (centroids) in the index that are intersected by a line
 // on multiple levels
-func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any) map[Level][][2]float64 {
+func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, ringID int) map[Level][][2]float64 {
 	intLine := intgeom.FromGeomLine(line)
 	quadrantsPerLevel := ix.snapClosestPoints(intLine, levelMap)
 
@@ -148,9 +151,19 @@ func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any) 
 		if len(quadrants) == 0 {
 			continue
 		}
+		if ix.hitOnce[level] == nil {
+			ix.hitOnce[level] = make(map[intgeom.Point][]int)
+		}
+		if ix.hitMultiple[level] == nil {
+			ix.hitMultiple[level] = make(map[intgeom.Point][]int)
+		}
 		points := make([][2]float64, len(quadrants))
 		for i, quadrant := range quadrants {
 			points[i] = quadrant.intCentroid.ToGeomPoint()
+			// ignore first point to avoid superfluous duplicates
+			if i > 0 {
+				checkPointHits(ix, quadrant.intCentroid, ringID, level)
+			}
 		}
 		pointsPerLevel[level] = points
 	}
@@ -158,7 +171,7 @@ func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any) 
 }
 
 func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level]any) map[Level][]Quadrant {
-	if !lineIntersects(intLine, ix.intExtent) {
+	if len(levelMap) == 0 || !lineIntersects(intLine, ix.intExtent) {
 		return nil
 	}
 	quadrantsIntersectedPerLevel := make(map[Level][]Quadrant, len(levelMap))
@@ -286,14 +299,7 @@ func getQuadrantZs(parentZ Z) [4]Z {
 	return quadrantZs
 }
 
-// containsPoint checks whether a point is contained in the extent.
-func (ix *PointIndex) containsPoint(intPt intgeom.Point) bool {
-	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
-	return ix.intExtent.MinX() <= intPt[0] && intPt[0] < ix.intExtent.MaxX() &&
-		ix.intExtent.MinY() <= intPt[1] && intPt[1] < ix.intExtent.MaxY()
-}
-
-// containsPoint checks whether a point is contained in an extent.
+// containsPoint checks whether a point is contained in a quadrant's extent.
 func containsPoint(intPt intgeom.Point, intExtent intgeom.Extent) bool {
 	// Differs from geom.(Extent)containsPoint() by not including the right and top edges
 	return intExtent.MinX() <= intPt[0] && intPt[0] < intExtent.MaxX() &&
@@ -363,6 +369,23 @@ func lineIntersects(intLine intgeom.Line, intExtent intgeom.Extent) bool {
 	return false
 }
 
+func checkPointHits(ix *PointIndex, vertex intgeom.Point, ringID int, level uint) {
+	levelHitOnce := ix.hitOnce[level]
+	levelHitMultiple := ix.hitMultiple[level]
+	if len(levelHitOnce[vertex]) > 0 {
+		if !slices.Contains(levelHitOnce[vertex], ringID) {
+			// point has been hit before, but not by this ring
+			levelHitOnce[vertex] = append(levelHitOnce[vertex], ringID)
+		} else if !slices.Contains(levelHitMultiple[vertex], ringID) {
+			// point has been hit before by this ring, add to hitMultiple (if not already present)
+			levelHitMultiple[vertex] = append(levelHitMultiple[vertex], ringID)
+		}
+	} else {
+		// first hit of this point by any ring
+		levelHitOnce[vertex] = append(levelHitOnce[vertex], ringID)
+	}
+}
+
 func isExclusiveEdge(edgeI int) bool {
 	i := edgeI % 4
 	return i == 1 || i == 2
@@ -400,9 +423,6 @@ func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.
 	eOrd2 := intEdge[1][varAx]
 
 	exclusiveTip := getExclusiveTip(edgeI, intEdge)
-	// if exclusiveTip[constAx] != eConstOrd || !betweenInc(exclusiveTip[varAx], eOrd1, eOrd2) {
-	// 	 panic(fmt.Sprintf("exclusive point not on edge: %v, %v", exclusiveTip, edge))
-	// }
 	lOrd1 := intLine[0][varAx]
 	lOrd2 := intLine[1][varAx]
 	return lOrd1 != lOrd2 && (betweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || betweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)

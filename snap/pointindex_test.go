@@ -68,10 +68,10 @@ func TestPointIndex_containsPoint(t *testing.T) {
 			want: false,
 		},
 	}
+	extent := intgeom.Extent{0, 0, intOne, intOne}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := newSimplePointIndex(0, 1.0)
-			got := ix.containsPoint(intgeom.FromGeomPoint(tt.pt))
+			got := containsPoint(intgeom.FromGeomPoint(tt.pt), extent)
 			if got != tt.want {
 				t.Errorf("containsPoint() = %v, want %v", got, tt.want)
 			}
@@ -248,6 +248,12 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := tt.ix
 			ix.InsertPoint(tt.point)
+			if tt.want.hitOnce == nil {
+				tt.want.hitOnce = make(map[Z]map[intgeom.Point][]int)
+			}
+			if tt.want.hitMultiple == nil {
+				tt.want.hitMultiple = make(map[Z]map[intgeom.Point][]int)
+			}
 			assert.EqualValues(t, tt.want, *ix)
 		})
 	}
@@ -259,6 +265,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 		ix     *PointIndex
 		poly   geom.Polygon
 		line   geom.Line
+		ringID int
 		levels []Level
 		want   map[Level][][2]float64
 	}{
@@ -268,8 +275,9 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			poly: geom.Polygon{
 				{{0.0, 0.0}, {0.0, 2.0}, {2.0, 2.0}, {2.0, 0.0}},
 			},
-			line: geom.Line{{4.0, 4.0}, {8.0, 8.0}},
-			want: make(map[Level][][2]float64), // nothing because the line is not part of the original geom so no points indexed
+			line:   geom.Line{{4.0, 4.0}, {8.0, 8.0}},
+			ringID: 0,
+			want:   make(map[Level][][2]float64), // nothing because the line is not part of the original geom so no points indexed
 		},
 		{
 			name: "no extra points",
@@ -278,8 +286,9 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 				{{0.0, 0.0}, {0.0, 8.0}, {8.0, 8.0}, {8.0, 0.0}},
 				{{2.0, 2.0}, {6.0, 2.0}, {6.0, 6.0}, {2.0, 6.0}},
 			},
-			line: geom.Line{{2.0, 2.0}, {6.0, 2.0}},
-			want: map[Level][][2]float64{5: {{2.25, 2.25}, {6.25, 2.25}}}, // same amount of points, but snapped to centroid
+			line:   geom.Line{{2.0, 2.0}, {6.0, 2.0}},
+			ringID: 1,
+			want:   map[Level][][2]float64{5: {{2.25, 2.25}, {6.25, 2.25}}}, // same amount of points, but snapped to centroid
 		},
 		{
 			name: "extra points (scary geom 1)",
@@ -288,8 +297,9 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 				{{0.0, 5.0}, {5.0, 4.0}, {5.0, 0.0}, {3.0, 0.0}, {0.0, 2.0}},
 				{{1.0, 3.0}, {3.0, 3.0}, {3.0, 1.0}, {1.25, 1.25}},
 			},
-			line: geom.Line{{3.0, 0.0}, {0.0, 2.0}},
-			want: map[Level][][2]float64{4: {{3.25, 0.25}, {1.25, 1.25}, {0.25, 2.25}}}, // extra point in the middle
+			line:   geom.Line{{3.0, 0.0}, {0.0, 2.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{4: {{3.25, 0.25}, {1.25, 1.25}, {0.25, 2.25}}}, // extra point in the middle
 		},
 		{
 			name: "horizontal line",
@@ -302,6 +312,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
 				{110907.64400000000023283, 504428.79999999998835847},
 			},
+			ringID: 0,
 			levels: []Level{14 + 8 + 4},
 			want: map[Level][][2]float64{14 + 8 + 4: {
 				{110906.8709375, 504428.8065625}, // horizontal line still here
@@ -309,60 +320,68 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			}},
 		},
 		{
-			name: "corner case topleft",
-			ix:   newSimplePointIndex(2, 1.0),
-			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line: geom.Line{{0.0, 4.0}, {1.0, 3.0}},
-			want: map[Level][][2]float64{},
+			name:   "corner case topleft",
+			ix:     newSimplePointIndex(2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{0.0, 4.0}, {1.0, 3.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{},
 		},
 		{
-			name: "corner case topright",
-			ix:   newSimplePointIndex(2, 1.0),
-			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line: geom.Line{{4.0, 4.0}, {3.0, 3.0}},
-			want: map[Level][][2]float64{},
+			name:   "corner case topright",
+			ix:     newSimplePointIndex(2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{4.0, 4.0}, {3.0, 3.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{},
 		},
 		{
-			name: "corner case bottomright",
-			ix:   newSimplePointIndex(2, 1.0),
-			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line: geom.Line{{4.0, 0.0}, {3.0, 1.0}},
-			want: map[Level][][2]float64{},
+			name:   "corner case bottomright",
+			ix:     newSimplePointIndex(2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{4.0, 0.0}, {3.0, 1.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{},
 		},
 		{
-			name: "corner case bottomleft",
-			ix:   newSimplePointIndex(2, 1.0),
-			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line: geom.Line{{0.0, 0.0}, {1.0, 1.0}},
-			want: map[Level][][2]float64{2: {{1.5, 1.5}}},
+			name:   "corner case bottomleft",
+			ix:     newSimplePointIndex(2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{0.0, 0.0}, {1.0, 1.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{2: {{1.5, 1.5}}},
 		},
 		{
-			name: "edge case top",
-			ix:   newSimplePointIndex(2, 1.0),
-			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line: geom.Line{{0.0, 3.0}, {4.0, 3.0}},
-			want: map[Level][][2]float64{},
+			name:   "edge case top",
+			ix:     newSimplePointIndex(2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{0.0, 3.0}, {4.0, 3.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{},
 		},
 		{
-			name: "edge case right",
-			ix:   newSimplePointIndex(2, 1.0),
-			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line: geom.Line{{3.0, 4.0}, {3.0, 0.0}},
-			want: map[Level][][2]float64{},
+			name:   "edge case right",
+			ix:     newSimplePointIndex(2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{3.0, 4.0}, {3.0, 0.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{},
 		},
 		{
-			name: "edge case bottom",
-			ix:   newSimplePointIndex(2, 1.0),
-			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line: geom.Line{{0.0, 1.0}, {4.0, 1.0}},
-			want: map[Level][][2]float64{2: {{1.5, 1.5}, {2.5, 1.5}}},
+			name:   "edge case bottom",
+			ix:     newSimplePointIndex(2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{0.0, 1.0}, {4.0, 1.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{2: {{1.5, 1.5}, {2.5, 1.5}}},
 		},
 		{
-			name: "edge case left",
-			ix:   newSimplePointIndex(2, 1.0),
-			poly: geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
-			line: geom.Line{{1.0, 0.0}, {1.0, 4.0}},
-			want: map[Level][][2]float64{2: {{1.5, 1.5}, {1.5, 2.5}}},
+			name:   "edge case left",
+			ix:     newSimplePointIndex(2, 1.0),
+			poly:   geom.Polygon{{{1.5, 1.5}, {2.5, 1.5}, {2.5, 2.5}, {1.5, 2.5}}},
+			line:   geom.Line{{1.0, 0.0}, {1.0, 4.0}},
+			ringID: 0,
+			want:   map[Level][][2]float64{2: {{1.5, 1.5}, {1.5, 2.5}}},
 		},
 	}
 	for _, tt := range tests {
@@ -374,7 +393,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			if levels == nil {
 				levels = []Level{ix.maxDepth}
 			}
-			got := ix.SnapClosestPoints(tt.line, asKeys(levels))
+			got := ix.SnapClosestPoints(tt.line, asKeys(levels), tt.ringID)
 			if !assert.EqualValues(t, tt.want, got) {
 				ix.toWkt(os.Stdout)
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
@@ -422,8 +441,10 @@ func newSimplePointIndex(maxDepth Level, cellSize float64) *PointIndex {
 		Quadrant: Quadrant{
 			intExtent: intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)},
 		},
-		maxDepth:  maxDepth,
-		quadrants: make(map[Level]map[Z]Quadrant, maxDepth+1),
+		maxDepth:    maxDepth,
+		quadrants:   make(map[Level]map[Z]Quadrant, maxDepth+1),
+		hitOnce:     make(map[Z]map[intgeom.Point][]int, 0),
+		hitMultiple: make(map[Z]map[intgeom.Point][]int, 0),
 	}
 	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
 	return &ix
