@@ -1,7 +1,6 @@
 package snap
 
 import (
-	"container/list"
 	"fmt"
 	"math"
 	"slices"
@@ -705,15 +704,6 @@ func asKeys[T constraints.Ordered](elements []T) map[T]any {
 		mapped[element] = struct{}{}
 	}
 	return mapped
-}
-
-// helper function to remove element from linked list by value
-func removeByValue(l *list.List, r int) {
-	for e := l.Front(); e != nil; e = e.Next() {
-		if e.Value.(int) == r {
-			l.Remove(e)
-		}
-	}
 }
 
 func findKeyWithMaxValue[K comparable, V constraints.Ordered](m map[K]V) (maxK K, maxV V, winners uint) {
