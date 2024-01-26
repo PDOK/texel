@@ -440,6 +440,9 @@ func isClockwise(points [3][2]float64) bool {
 	vector1 := vector2d{x: (points[1][0] - points[0][0]), y: (points[1][1] - points[0][1])}
 	vector2 := vector2d{x: (points[2][0] - points[1][0]), y: (points[2][1] - points[1][1])}
 	relativeAngle := math.Acos(vector1.dot(vector2)/(vector1.magnitude()*vector2.magnitude())) * (180 / math.Pi)
+	if vector1.angle() == 0.0 {
+		return relativeAngle > 180
+	}
 	return math.Round(mod((vector2.angle()-relativeAngle), 360)) != math.Round(vector1.angle())
 }
 
