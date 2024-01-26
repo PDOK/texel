@@ -13,6 +13,7 @@ require (
 	github.com/carlmjohnson/versioninfo v0.22.5
 	github.com/go-playground/validator/v10 v10.16.0
 	github.com/iancoleman/strcase v0.3.0
+	github.com/muesli/reflow v0.3.0
 	github.com/perimeterx/marshmallow v1.1.5
 	github.com/stretchr/testify v1.8.4
 	github.com/wk8/go-ordered-map/v2 v2.1.8
@@ -28,6 +29,8 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
+	github.com/mattn/go-runewidth v0.0.12 // indirect
+	github.com/rivo/uniseg v0.2.0 // indirect
 	golang.org/x/crypto v0.7.0 // indirect
 	golang.org/x/net v0.8.0 // indirect
 	golang.org/x/sys v0.14.0 // indirect

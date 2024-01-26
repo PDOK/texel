@@ -6,6 +6,9 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/go-spatial/geom/encoding/wkt"
+	"github.com/muesli/reflow/truncate"
+
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/tms20"
@@ -127,7 +130,8 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 				newPolygons[level] = append(newPolygons[level], [][][2]float64{outerRing})
 			}
 			if len(newPolygons[level]) == 0 && len(innerRings) > 0 { // should never happen
-				panic(fmt.Errorf("inner rings but no outer rings, for %v on level %v", polygon, level))
+				panicInnerRingsButNoOuterRings(level, polygon, innerRings)
+				continue
 			}
 			newPolygons[level] = matchInnersToPolygon(newPolygons[level], innerRings)
 			if keepPointsAndLines {
@@ -141,7 +145,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 			newPolygons[level] = append(newPolygons[level], [][][2]float64{pointOrLine})
 		}
 	}
-	return floatPolygonsToGeomPolygons(newPolygons)
+	return floatPolygonsToGeomPolygonsForAllLevels(newPolygons)
 }
 
 func matchInnersToPolygon(polygons [][][][2]float64, innerRings [][][2]float64) [][][][2]float64 {
@@ -175,9 +179,11 @@ matchInners:
 		}
 		// no (single) matching outer ring was found (should never happen)
 		if len(containsPerPolyI) == 0 {
-			panic(fmt.Errorf("no matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
+			panicNoMatchingOuterForInnerRing(polygons, innerRing)
+			continue
 		}
-		panic(fmt.Errorf("more than one matching outer ring for inner ring.\npolygons: %v\ninner: %v", polygons, innerRing))
+		panicMoreThanOneMatchingOuterRing(polygons, innerRing)
+		continue
 	}
 	return polygons
 }
@@ -275,7 +281,7 @@ func rayIntersect(p, s, e [2]float64) (intersects, on bool) {
 func cleanupNewVertices(newVertices [][2]float64, segment [2][2]float64, level Level, lastVertex *[2]float64) [][2]float64 {
 	newVerticesCount := len(newVertices)
 	if newVerticesCount == 0 { // should never happen, SnapClosestPoints should have returned at least one point
-		panic(fmt.Sprintf("no points found for %v on level %v", segment, level))
+		panicNoPointsFoundForVertices(segment, level)
 	}
 	// 0 if len is 1, 1 otherwise
 	minus := min(newVerticesCount-1, 1)
@@ -309,17 +315,6 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 	}
 	// split ring and return results
 	return splitRing(newRing, isOuter, hitMultiple, ringIdx)
-}
-
-func floatPolygonsToGeomPolygons(floaterss map[Level][][][][2]float64) map[Level][]geom.Polygon {
-	geomsPerLevel := make(map[Level][]geom.Polygon, len(floaterss))
-	for l := range floaterss {
-		geomsPerLevel[l] = make([]geom.Polygon, len(floaterss[l]))
-		for i := range floaterss[l] {
-			geomsPerLevel[l][i] = floaterss[l][i]
-		}
-	}
-	return geomsPerLevel
 }
 
 // if winding order is incorrect, ring is reversed to correct winding order
@@ -406,11 +401,7 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 			stack.Set(partialRingIdx, append(stack.Value(partialRingIdx), vertex))
 		} else if stack.Len() > 0 {
 			// if partial rings remain on stack when end of ring is reached, something has gone wrong
-			panicMsg := fmt.Sprintf("reached end of ring with stack length %d, expected 0\nremaining stack:\n", stack.Len())
-			for r := stack.Oldest(); r != nil; r = r.Next() {
-				panicMsg = fmt.Sprintf("%s\tkey %d: %v\n", panicMsg, r.Key, r.Value)
-			}
-			panic(panicMsg)
+			panicPartialRingsRemainingOnStack(stack)
 		}
 	}
 	completeRingKeys := maps.Keys(completeRings)
@@ -721,4 +712,69 @@ func findKeyWithMaxValue[K comparable, V constraints.Ordered](m map[K]V) (maxK K
 		}
 	}
 	return
+}
+
+func floatPolygonsToGeomPolygonsForAllLevels(floatersPerLevel map[Level][][][][2]float64) map[Level][]geom.Polygon {
+	geomsPerLevel := make(map[Level][]geom.Polygon, len(floatersPerLevel))
+	for l := range floatersPerLevel {
+		geomsPerLevel[l] = floatPolygonsToGeomPolygons(floatersPerLevel[l])
+	}
+	return geomsPerLevel
+}
+
+func floatPolygonsToGeomPolygons(floaters [][][][2]float64) []geom.Polygon {
+	geoms := make([]geom.Polygon, len(floaters))
+	for i := range floaters {
+		geoms[i] = floaters[i]
+	}
+	return geoms
+}
+
+func floatPolygonToGeomPolygon(floater [][][2]float64) geom.Polygon {
+	return floater
+}
+
+func floatRingToGeomPolygon(floater [][2]float64) geom.Polygon {
+	return geom.Polygon{floater}
+}
+
+func panicNoPointsFoundForVertices(segment [2][2]float64, level Level) {
+	panic(fmt.Sprintf("no points found for %v on level %v", segment, level))
+}
+
+func panicPartialRingsRemainingOnStack(stack *orderedmap.OrderedMap[int, [][2]float64]) {
+	panicMsg := fmt.Sprintf("reached end of ring with stack length %d, expected 0\nremaining stack:\n", stack.Len())
+	for r := stack.Oldest(); r != nil; r = r.Next() {
+		panicMsg = fmt.Sprintf("%s\tkey %d: %v\n", panicMsg, r.Key, r.Value)
+	}
+	panic(panicMsg)
+}
+
+func panicInnerRingsButNoOuterRings(level Level, polygon [][][2]float64, innerRings [][][2]float64) {
+	panic(fmt.Errorf("inner rings but no outer rings, on level %v, for polygon:\n%v\n\ninnerrings:%v",
+		level,
+		truncatedWkt(floatPolygonToGeomPolygon(polygon), 100),
+		wkt.MustEncode(geom.Polygon{innerRings[0]})))
+}
+
+func panicNoMatchingOuterForInnerRing(polygons [][][][2]float64, innerRing [][2]float64) {
+	panicMsg := "no matching outer ring for inner ring.\ninner: " + wkt.MustEncode(floatRingToGeomPolygon(innerRing))
+	panicMsg += "\nouters:"
+	for _, polygon := range floatPolygonsToGeomPolygons(polygons) {
+		panicMsg += "\n" + wkt.MustEncode(geom.Polygon{polygon[0]})
+	}
+	panic(panicMsg)
+}
+
+func panicMoreThanOneMatchingOuterRing(polygons [][][][2]float64, innerRing [][2]float64) {
+	panicMsg := "more than one matching outer ring for inner ring.\ninner: " + wkt.MustEncode(floatRingToGeomPolygon(innerRing))
+	panicMsg += "\nouters:"
+	for _, polygon := range floatPolygonsToGeomPolygons(polygons) {
+		panicMsg += "\n" + wkt.MustEncode(geom.Polygon{polygon[0]})
+	}
+	panic(panicMsg)
+}
+
+func truncatedWkt(geom geom.Geometry, width uint) string {
+	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
 }
