@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	keepPointsAndLines      = true // TODO do something with polys that collapsed into points and lines
-	internalPixelResolution = 16
+	keepPointsAndLines                = true // TODO do something with polys that collapsed into points and lines
+	internalPixelResolution           = 16
+	roundFloatAgainstFPErrorPrecision = 5
 )
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
@@ -443,7 +444,8 @@ func isClockwise(points [3][2]float64) bool {
 	if vector1.angle() == 0.0 {
 		return relativeAngle > 180
 	}
-	return math.Round(mod((vector2.angle()-relativeAngle), 360)) != math.Round(vector1.angle())
+	return roundFloat(mod(vector2.angle()-relativeAngle, 360), roundFloatAgainstFPErrorPrecision) !=
+		roundFloat(vector1.angle(), roundFloatAgainstFPErrorPrecision)
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
@@ -780,4 +782,9 @@ func panicMoreThanOneMatchingOuterRing(polygons [][][][2]float64, innerRing [][2
 
 func truncatedWkt(geom geom.Geometry, width uint) string {
 	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
+}
+
+func roundFloat(f float64, p uint) float64 {
+	r := math.Pow(10, float64(p))
+	return math.Round(f*r) / r
 }

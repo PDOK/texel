@@ -549,7 +549,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring with horizontal rightmostlowest",
+			name:  "inner but no outer error because of not reversing because of horizontal rightmostlowest",
 			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
 			tmIDs: []tms20.TMID{5},
 			polygon: geom.Polygon{{
@@ -562,6 +562,20 @@ func TestSnap_snapPolygon(t *testing.T) {
 				geom.Polygon{{{139527.2, 527784.16}, {139527.2, 527777.44}}},
 				geom.Polygon{{{139533.92, 527777.44}, {139540.64, 527777.44}}},
 				geom.Polygon{{{139520.48, 527777.44}, {139513.76, 527777.44}}},
+			}}, // want no panicInnerRingsButNoOuterRings
+		},
+		{
+			name:  "inner but no outer error because of not reversing because of a very sharp leg/extension",
+			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs: []tms20.TMID{0},
+			polygon: geom.Polygon{{
+				{48158.204, 392310.062},
+				{47753.125, 391885.44}, {48565.4, 391515.876}, {47751.195, 391884.821}, // a very sharp leg/extension
+				{47677.592, 392079.403},
+			}},
+			want: map[tms20.TMID][]geom.Polygon{0: {
+				{{{47587.52, 392144.32}, {47802.56, 391929.28}, {48232.64, 392359.36}}}, // turned counterclockwise
+				{{{47802.56, 391929.28}, {48662.72, 391499.2}}},
 			}}, // want no panicInnerRingsButNoOuterRings
 		},
 	}
