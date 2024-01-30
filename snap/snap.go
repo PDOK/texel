@@ -14,7 +14,7 @@ import (
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/tms20"
-	"github.com/umpc/go-sortedmap"
+	"github.com/tobshub/go-sortedmap"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/maps"
@@ -219,58 +219,58 @@ func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary boo
 // Original implementation: http://rosettacode.org/wiki/Ray-casting_algorithm#Go
 //
 //nolint:cyclop,nestif
-func rayIntersect(p, s, e [2]float64) (intersects, on bool) {
-	if s[0] > e[0] {
-		s, e = e, s
+func rayIntersect(pt, start, end [2]float64) (intersects, on bool) {
+	if start[xAx] > end[xAx] {
+		start, end = end, start
 	}
 
-	if p[0] == s[0] {
-		if p[1] == s[1] {
-			// p == start
+	if pt[xAx] == start[xAx] {
+		if pt[yAx] == start[yAx] {
+			// pt == start
 			return false, true
-		} else if s[0] == e[0] {
-			// vertical segment (s -> e)
+		} else if start[xAx] == end[xAx] {
+			// vertical segment (start -> end)
 			// return true if within the line, check to see if start or end is greater.
-			if s[1] > e[1] && s[1] >= p[1] && p[1] >= e[1] {
+			if start[yAx] > end[yAx] && start[yAx] >= pt[yAx] && pt[yAx] >= end[yAx] {
 				return false, true
 			}
 
-			if e[1] > s[1] && e[1] >= p[1] && p[1] >= s[1] {
+			if end[yAx] > start[yAx] && end[yAx] >= pt[yAx] && pt[yAx] >= start[yAx] {
 				return false, true
 			}
 		}
 
 		// Move the y coordinate to deal with degenerate case
-		p[0] = math.Nextafter(p[0], math.Inf(1))
-	} else if p[0] == e[0] {
-		if p[1] == e[1] {
+		pt[xAx] = math.Nextafter(pt[xAx], math.Inf(1))
+	} else if pt[xAx] == end[xAx] {
+		if pt[yAx] == end[yAx] {
 			// matching the end point
 			return false, true
 		}
 
-		p[0] = math.Nextafter(p[0], math.Inf(1))
+		pt[xAx] = math.Nextafter(pt[xAx], math.Inf(1))
 	}
 
-	if p[0] < s[0] || p[0] > e[0] {
+	if pt[xAx] < start[xAx] || pt[xAx] > end[xAx] {
 		return false, false
 	}
 
-	if s[1] > e[1] {
-		if p[1] > s[1] {
+	if start[yAx] > end[yAx] {
+		if pt[yAx] > start[yAx] {
 			return false, false
-		} else if p[1] < e[1] {
+		} else if pt[yAx] < end[yAx] {
 			return true, false
 		}
 	} else {
-		if p[1] > e[1] {
+		if pt[yAx] > end[yAx] {
 			return false, false
-		} else if p[1] < s[1] {
+		} else if pt[yAx] < start[yAx] {
 			return true, false
 		}
 	}
 
-	rs := (p[1] - s[1]) / (p[0] - s[0])
-	ds := (e[1] - s[1]) / (e[0] - s[0])
+	rs := (pt[yAx] - start[yAx]) / (pt[xAx] - start[xAx])
+	ds := (end[yAx] - start[yAx]) / (end[xAx] - start[xAx])
 
 	if rs == ds {
 		return false, true
@@ -336,10 +336,10 @@ func windingOrderIsCorrect(ring [][2]float64, shouldBeClockwise bool) bool {
 func isHitMultiple(hitMultiple map[intgeom.Point][]int, vertex [2]float64, ringIdx int) bool {
 	intVertex := intgeom.FromGeomPoint(vertex)
 	return slices.Contains(hitMultiple[intVertex], ringIdx) || // exact match
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] + 1, intVertex[1]}], ringIdx) || // fuzzy search
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] - 1, intVertex[1]}], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] + 1}], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] - 1}], ringIdx)
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] + 1, intVertex[yAx]}], ringIdx) || // fuzzy search
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] - 1, intVertex[yAx]}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx], intVertex[yAx] + 1}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx], intVertex[yAx] - 1}], ringIdx)
 }
 
 // split ring into multiple rings at any point where the ring goes through the point more than once
@@ -444,17 +444,16 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
 //
 //nolint:cyclop,funlen
-func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
-	deduplicatedRing := make([][2]float64, len(newRing))
-	copy(deduplicatedRing, newRing)
-	// map of indices to remove, sorted by starting index of each sequence to remove
-	indicesToRemove := sortedmap.New(len(newRing), func(x, y interface{}) bool {
-		return x.([2]int)[0] < y.([2]int)[0]
+func kmpDeduplicate(ring [][2]float64) [][2]float64 {
+	ringLen := len(ring)
+	// sequences (from index uptoandincluding index) to remove, sorted by starting index, mapped to prevent dupes
+	sequencesToRemove := sortedmap.New[string, [2]int](ringLen, func(a, b [2]int) bool {
+		return a[xAx] < b[xAx]
 	})
-	// walk through newRing until a step back is taken, then identify how many steps back are taken and search for repeats
+	// walk through ring until a step back is taken, then identify how many steps back are taken and search for repeats
 	visitedPoints := [][2]float64{}
-	for i := 0; i < len(newRing); {
-		vertex := newRing[i]
+	for i := 0; i < ringLen; {
+		vertex := ring[i]
 		// not a step back, continue
 		if len(visitedPoints) <= 1 || visitedPoints[len(visitedPoints)-2] != vertex {
 			visitedPoints = append(visitedPoints, vertex)
@@ -465,7 +464,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 		reverseSegment := [][2]float64{visitedPoints[len(visitedPoints)-1], visitedPoints[len(visitedPoints)-2]}
 		for j := 3; j <= len(visitedPoints); j++ {
 			nextI := i + (j - 2)
-			if nextI <= len(newRing)-1 && visitedPoints[len(visitedPoints)-j] == newRing[nextI] {
+			if nextI <= ringLen-1 && visitedPoints[len(visitedPoints)-j] == ring[nextI] {
 				reverseSegment = append(reverseSegment, visitedPoints[len(visitedPoints)-j])
 			} else {
 				// end of segment
@@ -481,7 +480,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 		start := i - len(segment)
 		end := start + (3 * len(segment))
 		k := 0
-		corpus := newRing[start:min(end, len(newRing))]
+		corpus := ring[start:min(end, ringLen)]
 		for {
 			stop := false
 			// check if (additional) corpus contains a point that is not in segment
@@ -491,8 +490,8 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 					break
 				}
 			}
-			// corpus already runs until the end of newRing
-			if end > len(newRing) {
+			// corpus already runs until the end of ring
+			if end > ringLen {
 				stop = true
 			}
 			if stop {
@@ -500,7 +499,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 			}
 			// expand corpus
 			k = len(corpus)
-			corpus = append(corpus, newRing[end:min(end+(2*len(segment)), len(newRing))]...)
+			corpus = append(corpus, ring[end:min(end+(2*len(segment)), ringLen)]...)
 			end += 2 * len(segment)
 		}
 		// search corpus for all matches of segment and reverseSegment
@@ -512,11 +511,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 			// mark all but one occurrance of segment for removal
 			sequenceStart := start + len(segment)
 			sequenceEnd := start + matches[len(matches)-1] + len(segment)
-			segmentRec := sortedmap.Record{
-				Key: fmt.Sprintf("%v", segment),
-				Val: [2]int{sequenceStart, sequenceEnd},
-			}
-			indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
+			sequencesToRemove.Insert(fmt.Sprint(segment), [2]int{sequenceStart, sequenceEnd})
 			// skip past matched section and reset visitedPoints
 			i = sequenceEnd
 			visitedPoints = [][2]float64{}
@@ -525,11 +520,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 			// mark all but one occurrance of segment and one occurrance of its reverse for removal
 			sequenceStart := start + (2 * len(segment)) - 1
 			sequenceEnd := start + matches[len(matches)-1] + len(segment)
-			segmentRec := sortedmap.Record{
-				Key: fmt.Sprintf("%v", segment),
-				Val: [2]int{sequenceStart, sequenceEnd},
-			}
-			indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
+			sequencesToRemove.Insert(fmt.Sprint(segment), [2]int{sequenceStart, sequenceEnd})
 			// skip past matched section and reset visitedPoints
 			i = sequenceEnd
 			visitedPoints = [][2]float64{}
@@ -552,50 +543,28 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 				sequenceEnd = start + 2*(len(segment)-1)*len(reverseMatches)
 				endPointIdx = start + matches[len(matches)-1] + len(segment)
 			}
-			segmentRec := sortedmap.Record{
-				Key: fmt.Sprintf("%v", segment),
-				Val: [2]int{sequenceStart, sequenceEnd},
-			}
-			indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
-			// check if remaining points are on a straight line, retain only start and end points if so
-			startPointX := newRing[sequenceEnd][0]
-			startPointY := newRing[sequenceEnd][1]
-			onLine := true
-			furthestDistance := 0.0
-			furthestPointIdx := sequenceEnd
-			for n := sequenceEnd + 1; n < endPointIdx; n++ {
-				if newRing[n][0] != startPointX && newRing[n][1] != startPointY {
-					onLine = false
-					break
-				}
-				pointDistance := math.Sqrt(math.Abs(newRing[n][0]-startPointX) + math.Abs(newRing[n][1]-startPointY))
-				if pointDistance > furthestDistance {
-					furthestDistance = pointDistance
-					furthestPointIdx = n
-				}
-			}
-			if onLine {
-				// remove any intermediate points on the return from the end point to the start point
-				sequenceStart := furthestPointIdx + 1
-				sequenceEnd := endPointIdx - 1
-				segmentRec := sortedmap.Record{
-					Key: fmt.Sprintf("%v", newRing[furthestPointIdx:furthestPointIdx+1]),
-					Val: [2]int{sequenceStart, sequenceEnd},
-				}
-				indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
-			}
+			sequencesToRemove.Insert(fmt.Sprint(segment), [2]int{sequenceStart, sequenceEnd})
+			// (checking if remaining points are on a straight line could be done here
+			//  but is not necessary because snap always inserts it)
 			// skip past matched section and reset visitedPoints
 			i = endPointIdx - 1
 			visitedPoints = [][2]float64{}
 		}
 	}
-	offset := 0
-	for _, key := range indicesToRemove.Keys() {
-		sequence := indicesToRemove.Map()[key].([2]int)
-		deduplicatedRing = append(deduplicatedRing[:sequence[0]-offset], deduplicatedRing[sequence[1]-offset:]...)
-		offset += sequence[1] - sequence[0]
+	return removeSequences(ring, sequencesToRemove)
+}
+
+func removeSequences(ring [][2]float64, sequencesToRemove *sortedmap.SortedMap[string, [2]int]) (newRing [][2]float64) {
+	mmap := sequencesToRemove.Map()
+	keepFrom := 0
+	for _, key := range sequencesToRemove.Keys() {
+		sequenceToRemove := mmap[key]
+		keepTo := sequenceToRemove[0]
+		newRing = append(newRing, ring[keepFrom:keepTo]...)
+		keepFrom = sequenceToRemove[1]
 	}
-	return deduplicatedRing
+	newRing = append(newRing, ring[keepFrom:]...)
+	return newRing
 }
 
 // repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'

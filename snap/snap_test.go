@@ -633,3 +633,36 @@ func TestSnap_ringContains(t *testing.T) {
 		})
 	}
 }
+
+func Test_kmpDeduplicate(t *testing.T) {
+	tests := []struct {
+		name string
+		ring [][2]float64
+		want [][2]float64
+	}{
+		{
+			name: "triangle should stay",
+			ring: [][2]float64{
+				{2, 1}, // A
+				{1, 1}, // B
+				{1, 0}, // C
+				{1, 1}, // B
+				{0, 1}, // D
+				{1, 0}, // C
+				{1, 1}, // B
+			},
+			want: [][2]float64{
+				{2, 1}, // A
+				{1, 1}, // B
+				{0, 1}, // D
+				{1, 0}, // C
+				{1, 1}, // B
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, kmpDeduplicate(tt.ring), "kmpDeduplicate(%v)", tt.ring)
+		})
+	}
+}

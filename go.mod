@@ -1,6 +1,6 @@
 module github.com/pdok/texel
 
-go 1.21
+go 1.21.6
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.3 // indirect
@@ -16,6 +16,7 @@ require (
 	github.com/muesli/reflow v0.3.0
 	github.com/perimeterx/marshmallow v1.1.5
 	github.com/stretchr/testify v1.8.4
+	github.com/tobshub/go-sortedmap v1.0.3
 	github.com/wk8/go-ordered-map/v2 v2.1.8
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
 )
@@ -44,6 +45,5 @@ require (
 	github.com/gdey/errors v0.0.0-20190426172550-8ebd5bc891fb // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/umpc/go-sortedmap v0.0.0-20180422175548-64ab94c482f4
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 )
