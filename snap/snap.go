@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/go-spatial/geom/winding"
+
 	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/muesli/reflow/truncate"
 
@@ -19,9 +21,8 @@ import (
 )
 
 const (
-	keepPointsAndLines                = true // TODO do something with polys that collapsed into points and lines
-	internalPixelResolution           = 16
-	roundFloatAgainstFPErrorPrecision = 5
+	keepPointsAndLines      = true // TODO do something with polys that collapsed into points and lines
+	internalPixelResolution = 16
 )
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
@@ -327,14 +328,8 @@ func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
 
 // validate winding order (CCW for outer rings, CW for inner rings)
 func windingOrderIsCorrect(ring [][2]float64, shouldBeClockwise bool) bool {
-	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
-	mod := func(a, b int) int {
-		return (a%b + b) % b
-	}
-	i, _ := findRightmostLowestPoint(ring)
-	// check angle between the vectors goint into and coming out of the rightmost lowest point
-	points := [3][2]float64{ring[mod(i-1, len(ring))], ring[i], ring[mod(i+1, len(ring))]}
-	return isClockwise(points) == shouldBeClockwise
+	wo := winding.Order{}.OfPoints(ring...)
+	return wo.IsClockwise() && shouldBeClockwise || wo.IsCounterClockwise() && !shouldBeClockwise || wo.IsColinear()
 }
 
 // TODO: rewrite by using intgeoms for as long as possible
@@ -429,23 +424,21 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 			}
 		}
 	}
+	// outer ring(s) incorrectly saved as inner ring(s) or vice versa due to winding order, swap
+	if isOuter && len(outerRings) == 0 && len(innerRings) > 0 {
+		for _, innerRing := range innerRings {
+			slices.Reverse(innerRing)
+			outerRings = append(outerRings, innerRing)
+		}
+		innerRings = make([][][2]float64, 0)
+	} else if !isOuter && len(innerRings) == 0 && len(outerRings) > 0 {
+		for _, outerRing := range outerRings {
+			slices.Reverse(outerRing)
+			innerRings = append(innerRings, outerRing)
+		}
+		outerRings = make([][][2]float64, 0)
+	}
 	return outerRings, innerRings, pointsAndLines
-}
-
-// determines whether a pair of vectors turns clockwise by examining the relationship of their relative angle to the angles of the vectors
-func isClockwise(points [3][2]float64) bool {
-	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
-	mod := func(a, b float64) float64 {
-		return math.Mod(math.Mod(a, b)+b, b)
-	}
-	vector1 := vector2d{x: (points[1][0] - points[0][0]), y: (points[1][1] - points[0][1])}
-	vector2 := vector2d{x: (points[2][0] - points[1][0]), y: (points[2][1] - points[1][1])}
-	relativeAngle := math.Acos(vector1.dot(vector2)/(vector1.magnitude()*vector2.magnitude())) * (180 / math.Pi)
-	if vector1.angle() == 0.0 {
-		return relativeAngle > 180
-	}
-	return roundFloat(mod(vector2.angle()-relativeAngle, 360), roundFloatAgainstFPErrorPrecision) !=
-		roundFloat(vector1.angle(), roundFloatAgainstFPErrorPrecision)
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
@@ -603,23 +596,6 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 		offset += sequence[1] - sequence[0]
 	}
 	return deduplicatedRing
-}
-
-func findRightmostLowestPoint(ring [][2]float64) (int, [2]float64) {
-	rightmostLowestPoint := [2]float64{math.MinInt, math.MaxInt}
-	j := 0
-	for i, vertex := range ring {
-		// check if vertex is rightmost lowest point (either y is lower, or y is equal and x is higher)
-		if vertex[1] < rightmostLowestPoint[1] {
-			rightmostLowestPoint[0] = vertex[0]
-			rightmostLowestPoint[1] = vertex[1]
-			j = i
-		} else if vertex[1] == rightmostLowestPoint[1] && vertex[0] > rightmostLowestPoint[0] {
-			rightmostLowestPoint[0] = vertex[0]
-			j = i
-		}
-	}
-	return j, rightmostLowestPoint
 }
 
 // repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'
