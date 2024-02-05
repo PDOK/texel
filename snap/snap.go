@@ -2,6 +2,7 @@ package snap
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"slices"
 	"sort"
@@ -131,11 +132,9 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 			for _, outerRing := range outerRings { // (there are only outer rings if isOuter)
 				newPolygons[level] = append(newPolygons[level], [][][2]float64{outerRing})
 			}
-			if len(newPolygons[level]) == 0 && len(innerRings) > 0 { // should never happen
-				panicInnerRingsButNoOuterRings(level, polygon, innerRings)
-				continue
+			if len(innerRings) > 0 {
+				newPolygons[level] = matchInnersToPolygon(newPolygons[level], innerRings, len(polygon) > 1)
 			}
-			newPolygons[level] = matchInnersToPolygon(newPolygons[level], innerRings)
 			if keepPointsAndLines {
 				newPointsAndLines[level] = append(newPointsAndLines[level], pointsAndLines...)
 			}
@@ -150,14 +149,14 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 	return floatPolygonsToGeomPolygonsForAllLevels(newPolygons)
 }
 
-func matchInnersToPolygon(polygons [][][][2]float64, innerRings [][][2]float64) [][][][2]float64 {
+func matchInnersToPolygon(polygons [][][][2]float64, innerRings [][][2]float64, hasInners bool) [][][][2]float64 {
 	lenPolygons := len(polygons)
-	if lenPolygons == 0 {
-		return polygons
-	} else if lenPolygons == 1 {
-		polygons[0] = append(polygons[0], innerRings...)
+	if len(innerRings) == 0 {
 		return polygons
 	}
+	numDeduped, polygons := dedupePolygonsByOuters(polygons)
+
+	var innersTurnedOuters [][][2]float64
 matchInners:
 	for _, innerRing := range innerRings {
 		containsPerPolyI := make(map[int]uint, lenPolygons)
@@ -179,15 +178,58 @@ matchInners:
 				continue matchInners
 			}
 		}
-		// no (single) matching outer ring was found (should never happen)
 		if len(containsPerPolyI) == 0 {
-			panicNoMatchingOuterForInnerRing(polygons, innerRing)
+			// no (single) matching outer ring was found
+			// presumably because the inner ring's winding order is incorrect and it should have been an outer
+			// TODO is that presumption correct and is this really never a panic? // panicNoMatchingOuterForInnerRing(polygons, innerRing)
+			log.Printf("no matching outer for inner ring found, turned inner into outer. original has inners: %v", hasInners)
+			innersTurnedOuters = append(innersTurnedOuters, reverseClone(innerRing))
 			continue
 		}
-		panicMoreThanOneMatchingOuterRing(polygons, innerRing)
+		// multiple matching outer rings were found, possibly because there are duplicates
+		panicMoreThanOneMatchingOuterRing(polygons, innerRing, numDeduped)
 		continue
 	}
+	for i := range innersTurnedOuters {
+		polygons = append(polygons, [][][2]float64{innersTurnedOuters[i]})
+	}
 	return polygons
+}
+
+// helper for matchInnersToPolygon to delete duplicate polygons
+// comparing them only by their outers and asserting that a deleted polygon didn't have inner rings appended yet
+// yes it's implemented as ~O(n^2),
+// but it's expected that the (outer) rings are usually different even from the first point,
+// making it still more efficient than using a hashmap of the entire rings
+func dedupePolygonsByOuters(polygons [][][][2]float64) (int, [][][][2]float64) {
+	numPolygons := len(polygons)
+	numDeleted := 0
+	for i := 0; i < numPolygons; i++ {
+		ring := polygons[i][0] // only check the outer
+	compareToOther:
+		for j := i + 1; j < numPolygons; j++ {
+			ringLen := len(ring)
+			other := polygons[j][0]
+			otherLen := len(other)
+			if ringLen != otherLen {
+				continue
+			}
+			for k := 0; k < min(ringLen, otherLen); k++ {
+				if ring[k] != other[k] {
+					continue compareToOther
+				}
+			}
+			// delete
+			if len(polygons[j]) > 1 {
+				panicDeletedPolygonHasInnerRing(polygons[j])
+			}
+			polygons = append(polygons[:j], polygons[j+1:]...)
+			j--
+			numPolygons--
+			numDeleted++
+		}
+	}
+	return numDeleted, polygons
 }
 
 // from paulmach/orb, modified to also return whether it's on the boundary
@@ -725,8 +767,26 @@ func panicMoreThanOneMatchingOuterRing(polygons [][][][2]float64, innerRing [][2
 	panic(panicMsg)
 }
 
+func panicDeletedPolygonHasInnerRing(polygon [][][2]float64) {
+	panicMsg := fmt.Sprintf("a deleted dupe polygon had more than one ring, %v",
+		truncatedWkt(floatPolygonToGeomPolygon(polygon), 100))
+	panic(panicMsg)
+}
+
 func truncatedWkt(geom geom.Geometry, width uint) string {
 	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
+}
+
+func reverseClone[S ~[]E, E any](s S) S {
+	if s == nil {
+		return nil
+	}
+	l := len(s)
+	c := make(S, l)
+	for i := 0; i < l; i++ {
+		c[l-1-i] = s[i]
+	}
+	return c
 }
 
 func roundFloat(f float64, p uint) float64 {
