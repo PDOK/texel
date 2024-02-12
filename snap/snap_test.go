@@ -1,9 +1,10 @@
 package snap
 
 import (
+	"fmt"
 	"testing"
 
-	"log"
+	"github.com/go-spatial/geom/encoding/wkt"
 
 	"github.com/pdok/texel/tms20"
 
@@ -601,10 +602,47 @@ func TestSnap_snapPolygon(t *testing.T) {
 			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
 			tmIDs: []tms20.TMID{0},
 			polygon: geom.Polygon{
-				{{198877.1, 506188.635}, {198805.608, 506361.231}, {198633.011, 506432.722}, {198460.415, 506361.23}, {198388.924, 506188.633}, {198460.416, 506016.037}, {198633.013, 505944.546}, {198805.609, 506016.038}, {198877.1, 506188.635}},
-				{{198429.407, 506188.635}, {198489.229, 506332.782}, {198633.531, 506392.228}, {198777.528, 506332.045}, {198836.612, 506187.594}, {198776.434, 506044.111}, {198632.5, 505985.022}, {198488.864, 506044.832}, {198429.407, 506188.615}, {198551.204, 506045.823}, {198690.244, 506034.324}, {198792.36, 506147.487}, {198748.509, 506305.863}, {198576.128, 506343.056}, {198429.407, 506188.635}},
-				{{198633.012, 506279.536}, {198766.685, 506188.158}, {198632.396, 506055.195}, {198499.739, 506188.974}, {198633.012, 506279.536}}},
+				{{198877.1, 506188.635}, {198805.608, 506361.231}, {198633.011, 506432.722}, {198460.415, 506361.23}, {198388.924, 506188.633}, {198460.416, 506016.037}, {198633.013, 505944.546}, {198805.609, 506016.038}},
+				{{198429.407, 506188.635}, {198489.229, 506332.782}, {198633.531, 506392.228}, {198777.528, 506332.045}, {198836.612, 506187.594}, {198776.434, 506044.111}, {198632.5, 505985.022}, {198488.864, 506044.832}, {198429.407, 506188.615}, {198551.204, 506045.823}, {198690.244, 506034.324}, {198792.36, 506147.487}, {198748.509, 506305.863}, {198576.128, 506343.056}},
+				{{198633.012, 506279.536}, {198766.685, 506188.158}, {198632.396, 506055.195}, {198499.739, 506188.974}}},
 			want: map[tms20.TMID][]geom.Polygon{}, // want no panicMoreThanOneMatchingOuterRing
+		},
+		{
+			name: "nested rings",
+			tms:  newSimpleTileMatrixSet(2, 64),
+			tmIDs: []tms20.TMID{
+				1, // 32 * 8.0
+			},
+			polygon: geom.Polygon{ // TODO think of something with duplicate outer rings
+				{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}}, // big outer
+				{{12.0, 52.0}, {12.0, 12.0}, {52.0, 12.0}, {52.0, 52.0}, {30.0, 52.0}, {30.0, 44.0}, {44.0, 44.0}, {44.0, 20.0}, {20.0, 20.0}, {20.0, 44.0}, {27.0, 44.0}, {27.0, 52.0}},     // big letter C that turns into nested rings when snapped
+				{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {30.0, 76.0}, {30.0, 84.0}, {44.0, 84.0}, {44.0, 108.0}, {20.0, 108.0}, {20.0, 84.0}, {27.0, 84.0}, {27.0, 76.0}, {12.0, 76.0}}, // above mirrored vertically
+				{{28.0, 28.0}, {36.0, 28.0}, {36.0, 36.0}, {29.0, 36.0}, {29.0, 92.0}, {36.0, 92.0}, {36.0, 100.0}, {28.0, 100.0}},                                                           // dumbbell inside the two C's that also turns into a nested ring when snapped (and some lines)
+			},
+			want: map[tms20.TMID][]geom.Polygon{
+				// 1 big outer with 2 holes. and 2 new outers/polygons (inside those holes from the big outer) each with their own hole.
+				1: {
+					{
+						{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
+						{{28.0, 52.0}, {52.0, 52.0}, {52.0, 12.0}, {12.0, 12.0}, {12.0, 52.0}},   // cw
+						{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
+					}, {
+						{{28.0, 44.0}, {20.0, 44.0}, {20.0, 20.0}, {44.0, 20.0}, {44.0, 44.0}}, // ccw
+						{{28.0, 36.0}, {36.0, 36.0}, {36.0, 28.0}, {28.0, 28.0}},               // cw
+					}, {
+						{{28.0, 84.0}, {44.0, 84.0}, {44.0, 108.0}, {20.0, 108.0}, {20.0, 84.0}}, // ccw
+						{{28.0, 100.0}, {36.0, 100.0}, {36.0, 92.0}, {28.0, 92.0}},               // cw
+					},
+					// and some lines
+					{{{28.0, 52.0}, {28.0, 44.0}}},
+					{{{28.0, 76.0}, {28.0, 84.0}}},
+					{{{28.0, 92.0}, {28.0, 84.0}}},
+					{{{28.0, 84.0}, {28.0, 76.0}}},
+					{{{28.0, 76.0}, {28.0, 52.0}}},
+					{{{28.0, 52.0}, {28.0, 44.0}}},
+					{{{28.0, 44.0}, {28.0, 36.0}}},
+				},
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -612,10 +650,9 @@ func TestSnap_snapPolygon(t *testing.T) {
 			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs)
 			for tmID, wantPoly := range tt.want {
 				if !assert.EqualValues(t, wantPoly, got[tmID]) {
-					// t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got[tmID]), wkt.MustEncode(wantPoly))
-					t.Errorf("snapPolygon(...) = %v, want %v", got[tmID], wantPoly)
+					t.Errorf("snapPolygon(%v, _, %v)\n=     %v\nwant: %v",
+						wkt.MustEncode(tt.polygon), tmID, wktMustEncodePolygonSlice(got[tmID]), wktMustEncodePolygonSlice(wantPoly))
 				}
-				log.Printf("snapPolygon(...) = %v", got[tmID])
 			}
 		})
 	}
@@ -682,4 +719,75 @@ func Test_kmpDeduplicate(t *testing.T) {
 			assert.Equalf(t, tt.want, kmpDeduplicate(tt.ring), "kmpDeduplicate(%v)", tt.ring)
 		})
 	}
+}
+
+// newSimpleTileMatrixSet creates a tms for snap testing purposes
+// the effective quadrant amount (one axis) on the deepest level will be 2^maxDepth * 16 (vt internal pixel res)
+// the effective quadrant size (one axis) on the deepest level will be cellSize / 16 (vt internal pixel res)
+func newSimpleTileMatrixSet(maxDepth Level, cellSize float64) tms20.TileMatrixSet {
+	zeroZero := tms20.TwoDPoint([2]float64{0.0, 0.0})
+	tms := tms20.TileMatrixSet{
+		CRS:          fakeCRS{},
+		OrderedAxes:  []string{"X", "Y"},
+		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix, maxDepth+1),
+	}
+	for tmID := 0; tmID <= int(maxDepth); tmID++ {
+		// (only values from the root tm are used, for the rest it is assumed to follow quad matrix rules)
+		tmCellSize := cellSize * float64(pow2(maxDepth-uint(tmID)))
+		tms.TileMatrices[tmID] = tms20.TileMatrix{
+			ID:               "0",
+			ScaleDenominator: tmCellSize / tms20.StandardizedRenderingPixelSize,
+			CellSize:         tmCellSize,
+			CornerOfOrigin:   tms20.BottomLeft,
+			PointOfOrigin:    &zeroZero,
+			TileWidth:        1,
+			TileHeight:       1,
+			MatrixWidth:      1,
+			MatrixHeight:     1,
+		}
+	}
+	return tms
+}
+
+func wktMustEncodePolygonSlice(geoms []geom.Polygon) string {
+	s := ""
+	for i := range geoms {
+		s += wktMustEncode(geoms[i]) + "\n"
+	}
+	return s
+}
+
+func wktMustEncode(g geom.Geometry) (s string) {
+	p, isPoly := g.(geom.Polygon)
+	if !isPoly {
+		return wkt.MustEncode(g)
+	}
+
+	var lines []geom.LineString
+	var points []geom.Point
+	pp := make(geom.Polygon, len(p))
+	copy(pp, p)
+	for r := 0; r < len(pp); r++ {
+		switch len(pp[r]) {
+		default:
+			continue
+		case 1:
+			points = append(points, pp[r][0])
+		case 2:
+			lines = append(lines, pp[r])
+		}
+		pp = append(pp[:r], pp[r+1:]...)
+		r--
+	}
+
+	if len(pp) > 0 {
+		s = wkt.MustEncode(pp)
+	}
+	for i := range lines {
+		s += wkt.MustEncode(lines[i])
+	}
+	for i := range points {
+		s += wkt.MustEncode(points[i])
+	}
+	return s
 }

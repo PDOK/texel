@@ -102,7 +102,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		}
 		isOuter := ringIdx == 0
 		// winding order is reversed if incorrect
-		ensureCorrectWindingOrder(ring, !isOuter)
+		ring = ensureCorrectWindingOrder(ring, !isOuter)
 		ringLen := len(ring)
 		newRing := make(map[Level][][2]float64, len(levelMap))
 		for level := range levelMap {
@@ -154,46 +154,61 @@ func matchInnersToPolygon(polygons [][][][2]float64, innerRings [][][2]float64, 
 	if len(innerRings) == 0 {
 		return polygons
 	}
-	numDeduped, polygons := dedupePolygonsByOuters(polygons)
-
+	var polyISortedByOuterAreaDesc []int
 	var innersTurnedOuters [][][2]float64
 matchInners:
 	for _, innerRing := range innerRings {
-		containsPerPolyI := make(map[int]uint, lenPolygons)
+		containsPerPolyI := orderedmap.New[int, uint](orderedmap.WithCapacity[int, uint](lenPolygons)) // TODO don't need ordered map anymore?
 		// this is pretty nested, but usually breaks early
 		for _, vertex := range innerRing {
 			for polyI := range polygons {
-				contains, onBoundary := ringContains(polygons[polyI][0], vertex)
+				contains, _ := ringContains(polygons[polyI][0], vertex)
+				// it doesn't matter if on boundary or not, if not on boundary there could still be multiple (nested) matching polygons
 				if contains {
-					if !onBoundary {
-						polygons[polyI] = append(polygons[polyI], innerRing)
-						continue matchInners
-					}
-					containsPerPolyI[polyI]++
+					containsPerPolyI.Set(polyI, containsPerPolyI.Value(polyI)+1)
 				}
 			}
-			matchingPolyI, _, matchCount := findKeyWithMaxValue(containsPerPolyI)
+			matchingPolyI, _, matchCount := findLastKeyWithMaxValue(containsPerPolyI)
 			if matchCount == 1 {
 				polygons[matchingPolyI] = append(polygons[matchingPolyI], innerRing)
 				continue matchInners
 			}
 		}
-		if len(containsPerPolyI) == 0 {
+		if containsPerPolyI.Len() == 0 {
 			// no (single) matching outer ring was found
 			// presumably because the inner ring's winding order is incorrect and it should have been an outer
 			// TODO is that presumption correct and is this really never a panic? // panicNoMatchingOuterForInnerRing(polygons, innerRing)
+			// TODO should it be a candidate for other the other inner rings?
 			log.Printf("no matching outer for inner ring found, turned inner into outer. original has inners: %v", hasInners)
 			innersTurnedOuters = append(innersTurnedOuters, reverseClone(innerRing))
 			continue
 		}
-		// multiple matching outer rings were found, possibly because there are duplicates
-		panicMoreThanOneMatchingOuterRing(polygons, innerRing, numDeduped)
-		continue
+		// multiple matching outer rings were found. use the smallest one
+		// TODO dedupe poly outers (not here)
+		if polyISortedByOuterAreaDesc == nil {
+			polyISortedByOuterAreaDesc = sortPolyIdxsByOuterAreaDesc(polygons)
+		}
+		smallestMatchingPolyI := lastMatch(polyISortedByOuterAreaDesc, orderedMapKeys(containsPerPolyI))
+		polygons[smallestMatchingPolyI] = append(polygons[smallestMatchingPolyI], innerRing)
 	}
 	for i := range innersTurnedOuters {
 		polygons = append(polygons, [][][2]float64{innersTurnedOuters[i]})
 	}
 	return polygons
+}
+
+func sortPolyIdxsByOuterAreaDesc(polygons [][][][2]float64) []int {
+	areas := sortedmap.New[int, float64](len(polygons), func(i, j float64) bool {
+		return i > j // desc
+	})
+	for i := range polygons {
+		if len(polygons[i]) == 0 {
+			areas.Insert(i, 0.0)
+		} else {
+			areas.Insert(i, shoelace(polygons[i][0]))
+		}
+	}
+	return areas.Keys()
 }
 
 // helper for matchInnersToPolygon to delete duplicate polygons
@@ -362,10 +377,11 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 }
 
 // if winding order is incorrect, ring is reversed to correct winding order
-func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
+func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) [][2]float64 {
 	if !windingOrderIsCorrect(ring, shouldBeClockwise) {
-		slices.Reverse(ring)
+		return reverseClone(ring)
 	}
+	return ring
 }
 
 // validate winding order (CCW for outer rings, CW for inner rings)
@@ -469,13 +485,13 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 	// outer ring(s) incorrectly saved as inner ring(s) or vice versa due to winding order, swap
 	if isOuter && len(outerRings) == 0 && len(innerRings) > 0 {
 		for _, innerRing := range innerRings {
-			slices.Reverse(innerRing)
+			slices.Reverse(innerRing) // in place, not used elsewhere
 			outerRings = append(outerRings, innerRing)
 		}
 		innerRings = make([][][2]float64, 0)
 	} else if !isOuter && len(innerRings) == 0 && len(outerRings) > 0 {
 		for _, outerRing := range outerRings {
-			slices.Reverse(outerRing)
+			slices.Reverse(outerRing) // in place, not used elsewhere
 			innerRings = append(innerRings, outerRing)
 		}
 		outerRings = make([][][2]float64, 0)
@@ -516,7 +532,7 @@ func kmpDeduplicate(ring [][2]float64) [][2]float64 {
 		// create segment from reverse segment
 		segment := make([][2]float64, len(reverseSegment))
 		copy(segment, reverseSegment)
-		slices.Reverse(segment)
+		slices.Reverse(segment) // in place, not used elsewhere
 		// create search corpus: initialise with section of 3*segment length, then continuously
 		// add 2*segment length until corpus contains a point that is not in segment
 		start := i - len(segment)
@@ -689,21 +705,41 @@ func asKeys[T constraints.Ordered](elements []T) map[T]any {
 	return mapped
 }
 
-func findKeyWithMaxValue[K comparable, V constraints.Ordered](m map[K]V) (maxK K, maxV V, winners uint) {
+func findLastKeyWithMaxValue[K comparable, V constraints.Ordered](m *orderedmap.OrderedMap[K, V]) (maxK K, maxV V, numWinners uint) {
 	first := true
-	for k, v := range m {
-		if first || v > maxV {
-			maxK = k
-			maxV = v
-			winners = 1
+	for p := m.Newest(); p != nil; p = p.Prev() {
+		if first || p.Value > maxV {
+			maxK = p.Key
+			maxV = p.Value
+			numWinners = 1
 			first = false
 			continue
 		}
-		if v == maxV {
-			winners++
+		if p.Value == maxV {
+			numWinners++
 		}
 	}
 	return
+}
+
+func orderedMapKeys[K comparable, V any](m *orderedmap.OrderedMap[K, V]) []K {
+	l := make([]K, m.Len())
+	i := 0
+	for p := m.Oldest(); p != nil; p = p.Next() {
+		l[i] = p.Key
+		i++
+	}
+	return l
+}
+
+func lastMatch[T comparable](haystack, needle []T) T {
+	for i := len(haystack) - 1; i >= 0; i-- {
+		if slices.Contains(needle, haystack[i]) {
+			return haystack[i]
+		}
+	}
+	var empty T
+	return empty
 }
 
 func floatPolygonsToGeomPolygonsForAllLevels(floatersPerLevel map[Level][][][][2]float64) map[Level][]geom.Polygon {
