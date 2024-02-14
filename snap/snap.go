@@ -93,6 +93,7 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Leve
 func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[Level][]geom.Polygon {
 	levelMap := asKeys(levels)
 	newPolygons := make(map[Level][][][][2]float64, len(levels))
+	newInners := make(map[Level][][][2]float64, len(levels))
 	newPointsAndLines := make(map[Level][][][2]float64, len(levels))
 
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
@@ -129,17 +130,23 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 				delete(levelMap, level) // outer ring has become too small
 				continue
 			}
-			for _, outerRing := range outerRings { // (there are only outer rings if isOuter)
+			for _, outerRing := range outerRings {
 				newPolygons[level] = append(newPolygons[level], [][][2]float64{outerRing})
 			}
-			if len(innerRings) > 0 {
-				newPolygons[level] = matchInnersToPolygon(newPolygons[level], innerRings, len(polygon) > 1)
-			}
+			newInners[level] = append(newInners[level], innerRings...)
 			if keepPointsAndLines {
 				newPointsAndLines[level] = append(newPointsAndLines[level], pointsAndLines...)
 			}
 		}
 	}
+
+	for l := range levelMap {
+		newPolygonsForLevel := matchInnersToPolygons(newPolygons[l], newInners[l], len(polygon) > 1)
+		if len(newPolygonsForLevel) > 1 {
+			newPolygons[l] = newPolygonsForLevel
+		}
+	}
+
 	// points and lines at the end, as outer rings
 	for level, pointsAndLines := range newPointsAndLines {
 		for _, pointOrLine := range pointsAndLines {
@@ -149,11 +156,13 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 	return floatPolygonsToGeomPolygonsForAllLevels(newPolygons)
 }
 
-func matchInnersToPolygon(polygons [][][][2]float64, innerRings [][][2]float64, hasInners bool) [][][][2]float64 {
+func matchInnersToPolygons(polygons [][][][2]float64, innerRings [][][2]float64, hasInners bool) [][][][2]float64 {
 	lenPolygons := len(polygons)
 	if len(innerRings) == 0 {
 		return polygons
 	}
+	_, polygons = dedupePolygonsByOuters(polygons)
+
 	var polyISortedByOuterAreaDesc []int
 	var innersTurnedOuters [][][2]float64
 matchInners:
@@ -211,7 +220,7 @@ func sortPolyIdxsByOuterAreaDesc(polygons [][][][2]float64) []int {
 	return areas.Keys()
 }
 
-// helper for matchInnersToPolygon to delete duplicate polygons
+// helper for matchInnersToPolygons to delete duplicate polygons
 // comparing them only by their outers and asserting that a deleted polygon didn't have inner rings appended yet
 // yes it's implemented as ~O(n^2),
 // but it's expected that the (outer) rings are usually different even from the first point,

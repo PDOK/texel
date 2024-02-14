@@ -613,10 +613,11 @@ func TestSnap_snapPolygon(t *testing.T) {
 			tmIDs: []tms20.TMID{
 				1, // 32 * 8.0
 			},
-			polygon: geom.Polygon{ // TODO think of something with duplicate outer rings
+			polygon: geom.Polygon{
 				{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}}, // big outer
 				{{12.0, 52.0}, {12.0, 12.0}, {52.0, 12.0}, {52.0, 52.0}, {30.0, 52.0}, {30.0, 44.0}, {44.0, 44.0}, {44.0, 20.0}, {20.0, 20.0}, {20.0, 44.0}, {27.0, 44.0}, {27.0, 52.0}},     // big letter C that turns into nested rings when snapped
 				{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {30.0, 76.0}, {30.0, 84.0}, {44.0, 84.0}, {44.0, 108.0}, {20.0, 108.0}, {20.0, 84.0}, {27.0, 84.0}, {27.0, 76.0}, {12.0, 76.0}}, // above mirrored vertically
+				{{30.0, 53.0}, {30.0, 54.0}, {54.0, 54.0}, {54.0, 10.0}, {10.0, 10.0}, {10.0, 54.0}, {27.0, 54.0}, {27.0, 53.0}, {11.0, 53.0}, {11.0, 11.0}, {53.0, 11.0}, {53.0, 53.0}},     // another C around the original C which snaps to a duplicate outer
 				{{28.0, 28.0}, {36.0, 28.0}, {36.0, 36.0}, {29.0, 36.0}, {29.0, 92.0}, {36.0, 92.0}, {36.0, 100.0}, {28.0, 100.0}},                                                           // dumbbell inside the two C's that also turns into a nested ring when snapped (and some lines)
 			},
 			want: map[tms20.TMID][]geom.Polygon{
@@ -626,6 +627,11 @@ func TestSnap_snapPolygon(t *testing.T) {
 						{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
 						{{28.0, 52.0}, {52.0, 52.0}, {52.0, 12.0}, {12.0, 12.0}, {12.0, 52.0}},   // cw
 						{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
+					}, {
+						{{28.0, 52.0}, {12.0, 52.0}, {12.0, 12.0}, {52.0, 12.0}, {52.0, 52.0}, {28.0, 52.0}}, // ccw
+						{{28.0, 52.0}, {52.0, 52.0}, {52.0, 12.0}, {12.0, 12.0}, {12.0, 52.0}, {28.0, 52.0}}, // cw
+						// TODO order of separate outer rings OK. does this overlap the deepest nested square?
+						// TODO deduplicate this, remove totally?
 					}, {
 						{{28.0, 44.0}, {20.0, 44.0}, {20.0, 20.0}, {44.0, 20.0}, {44.0, 44.0}}, // ccw
 						{{28.0, 36.0}, {36.0, 36.0}, {36.0, 28.0}, {28.0, 28.0}},               // cw
