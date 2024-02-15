@@ -1,7 +1,6 @@
 package snap
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/go-spatial/geom/encoding/wkt"
@@ -622,16 +621,12 @@ func TestSnap_snapPolygon(t *testing.T) {
 			},
 			want: map[tms20.TMID][]geom.Polygon{
 				// 1 big outer with 2 holes. and 2 new outers/polygons (inside those holes from the big outer) each with their own hole.
+				// a duplicate inner/outer pair from the extra C is removed
 				1: {
 					{
 						{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
 						{{28.0, 52.0}, {52.0, 52.0}, {52.0, 12.0}, {12.0, 12.0}, {12.0, 52.0}},   // cw
 						{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
-					}, {
-						{{28.0, 52.0}, {12.0, 52.0}, {12.0, 12.0}, {52.0, 12.0}, {52.0, 52.0}, {28.0, 52.0}}, // ccw
-						{{28.0, 52.0}, {52.0, 52.0}, {52.0, 12.0}, {12.0, 12.0}, {12.0, 52.0}, {28.0, 52.0}}, // cw
-						// TODO order of separate outer rings OK. does this overlap the deepest nested square?
-						// TODO deduplicate this, remove totally?
 					}, {
 						{{28.0, 44.0}, {20.0, 44.0}, {20.0, 20.0}, {44.0, 20.0}, {44.0, 44.0}}, // ccw
 						{{28.0, 36.0}, {36.0, 36.0}, {36.0, 28.0}, {28.0, 28.0}},               // cw
