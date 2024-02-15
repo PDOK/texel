@@ -220,8 +220,8 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 		}
 		if difference > 0 {
 			numToDelete := min(len(equalOutersIndexes), len(equalInnersIndexes))
-			indexesToDelete = append(indexesToDelete, equalOutersIndexes[0:numToDelete-1]...)
-			indexesToDelete = append(indexesToDelete, equalInnersIndexes[0:numToDelete-1]...)
+			indexesToDelete = append(indexesToDelete, equalOutersIndexes[0:numToDelete]...)
+			indexesToDelete = append(indexesToDelete, equalInnersIndexes[0:numToDelete]...)
 		}
 	}
 	newOuters := make([][][2]float64, 0, lenOuters)
