@@ -2,6 +2,7 @@ package snap
 
 import (
 	"fmt"
+	"github.com/tobshub/go-sortedmap"
 	"log"
 	"math"
 	"slices"
@@ -15,7 +16,6 @@ import (
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/tms20"
-	"github.com/tobshub/go-sortedmap"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/maps"
@@ -92,7 +92,7 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Leve
 //nolint:cyclop
 func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[Level][]geom.Polygon {
 	levelMap := asKeys(levels)
-	newPolygons := make(map[Level][][][][2]float64, len(levels))
+	newOuters := make(map[Level][][][2]float64, len(levels))
 	newInners := make(map[Level][][][2]float64, len(levels))
 	newPointsAndLines := make(map[Level][][][2]float64, len(levels))
 
@@ -126,12 +126,13 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		// walk through the new ring and append to the polygon (on all levels)
 		for level := range levelMap {
 			outerRings, innerRings, pointsAndLines := cleanupNewRing(newRing[level], isOuter, ix.hitMultiple[level], ringIdx)
+			// Check if outer ring has become too small
 			if isOuter && len(outerRings) == 0 && (!keepPointsAndLines || len(pointsAndLines) == 0) {
-				delete(levelMap, level) // outer ring has become too small
+				delete(levelMap, level) // If too small, delete it
 				continue
 			}
 			for _, outerRing := range outerRings {
-				newPolygons[level] = append(newPolygons[level], [][][2]float64{outerRing})
+				newOuters[level] = append(newOuters[level], outerRing)
 			}
 			newInners[level] = append(newInners[level], innerRings...)
 			if keepPointsAndLines {
@@ -140,8 +141,10 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		}
 	}
 
+	newPolygons := make(map[Level][][][][2]float64, len(levels))
 	for l := range levelMap {
-		newPolygonsForLevel := matchInnersToPolygons(newPolygons[l], newInners[l], len(polygon) > 1)
+		newOuters[l], newInners[l] = dedupeAndSortBySizeInnersOuters(newOuters[l], newInners[l])
+		newPolygonsForLevel := matchInnersToPolygons(newPolygonsForLevel, newInners[l], len(polygon) > 1)
 		if len(newPolygonsForLevel) > 1 {
 			newPolygons[l] = newPolygonsForLevel
 		}
@@ -150,10 +153,84 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 	// points and lines at the end, as outer rings
 	for level, pointsAndLines := range newPointsAndLines {
 		for _, pointOrLine := range pointsAndLines {
-			newPolygons[level] = append(newPolygons[level], [][][2]float64{pointOrLine})
+			newOuters[level] = append(newOuters[level], [][][2]float64{pointOrLine})
 		}
 	}
-	return floatPolygonsToGeomPolygonsForAllLevels(newPolygons)
+	return floatPolygonsToGeomPolygonsForAllLevels(newOuters)
+}
+
+// lang=python
+func dedupeAndSortBySizeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]float64, [][][2]float64) {
+	// ToDo: optimize by deleting rings from allRings on the fly
+	allRings := append(outers, inners...)
+	lenOuters := len(outers)
+	var indexesToDelete []int
+	for i := 0; i < len(allRings); i++ {
+		iIsOuter := i < lenOuters
+		var equalOutersIndexes []int
+		var equalInnersIndexes []int
+		if iIsOuter {
+			equalOutersIndexes = append(equalOutersIndexes, i)
+		} else {
+			equalInnersIndexes = append(equalInnersIndexes, i)
+		}
+	compareTwoRings:
+		for j := i + 1; j < len(allRings); j++ {
+			jIsOuter := j < lenOuters
+			// check length
+			iLen := len(allRings[i])
+			jLen := len(allRings[j])
+			if iLen != jLen {
+				continue
+			}
+			idx := slices.Index(allRings[j], allRings[i][0])
+			if idx < 0 {
+				continue
+			}
+			differentWindingOrder := iIsOuter && !jIsOuter
+			// Check if rings are equal
+			for k := 0; k < iLen; k++ {
+				if !differentWindingOrder && allRings[i][k] != allRings[j][idx+k%iLen] {
+					continue compareTwoRings
+				}
+				if differentWindingOrder && allRings[i][k] != allRings[j][idx-k%iLen] {
+					continue compareTwoRings
+				}
+			}
+			// they are the same!
+			if jIsOuter {
+				equalOutersIndexes = append(equalOutersIndexes, j)
+			} else {
+				equalInnersIndexes = append(equalInnersIndexes, j)
+			}
+		}
+		// hier toevoegen aan indexesToDelete. mits meer dan 1 herhaling
+		difference := int(math.Abs(float64(len(equalOutersIndexes)) - float64(len(equalInnersIndexes))))
+		if difference == 0 {
+			indexesToDelete = append(indexesToDelete, equalOutersIndexes[1:]...)
+			indexesToDelete = append(indexesToDelete, equalInnersIndexes[1:]...)
+		}
+		if difference > 0 {
+			numToDelete := min(len(equalOutersIndexes), len(equalInnersIndexes))
+			indexesToDelete = append(indexesToDelete, equalOutersIndexes[0:numToDelete-1]...)
+			indexesToDelete = append(indexesToDelete, equalInnersIndexes[0:numToDelete-1]...)
+		}
+	}
+	newOuters := make([][][2]float64, 0, lenOuters)
+	newInners := make([][][2]float64, 0, len(inners))
+	for i, outer := range outers {
+		if slices.Contains(indexesToDelete, i) {
+			continue
+		}
+		newOuters = append(newOuters, outer)
+	}
+	for i, inner := range inners {
+		if slices.Contains(indexesToDelete, i+lenOuters) {
+			continue
+		}
+		newInners = append(newInners, inner)
+	}
+	return newOuters, newInners
 }
 
 func matchInnersToPolygons(polygons [][][][2]float64, innerRings [][][2]float64, hasInners bool) [][][][2]float64 {
@@ -161,7 +238,6 @@ func matchInnersToPolygons(polygons [][][][2]float64, innerRings [][][2]float64,
 	if len(innerRings) == 0 {
 		return polygons
 	}
-	_, polygons = dedupePolygonsByOuters(polygons)
 
 	var polyISortedByOuterAreaDesc []int
 	var innersTurnedOuters [][][2]float64
