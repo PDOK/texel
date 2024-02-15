@@ -734,22 +734,122 @@ func Test_dedupeInnersOuters(t *testing.T) {
 		wantInners [][][2]float64
 	}{
 		{
+			name: "#outer, #inner = 0, 0",
+			args: args{
+				outers: squareRingArray(0, true),
+				inners: squareRingArray(0, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
 			name: "#outer, #inner = 1, 0",
 			args: args{
-				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}}, // square, counter clockwise
-				inners: [][][2]float64{{{}}},
+				outers: squareRingArray(1, true),
+				inners: squareRingArray(0, false),
 			},
-			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-			wantInners: [][][2]float64{{{}}},
+			wantOuters: squareRingArray(1, true),
+			wantInners: squareRingArray(0, false),
 		},
 		{
 			name: "#outer, #inner = 1, 1",
 			args: args{
-				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}}, // square, counter clockwise
-				inners: [][][2]float64{{{0, 0}, {0, 1}, {1, 1}, {1, 0}}}, // square, clockwise
+				outers: squareRingArray(1, true),
+				inners: squareRingArray(1, false),
 			},
-			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-			wantInners: [][][2]float64{{{0, 0}, {0, 1}, {1, 1}, {1, 0}}},
+			wantOuters: squareRingArray(1, true),
+			wantInners: squareRingArray(1, false),
+		},
+		{
+			name: "#outer, #inner = 2, 1",
+			args: args{
+				outers: squareRingArray(2, true),
+				inners: squareRingArray(1, false),
+			},
+			wantOuters: squareRingArray(1, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
+			name: "#outer, #inner = 2, 2",
+			args: args{
+				outers: squareRingArray(2, true),
+				inners: squareRingArray(2, false),
+			},
+			wantOuters: squareRingArray(1, true),
+			wantInners: squareRingArray(1, false),
+		},
+		{
+			name: "#outer, #inner = 0, 1",
+			args: args{
+				outers: squareRingArray(0, true),
+				inners: squareRingArray(1, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(1, false),
+		},
+		{
+			name: "#outer, #inner = 1, 2",
+			args: args{
+				outers: squareRingArray(1, true),
+				inners: squareRingArray(2, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(1, false),
+		},
+		{
+			name: "#outer, #inner = 2, 0",
+			args: args{
+				outers: squareRingArray(2, true),
+				inners: squareRingArray(0, false),
+			},
+			wantOuters: squareRingArray(2, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
+			name: "#outer, #inner = 0, 2",
+			args: args{
+				outers: squareRingArray(0, true),
+				inners: squareRingArray(2, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(2, false),
+		},
+		{
+			name: "#outer, #inner = 3, 1",
+			args: args{
+				outers: squareRingArray(3, true),
+				inners: squareRingArray(1, false),
+			},
+			wantOuters: squareRingArray(2, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
+			name: "#outer, #inner = 1, 3",
+			args: args{
+				outers: squareRingArray(1, true),
+				inners: squareRingArray(3, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(2, false),
+		},
+		// add different ring, which should be left alone
+		{
+			name: "#outer, #inner = 1, 1 + dummy ring",
+			args: args{
+				outers: squareRingArray(1, true),
+				inners: append(squareRingArray(1, false), [][2]float64{{0, 0}, {1, 0}, {2, 1}}),
+			},
+			wantOuters: squareRingArray(1, true),
+			wantInners: append(squareRingArray(1, false), [][2]float64{{0, 0}, {1, 0}, {2, 1}}),
+		},
+		{
+			name: "#outer, #inner = 3, 1 + dummy ring",
+			args: args{
+				outers: squareRingArray(3, true),
+				inners: append(squareRingArray(1, false), [][2]float64{{0, 0}, {1, 0}, {2, 1}}),
+			},
+			wantOuters: squareRingArray(2, true),
+			wantInners: append(squareRingArray(0, false), [][2]float64{{0, 0}, {1, 0}, {2, 1}}),
 		},
 	}
 	for _, tt := range tests {
@@ -830,4 +930,22 @@ func wktMustEncode(g geom.Geometry) (s string) {
 		s += wkt.MustEncode(points[i])
 	}
 	return s
+}
+
+func squareRingArray(number int, isOuter bool) [][][2]float64 {
+	outerSquare := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}} // square, counter clockwise
+	innerSquare := [][2]float64{{0, 0}, {0, 1}, {1, 1}, {1, 0}} // square, clockwise
+	var squares = [][][2]float64{}
+	var square [][2]float64
+	// outer or inner
+	if isOuter {
+		square = outerSquare
+	} else {
+		square = innerSquare
+	}
+	// add squares
+	for i := 0; i < number; i++ {
+		squares = append(squares, square)
+	}
+	return squares
 }
