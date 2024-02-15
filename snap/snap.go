@@ -167,78 +167,90 @@ func outersToPolygons(outers [][][2]float64) [][][][2]float64 {
 	return polygons
 }
 
-// lang=python
 func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]float64, [][][2]float64) {
 	// ToDo: optimize by deleting rings from allRings on the fly
-	allRings := append(outers, inners...)
 	lenOuters := len(outers)
-	var indexesToDelete []int
-	for i := 0; i < len(allRings); i++ {
+	lenInners := len(inners)
+	lenAll := lenOuters + lenInners
+	indexesToDelete := make(map[int]bool) // true means outer
+	for i := 0; i < lenAll; i++ {
+		if _, deleted := indexesToDelete[i]; deleted {
+			continue
+		}
 		iIsOuter := i < lenOuters
-		var equalOutersIndexes []int
-		var equalInnersIndexes []int
-		if iIsOuter {
-			equalOutersIndexes = append(equalOutersIndexes, i)
-		} else {
-			equalInnersIndexes = append(equalInnersIndexes, i)
-		}
-	compareTwoRings:
-		for j := i + 1; j < len(allRings); j++ {
+		equalIndexes := make(map[int]bool) // true means outer
+		equalIndexes[i] = iIsOuter
+		for j := i + 1; j < lenAll; j++ {
+			if _, deleted := indexesToDelete[j]; deleted {
+				continue
+			}
 			jIsOuter := j < lenOuters
-			// check length
-			iLen := len(allRings[i])
-			jLen := len(allRings[j])
-			if iLen != jLen {
-				continue
-			}
-			idx := slices.Index(allRings[j], allRings[i][0])
-			if idx < 0 {
-				continue
-			}
-			differentWindingOrder := iIsOuter && !jIsOuter
-			// Check if rings are equal
-			for k := 0; k < iLen; k++ {
-				if !differentWindingOrder && allRings[i][k] != allRings[j][idx+k%iLen] {
-					continue compareTwoRings
-				}
-				if differentWindingOrder && allRings[i][k] != allRings[j][idx-k%iLen] {
-					continue compareTwoRings
-				}
-			}
-			// they are the same!
-			if jIsOuter {
-				equalOutersIndexes = append(equalOutersIndexes, j)
+			var ringI [][2]float64
+			if iIsOuter {
+				ringI = outers[i]
 			} else {
-				equalInnersIndexes = append(equalInnersIndexes, j)
+				ringI = inners[i-lenOuters]
+			}
+			var ringJ [][2]float64
+			if jIsOuter {
+				ringJ = outers[j]
+			} else {
+				ringJ = inners[j-lenOuters]
+			}
+			if !ringsAreEqual(ringI, ringJ, iIsOuter, jIsOuter) {
+				continue
+			}
+			equalIndexes[j] = jIsOuter
+		}
+		lenEqualOuters := countVals(equalIndexes, true)
+		lenEqualInners := countVals(equalIndexes, false)
+		difference := int(math.Abs(float64(lenEqualOuters) - float64(lenEqualInners)))
+		var numOutersToDelete, numInnersToDelete int
+		if difference == 0 {
+			// delete all but one
+			numOutersToDelete = lenEqualOuters - 1
+			numInnersToDelete = lenEqualInners - 1
+		} else { // difference > 0
+			// delete the surplus
+			numOutersToDelete = min(lenEqualOuters, lenEqualInners)
+			numInnersToDelete = numOutersToDelete
+		}
+		for equalI, isOuter := range equalIndexes {
+			if isOuter && numOutersToDelete > 0 {
+				indexesToDelete[equalI] = isOuter
+				numOutersToDelete--
+			} else if !isOuter && numInnersToDelete > 0 {
+				indexesToDelete[equalI] = isOuter
+				numInnersToDelete--
 			}
 		}
-		// hier toevoegen aan indexesToDelete. mits meer dan 1 herhaling
-		difference := int(math.Abs(float64(len(equalOutersIndexes)) - float64(len(equalInnersIndexes))))
-		if difference == 0 {
-			indexesToDelete = append(indexesToDelete, equalOutersIndexes[1:]...)
-			indexesToDelete = append(indexesToDelete, equalInnersIndexes[1:]...)
-		}
-		if difference > 0 {
-			numToDelete := min(len(equalOutersIndexes), len(equalInnersIndexes))
-			indexesToDelete = append(indexesToDelete, equalOutersIndexes[0:numToDelete]...)
-			indexesToDelete = append(indexesToDelete, equalInnersIndexes[0:numToDelete]...)
-		}
 	}
-	newOuters := make([][][2]float64, 0, lenOuters)
-	newInners := make([][][2]float64, 0, len(inners))
-	for i, outer := range outers {
-		if slices.Contains(indexesToDelete, i) {
-			continue
-		}
-		newOuters = append(newOuters, outer)
-	}
-	for i, inner := range inners {
-		if slices.Contains(indexesToDelete, i+lenOuters) {
-			continue
-		}
-		newInners = append(newInners, inner)
-	}
+	newOuters := deleteFromSliceByIndex(outers, indexesToDelete, 0)
+	newInners := deleteFromSliceByIndex(inners, indexesToDelete, lenOuters)
 	return newOuters, newInners
+}
+
+func ringsAreEqual(ringI, ringJ [][2]float64, iIsOuter, jIsOuter bool) bool {
+	// check length
+	ringLen := len(ringI)
+	if ringLen != len(ringJ) {
+		return false
+	}
+	idx := slices.Index(ringJ, ringI[0]) // empty ring panics, but that's ok
+	if idx < 0 {
+		return false
+	}
+	differentWindingOrder := iIsOuter && !jIsOuter
+	// Check if rings are equal
+	for k := 0; k < ringLen; k++ {
+		if !differentWindingOrder && ringI[k] != ringJ[idx+k%ringLen] {
+			return false
+		}
+		if differentWindingOrder && ringI[k] != ringJ[idx-k%ringLen] {
+			return false
+		}
+	}
+	return true
 }
 
 func matchInnersToPolygons(polygons [][][][2]float64, innerRings [][][2]float64, hasInners bool) [][][][2]float64 {
@@ -797,6 +809,27 @@ func lastMatch[T comparable](haystack, needle []T) T {
 	}
 	var empty T
 	return empty
+}
+
+func deleteFromSliceByIndex[V any, X any](s []V, indexesToDelete map[int]X, indexOffset int) []V {
+	r := make([]V, 0, len(s))
+	for i := range s {
+		if _, skip := indexesToDelete[i+indexOffset]; skip {
+			continue
+		}
+		r = append(r, s[i])
+	}
+	return r
+}
+
+func countVals[K, V comparable](m map[K]V, v V) int {
+	n := 0
+	for k := range m {
+		if m[k] == v {
+			n++
+		}
+	}
+	return n
 }
 
 func floatPolygonsToGeomPolygonsForAllLevels(floatersPerLevel map[Level][][][][2]float64) map[Level][]geom.Polygon {
