@@ -200,7 +200,7 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 				if !differentWindingOrder && allRings[i][k] != allRings[j][idx+k%iLen] {
 					continue compareTwoRings
 				}
-				if differentWindingOrder && allRings[i][k] != allRings[j][idx-k%iLen] {
+				if differentWindingOrder && allRings[i][k] != allRings[j][(idx+iLen-k)%iLen] { // "+iLen" to ensure the modulus returns a positive number
 					continue compareTwoRings
 				}
 			}

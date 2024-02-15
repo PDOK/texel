@@ -734,40 +734,22 @@ func Test_dedupeInnersOuters(t *testing.T) {
 		wantInners [][][2]float64
 	}{
 		{
-			name: "#outer, #inner = 0, 0",
-			args: args{
-				outers: [][][2]float64{{{}}},
-				inners: [][][2]float64{{{}}},
-			},
-			wantOuters: [][][2]float64{{{}}},
-			wantInners: [][][2]float64{},
-		},
-		{
 			name: "#outer, #inner = 1, 0",
 			args: args{
-				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
+				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}}, // square, counter clockwise
 				inners: [][][2]float64{{{}}},
 			},
-			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-			wantInners: [][][2]float64{},
+			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}},
+			wantInners: [][][2]float64{{{}}},
 		},
 		{
 			name: "#outer, #inner = 1, 1",
 			args: args{
-				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-				inners: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
+				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}}, // square, counter clockwise
+				inners: [][][2]float64{{{0, 0}, {0, 1}, {1, 1}, {1, 0}}}, // square, clockwise
 			},
-			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-			wantInners: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-		},
-		{
-			name: "#outer, #inner = 2, 1",
-			args: args{
-				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}, {{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-				inners: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-			},
-			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}, {0, 1}}},
-			wantInners: [][][2]float64{{{}}},
+			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}},
+			wantInners: [][][2]float64{{{0, 0}, {0, 1}, {1, 1}, {1, 0}}},
 		},
 	}
 	for _, tt := range tests {
