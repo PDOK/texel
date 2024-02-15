@@ -26,6 +26,8 @@ const (
 	internalPixelResolution = 16
 )
 
+type IsOuter = bool
+
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
 //
@@ -172,15 +174,15 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 	lenOuters := len(outers)
 	lenInners := len(inners)
 	lenAll := lenOuters + lenInners
-	processedIndexes := make(map[int]bool) // true means outer
-	indexesToDelete := make(map[int]bool)  // true means outer
+	processedIndexes := make(map[int]IsOuter)
+	indexesToDelete := make(map[int]IsOuter)
 	for i := 0; i < lenAll; i++ {
 		if _, processed := processedIndexes[i]; processed {
 			continue
 		}
 		iIsOuter := i < lenOuters
-		equalIndexes := make(map[int]bool) // true means outer
-		equalIndexes[i] = iIsOuter
+		equalIndexes := orderedmap.New[int, IsOuter]( // ordered for predictable outcome when ranging
+			orderedmap.WithInitialData(orderedmap.Pair[int, IsOuter]{Key: i, Value: iIsOuter}))
 		for j := i + 1; j < lenAll; j++ {
 			if _, processed := processedIndexes[j]; processed {
 				continue
@@ -201,12 +203,11 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 			if !ringsAreEqual(ringI, ringJ, iIsOuter, jIsOuter) {
 				continue
 			}
-			equalIndexes[j] = jIsOuter
+			equalIndexes.Set(j, jIsOuter)
 		}
-		if len(equalIndexes) <= 1 {
+		if equalIndexes.Len() <= 1 {
 			continue
 		}
-		maps.Copy(processedIndexes, equalIndexes)
 
 		lenEqualOuters := countVals(equalIndexes, true)
 		lenEqualInners := countVals(equalIndexes, false)
@@ -221,7 +222,9 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 			numOutersToDelete = min(lenEqualOuters, lenEqualInners)
 			numInnersToDelete = numOutersToDelete
 		}
-		for equalI, isOuter := range equalIndexes {
+		for p := equalIndexes.Oldest(); p != nil; p = p.Next() {
+			equalI, isOuter := p.Key, p.Value
+			processedIndexes[equalI] = isOuter
 			if isOuter && numOutersToDelete > 0 {
 				indexesToDelete[equalI] = isOuter
 				numOutersToDelete--
@@ -832,10 +835,10 @@ func deleteFromSliceByIndex[V any, X any](s []V, indexesToDelete map[int]X, inde
 	return r
 }
 
-func countVals[K, V comparable](m map[K]V, v V) int {
+func countVals[K, V comparable](m *orderedmap.OrderedMap[K, V], v V) int {
 	n := 0
-	for k := range m {
-		if m[k] == v {
+	for p := m.Oldest(); p != nil; p = p.Next() {
+		if p.Value == v {
 			n++
 		}
 	}
