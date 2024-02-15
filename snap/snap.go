@@ -2,28 +2,30 @@ package snap
 
 import (
 	"fmt"
-	"github.com/tobshub/go-sortedmap"
 	"log"
 	"math"
 	"slices"
 	"sort"
 
-	"github.com/go-spatial/geom/winding"
+	"github.com/pdok/texel/geomhelp"
+	"github.com/pdok/texel/pointindex"
 
-	"github.com/go-spatial/geom/encoding/wkt"
-	"github.com/muesli/reflow/truncate"
+	"github.com/pdok/texel/mapslicehelp"
+	"github.com/tobshub/go-sortedmap"
+
+	"github.com/go-spatial/geom/winding"
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/tms20"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
-	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/maps"
 )
 
 const (
-	keepPointsAndLines      = true // TODO do something with polys that collapsed into points and lines
-	internalPixelResolution = 16
+	xAx                = 0
+	yAx                = 1
+	keepPointsAndLines = true // TODO do something with polys that collapsed into points and lines
 )
 
 type IsOuter = bool
@@ -34,9 +36,9 @@ type IsOuter = bool
 //nolint:revive
 func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
-	ix := newPointIndexFromTileMatrixSet(tileMatrixSet, deepestID)
+	ix := pointindex.FromTileMatrixSet(tileMatrixSet, deepestID)
 	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
-	levels := make([]Level, 0, len(tmIDsByLevels))
+	levels := make([]pointindex.Level, 0, len(tmIDsByLevels))
 	for level := range tmIDsByLevels {
 		levels = append(levels, level)
 	}
@@ -52,37 +54,10 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 	return newPolygonsPerTileMatrixID
 }
 
-func newPointIndexFromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
-	// TODO ensure that the tile matrix set is actually a quad tree, starting at 0. just assuming now.
-	rootTM := tileMatrixSet.TileMatrices[0]
-	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(internalPixelResolution)))
-	maxDepth := uint(deepestTMID) + levelDiff
-	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
-	if err != nil {
-		panic(fmt.Errorf(`could not make PointIndex from TileMatrixSet %v: %w'`, tileMatrixSet.ID, err))
-	}
-	intBottomLeft := intgeom.FromGeomPoint(bottomLeft)
-	intTopRight := intgeom.FromGeomPoint(topRight)
-	intExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
-	ix := PointIndex{
-		Quadrant: Quadrant{
-			intExtent: intExtent,
-			z:         0,
-		},
-		maxDepth:    maxDepth,
-		quadrants:   make(map[Level]map[Z]Quadrant, maxDepth+1),
-		hitOnce:     make(map[uint]map[intgeom.Point][]int),
-		hitMultiple: make(map[uint]map[intgeom.Point][]int),
-	}
-	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
-
-	return &ix
-}
-
-func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Level]tms20.TMID {
+func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[pointindex.Level]tms20.TMID {
 	rootTM := tms.TileMatrices[0]
-	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(internalPixelResolution)))
-	tmIDsByLevels := make(map[Level]tms20.TMID, len(tmIDs))
+	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(pointindex.VectorTileInternalPixelResolution)))
+	tmIDsByLevels := make(map[pointindex.Level]tms20.TMID, len(tmIDs))
 	for _, tmID := range tmIDs {
 		// assuming 2^(tmID) = tm.MatrixWidth = tm.MatrixHeight
 		level := uint(tmID) + levelDiff
@@ -92,11 +67,11 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Leve
 }
 
 //nolint:cyclop
-func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[Level][]geom.Polygon {
-	levelMap := asKeys(levels)
-	newOuters := make(map[Level][][][2]float64, len(levels))
-	newInners := make(map[Level][][][2]float64, len(levels))
-	newPointsAndLines := make(map[Level][][][2]float64, len(levels))
+func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level) map[pointindex.Level][]geom.Polygon {
+	levelMap := mapslicehelp.AsKeys(levels)
+	newOuters := make(map[pointindex.Level][][][2]float64, len(levels))
+	newInners := make(map[pointindex.Level][][][2]float64, len(levels))
+	newPointsAndLines := make(map[pointindex.Level][][][2]float64, len(levels))
 
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
 	for ringIdx, ring := range polygon.LinearRings() {
@@ -107,7 +82,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		// winding order is reversed if incorrect
 		ring = ensureCorrectWindingOrder(ring, !isOuter)
 		ringLen := len(ring)
-		newRing := make(map[Level][][2]float64, len(levelMap))
+		newRing := make(map[pointindex.Level][][2]float64, len(levelMap))
 		for level := range levelMap {
 			newRing[level] = make([][2]float64, 0, 2*ringLen) // TODO better estimation of new amount of points for a ring
 		}
@@ -120,22 +95,20 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 			segment := geom.Line{vertex, ring[nextVertexIdx]}
 			newVertices := ix.SnapClosestPoints(segment, levelMap, ringIdx)
 			for level := range levelMap {
-				cleanedNewVertices := cleanupNewVertices(newVertices[level], segment, level, lastElement(newRing[level]))
+				cleanedNewVertices := cleanupNewVertices(newVertices[level], segment, level, mapslicehelp.LastElement(newRing[level]))
 				newRing[level] = append(newRing[level], cleanedNewVertices...)
 			}
 		}
 
 		// walk through the new ring and append to the polygon (on all levels)
 		for level := range levelMap {
-			outerRings, innerRings, pointsAndLines := cleanupNewRing(newRing[level], isOuter, ix.hitMultiple[level], ringIdx)
+			outerRings, innerRings, pointsAndLines := cleanupNewRing(newRing[level], isOuter, ix.GetHitMultiple(level), ringIdx)
 			// Check if outer ring has become too small
 			if isOuter && len(outerRings) == 0 && (!keepPointsAndLines || len(pointsAndLines) == 0) {
 				delete(levelMap, level) // If too small, delete it
 				continue
 			}
-			for _, outerRing := range outerRings {
-				newOuters[level] = append(newOuters[level], outerRing)
-			}
+			newOuters[level] = append(newOuters[level], outerRings...)
 			newInners[level] = append(newInners[level], innerRings...)
 			if keepPointsAndLines {
 				newPointsAndLines[level] = append(newPointsAndLines[level], pointsAndLines...)
@@ -143,7 +116,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		}
 	}
 
-	newPolygons := make(map[Level][][][][2]float64, len(levels))
+	newPolygons := make(map[pointindex.Level][][][][2]float64, len(levels))
 	for l := range levelMap {
 		newOuters[l], newInners[l] = dedupeInnersOuters(newOuters[l], newInners[l])
 		newPolygonsForLevel := matchInnersToPolygons(outersToPolygons(newOuters[l]), newInners[l], len(polygon) > 1)
@@ -158,7 +131,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 			newPolygons[level] = append(newPolygons[level], [][][2]float64{pointOrLine})
 		}
 	}
-	return floatPolygonsToGeomPolygonsForAllLevels(newPolygons)
+	return geomhelp.FloatPolygonsToGeomPolygonsForAllKeys(newPolygons)
 }
 
 func outersToPolygons(outers [][][2]float64) [][][][2]float64 {
@@ -169,6 +142,7 @@ func outersToPolygons(outers [][][2]float64) [][][][2]float64 {
 	return polygons
 }
 
+//nolint:cyclop,funlen
 func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]float64, [][][2]float64) {
 	// ToDo: optimize by deleting rings from allRings on the fly
 	lenOuters := len(outers)
@@ -209,8 +183,8 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 			continue
 		}
 
-		lenEqualOuters := countVals(equalIndexes, true)
-		lenEqualInners := countVals(equalIndexes, false)
+		lenEqualOuters := mapslicehelp.CountVals(equalIndexes, true)
+		lenEqualInners := mapslicehelp.CountVals(equalIndexes, false)
 		difference := int(math.Abs(float64(lenEqualOuters) - float64(lenEqualInners)))
 		var numOutersToDelete, numInnersToDelete int
 		if difference == 0 {
@@ -238,11 +212,14 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 	if len(indexesToDelete) == 0 {
 		return outers, inners
 	}
-	newOuters := deleteFromSliceByIndex(outers, indexesToDelete, 0)
-	newInners := deleteFromSliceByIndex(inners, indexesToDelete, lenOuters)
+	newOuters := mapslicehelp.DeleteFromSliceByIndex(outers, indexesToDelete, 0)
+	newInners := mapslicehelp.DeleteFromSliceByIndex(inners, indexesToDelete, lenOuters)
 	return newOuters, newInners
 }
 
+// ringsAreEqual is true if rings have exactly the same points, except they may be reversed.
+// (so rings with the same shape but an intermediate point on a line are not equal.
+// for use with rings from PointIndex.SnapPolygon this is fine.)
 func ringsAreEqual(ringI, ringJ [][2]float64, iIsOuter, jIsOuter bool) bool {
 	// check length
 	ringLen := len(ringI)
@@ -286,7 +263,7 @@ matchInners:
 					containsPerPolyI.Set(polyI, containsPerPolyI.Value(polyI)+1)
 				}
 			}
-			matchingPolyI, _, matchCount := findLastKeyWithMaxValue(containsPerPolyI)
+			matchingPolyI, _, matchCount := mapslicehelp.FindLastKeyWithMaxValue(containsPerPolyI)
 			if matchCount == 1 {
 				polygons[matchingPolyI] = append(polygons[matchingPolyI], innerRing)
 				continue matchInners
@@ -298,7 +275,7 @@ matchInners:
 			// TODO is that presumption correct and is this really never a panic? // panicNoMatchingOuterForInnerRing(polygons, innerRing)
 			// TODO should it be a candidate for other the other inner rings?
 			log.Printf("no matching outer for inner ring found, turned inner into outer. original has inners: %v", hasInners)
-			innersTurnedOuters = append(innersTurnedOuters, reverseClone(innerRing))
+			innersTurnedOuters = append(innersTurnedOuters, mapslicehelp.ReverseClone(innerRing))
 			continue
 		}
 		// multiple matching outer rings were found. use the smallest one
@@ -306,7 +283,7 @@ matchInners:
 		if polyISortedByOuterAreaDesc == nil {
 			polyISortedByOuterAreaDesc = sortPolyIdxsByOuterAreaDesc(polygons)
 		}
-		smallestMatchingPolyI := lastMatch(polyISortedByOuterAreaDesc, orderedMapKeys(containsPerPolyI))
+		smallestMatchingPolyI := mapslicehelp.LastMatch(polyISortedByOuterAreaDesc, mapslicehelp.OrderedMapKeys(containsPerPolyI))
 		polygons[smallestMatchingPolyI] = append(polygons[smallestMatchingPolyI], innerRing)
 	}
 	for i := range innersTurnedOuters {
@@ -323,7 +300,7 @@ func sortPolyIdxsByOuterAreaDesc(polygons [][][][2]float64) []int {
 		if len(polygons[i]) == 0 {
 			areas.Insert(i, 0.0)
 		} else {
-			areas.Insert(i, shoelace(polygons[i][0]))
+			areas.Insert(i, geomhelp.Shoelace(polygons[i][0]))
 		}
 	}
 	return areas.Keys()
@@ -335,13 +312,13 @@ func sortPolyIdxsByOuterAreaDesc(polygons [][][][2]float64) []int {
 func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary bool) {
 	// TODO check first if the point is in the extent/bound/envelop
 
-	c, on := rayIntersect(point, ring[0], ring[len(ring)-1])
+	c, on := geomhelp.RayIntersect(point, ring[0], ring[len(ring)-1])
 	if on {
 		return true, true
 	}
 
 	for i := 0; i < len(ring)-1; i++ {
-		intersects, on := rayIntersect(point, ring[i], ring[i+1])
+		intersects, on := geomhelp.RayIntersect(point, ring[i], ring[i+1])
 		if on {
 			return true, true
 		}
@@ -354,72 +331,8 @@ func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary boo
 	return c, false
 }
 
-// from paulmach/orb
-// Original implementation: http://rosettacode.org/wiki/Ray-casting_algorithm#Go
-//
-//nolint:cyclop,nestif
-func rayIntersect(pt, start, end [2]float64) (intersects, on bool) {
-	if start[xAx] > end[xAx] {
-		start, end = end, start
-	}
-
-	if pt[xAx] == start[xAx] {
-		if pt[yAx] == start[yAx] {
-			// pt == start
-			return false, true
-		} else if start[xAx] == end[xAx] {
-			// vertical segment (start -> end)
-			// return true if within the line, check to see if start or end is greater.
-			if start[yAx] > end[yAx] && start[yAx] >= pt[yAx] && pt[yAx] >= end[yAx] {
-				return false, true
-			}
-
-			if end[yAx] > start[yAx] && end[yAx] >= pt[yAx] && pt[yAx] >= start[yAx] {
-				return false, true
-			}
-		}
-
-		// Move the y coordinate to deal with degenerate case
-		pt[xAx] = math.Nextafter(pt[xAx], math.Inf(1))
-	} else if pt[xAx] == end[xAx] {
-		if pt[yAx] == end[yAx] {
-			// matching the end point
-			return false, true
-		}
-
-		pt[xAx] = math.Nextafter(pt[xAx], math.Inf(1))
-	}
-
-	if pt[xAx] < start[xAx] || pt[xAx] > end[xAx] {
-		return false, false
-	}
-
-	if start[yAx] > end[yAx] {
-		if pt[yAx] > start[yAx] {
-			return false, false
-		} else if pt[yAx] < end[yAx] {
-			return true, false
-		}
-	} else {
-		if pt[yAx] > end[yAx] {
-			return false, false
-		} else if pt[yAx] < start[yAx] {
-			return true, false
-		}
-	}
-
-	rs := (pt[yAx] - start[yAx]) / (pt[xAx] - start[xAx])
-	ds := (end[yAx] - start[yAx]) / (end[xAx] - start[xAx])
-
-	if rs == ds {
-		return false, true
-	}
-
-	return rs <= ds, false
-}
-
 // cleanupNewVertices cleans up the closest points for a line that were just retrieved inside addPointsAndSnap
-func cleanupNewVertices(newVertices [][2]float64, segment [2][2]float64, level Level, lastVertex *[2]float64) [][2]float64 {
+func cleanupNewVertices(newVertices [][2]float64, segment [2][2]float64, level pointindex.Level, lastVertex *[2]float64) [][2]float64 {
 	newVerticesCount := len(newVertices)
 	if newVerticesCount == 0 { // should never happen, SnapClosestPoints should have returned at least one point
 		panicNoPointsFoundForVertices(segment, level)
@@ -461,7 +374,7 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 // if winding order is incorrect, ring is reversed to correct winding order
 func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) [][2]float64 {
 	if !windingOrderIsCorrect(ring, shouldBeClockwise) {
-		return reverseClone(ring)
+		return mapslicehelp.ReverseClone(ring)
 	}
 	return ring
 }
@@ -691,20 +604,7 @@ func kmpDeduplicate(ring [][2]float64) [][2]float64 {
 			visitedPoints = [][2]float64{}
 		}
 	}
-	return removeSequences(ring, sequencesToRemove)
-}
-
-func removeSequences(ring [][2]float64, sequencesToRemove *sortedmap.SortedMap[string, [2]int]) (newRing [][2]float64) {
-	mmap := sequencesToRemove.Map()
-	keepFrom := 0
-	for _, key := range sequencesToRemove.Keys() {
-		sequenceToRemove := mmap[key]
-		keepTo := sequenceToRemove[0]
-		newRing = append(newRing, ring[keepFrom:keepTo]...)
-		keepFrom = sequenceToRemove[1]
-	}
-	newRing = append(newRing, ring[keepFrom:]...)
-	return newRing
+	return mapslicehelp.RemoveSequences(ring, sequencesToRemove)
 }
 
 // repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'
@@ -771,105 +671,7 @@ func kmpTable(find [][2]float64, table []int) {
 	}
 }
 
-func lastElement[T any](elements []T) *T {
-	length := len(elements)
-	if length > 0 {
-		return &elements[length-1]
-	}
-	return nil
-}
-
-func asKeys[T constraints.Ordered](elements []T) map[T]any {
-	mapped := make(map[T]any, len(elements))
-	for _, element := range elements {
-		mapped[element] = struct{}{}
-	}
-	return mapped
-}
-
-func findLastKeyWithMaxValue[K comparable, V constraints.Ordered](m *orderedmap.OrderedMap[K, V]) (maxK K, maxV V, numWinners uint) {
-	first := true
-	for p := m.Newest(); p != nil; p = p.Prev() {
-		if first || p.Value > maxV {
-			maxK = p.Key
-			maxV = p.Value
-			numWinners = 1
-			first = false
-			continue
-		}
-		if p.Value == maxV {
-			numWinners++
-		}
-	}
-	return
-}
-
-func orderedMapKeys[K comparable, V any](m *orderedmap.OrderedMap[K, V]) []K {
-	l := make([]K, m.Len())
-	i := 0
-	for p := m.Oldest(); p != nil; p = p.Next() {
-		l[i] = p.Key
-		i++
-	}
-	return l
-}
-
-func lastMatch[T comparable](haystack, needle []T) T {
-	for i := len(haystack) - 1; i >= 0; i-- {
-		if slices.Contains(needle, haystack[i]) {
-			return haystack[i]
-		}
-	}
-	var empty T
-	return empty
-}
-
-func deleteFromSliceByIndex[V any, X any](s []V, indexesToDelete map[int]X, indexOffset int) []V {
-	r := make([]V, 0, len(s))
-	for i := range s {
-		if _, skip := indexesToDelete[i+indexOffset]; skip {
-			continue
-		}
-		r = append(r, s[i])
-	}
-	return r
-}
-
-func countVals[K, V comparable](m *orderedmap.OrderedMap[K, V], v V) int {
-	n := 0
-	for p := m.Oldest(); p != nil; p = p.Next() {
-		if p.Value == v {
-			n++
-		}
-	}
-	return n
-}
-
-func floatPolygonsToGeomPolygonsForAllLevels(floatersPerLevel map[Level][][][][2]float64) map[Level][]geom.Polygon {
-	geomsPerLevel := make(map[Level][]geom.Polygon, len(floatersPerLevel))
-	for l := range floatersPerLevel {
-		geomsPerLevel[l] = floatPolygonsToGeomPolygons(floatersPerLevel[l])
-	}
-	return geomsPerLevel
-}
-
-func floatPolygonsToGeomPolygons(floaters [][][][2]float64) []geom.Polygon {
-	geoms := make([]geom.Polygon, len(floaters))
-	for i := range floaters {
-		geoms[i] = floaters[i]
-	}
-	return geoms
-}
-
-func floatPolygonToGeomPolygon(floater [][][2]float64) geom.Polygon {
-	return floater
-}
-
-func floatRingToGeomPolygon(floater [][2]float64) geom.Polygon {
-	return geom.Polygon{floater}
-}
-
-func panicNoPointsFoundForVertices(segment [2][2]float64, level Level) {
+func panicNoPointsFoundForVertices(segment [2][2]float64, level pointindex.Level) {
 	panic(fmt.Sprintf("no points found for %v on level %v", segment, level))
 }
 
@@ -879,56 +681,4 @@ func panicPartialRingsRemainingOnStack(stack *orderedmap.OrderedMap[int, [][2]fl
 		panicMsg = fmt.Sprintf("%s\tkey %d: %v\n", panicMsg, r.Key, r.Value)
 	}
 	panic(panicMsg)
-}
-
-func panicInnerRingsButNoOuterRings(level Level, polygon [][][2]float64, innerRings [][][2]float64) {
-	panic(fmt.Errorf("inner rings but no outer rings, on level %v, for polygon:\n%v\n\ninnerrings:%v",
-		level,
-		truncatedWkt(floatPolygonToGeomPolygon(polygon), 100),
-		wkt.MustEncode(geom.Polygon{innerRings[0]})))
-}
-
-func panicNoMatchingOuterForInnerRing(polygons [][][][2]float64, innerRing [][2]float64) {
-	panicMsg := "no matching outer ring for inner ring.\ninner: " + wkt.MustEncode(floatRingToGeomPolygon(innerRing))
-	panicMsg += "\nouters:"
-	for _, polygon := range floatPolygonsToGeomPolygons(polygons) {
-		panicMsg += "\n" + wkt.MustEncode(geom.Polygon{polygon[0]})
-	}
-	panic(panicMsg)
-}
-
-func panicMoreThanOneMatchingOuterRing(polygons [][][][2]float64, innerRing [][2]float64) {
-	panicMsg := "more than one matching outer ring for inner ring.\ninner: " + wkt.MustEncode(floatRingToGeomPolygon(innerRing))
-	panicMsg += "\nouters:"
-	for _, polygon := range floatPolygonsToGeomPolygons(polygons) {
-		panicMsg += "\n" + wkt.MustEncode(geom.Polygon{polygon[0]})
-	}
-	panic(panicMsg)
-}
-
-func panicDeletedPolygonHasInnerRing(polygon [][][2]float64) {
-	panicMsg := fmt.Sprintf("a deleted dupe polygon had more than one ring, %v",
-		truncatedWkt(floatPolygonToGeomPolygon(polygon), 100))
-	panic(panicMsg)
-}
-
-func truncatedWkt(geom geom.Geometry, width uint) string {
-	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
-}
-
-func reverseClone[S ~[]E, E any](s S) S {
-	if s == nil {
-		return nil
-	}
-	l := len(s)
-	c := make(S, l)
-	for i := 0; i < l; i++ {
-		c[l-1-i] = s[i]
-	}
-	return c
-}
-
-func roundFloat(f float64, p uint) float64 {
-	r := math.Pow(10, float64(p))
-	return math.Round(f*r) / r
 }

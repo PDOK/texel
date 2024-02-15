@@ -1,9 +1,13 @@
-package snap
+package pointindex
 
 import (
 	"os"
 	"slices"
 	"testing"
+
+	"github.com/pdok/texel/mapslicehelp"
+	"github.com/pdok/texel/mathhelp"
+	"github.com/pdok/texel/morton"
 
 	"github.com/stretchr/testify/require"
 
@@ -136,7 +140,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
 				maxDepth: 0,
-				quadrants: map[Level]map[Z]Quadrant{0: {0: Quadrant{
+				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				}}},
@@ -152,7 +156,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
 				maxDepth: 1,
-				quadrants: map[Level]map[Z]Quadrant{
+				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 						intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
@@ -175,7 +179,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 2.0}),
 				},
 				maxDepth: 3,
-				quadrants: map[Level]map[Z]Quadrant{
+				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 4.0, 4.0}),
@@ -209,7 +213,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intCentroid: intgeom.FromGeomPoint(geom.Point{8.0, 8.0}),
 				},
 				maxDepth: 5,
-				quadrants: map[Level]map[Z]Quadrant{
+				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 16.0, 16.0}),
@@ -225,18 +229,18 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 4.0, 4.0, 8.0}),
 						intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 6.0}),
 					}},
-					3: {mustToZ(1, 3): Quadrant{
-						z:           mustToZ(1, 3),
+					3: {morton.MustToZ(1, 3): Quadrant{
+						z:           morton.MustToZ(1, 3),
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{2.0, 6.0, 4.0, 8.0}),
 						intCentroid: intgeom.FromGeomPoint(geom.Point{3.0, 7.0}),
 					}},
-					4: {mustToZ(2, 6): Quadrant{
-						z:           mustToZ(2, 6),
+					4: {morton.MustToZ(2, 6): Quadrant{
+						z:           morton.MustToZ(2, 6),
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{2.0, 6.0, 3.0, 7.0}),
 						intCentroid: intgeom.FromGeomPoint(geom.Point{2.5, 6.5}),
 					}},
-					5: {mustToZ(4, 12): Quadrant{
-						z:           mustToZ(4, 12),
+					5: {morton.MustToZ(4, 12): Quadrant{
+						z:           morton.MustToZ(4, 12),
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{2.0, 6.0, 2.5, 6.5}),
 						intCentroid: intgeom.FromGeomPoint(geom.Point{2.25, 6.25}),
 					}},
@@ -249,10 +253,10 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			ix := tt.ix
 			ix.InsertPoint(tt.point)
 			if tt.want.hitOnce == nil {
-				tt.want.hitOnce = make(map[Z]map[intgeom.Point][]int)
+				tt.want.hitOnce = make(map[morton.Z]map[intgeom.Point][]int)
 			}
 			if tt.want.hitMultiple == nil {
-				tt.want.hitMultiple = make(map[Z]map[intgeom.Point][]int)
+				tt.want.hitMultiple = make(map[morton.Z]map[intgeom.Point][]int)
 			}
 			assert.EqualValues(t, tt.want, *ix)
 		})
@@ -393,7 +397,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			if levels == nil {
 				levels = []Level{ix.maxDepth}
 			}
-			got := ix.SnapClosestPoints(tt.line, asKeys(levels), tt.ringID)
+			got := ix.SnapClosestPoints(tt.line, mapslicehelp.AsKeys(levels), tt.ringID)
 			if !assert.EqualValues(t, tt.want, got) {
 				ix.toWkt(os.Stdout)
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
@@ -436,15 +440,15 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 }
 
 func newSimplePointIndex(maxDepth Level, cellSize float64) *PointIndex {
-	span := cellSize * float64(pow2(maxDepth))
+	span := cellSize * float64(mathhelp.Pow2(maxDepth))
 	ix := PointIndex{
 		Quadrant: Quadrant{
 			intExtent: intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)},
 		},
 		maxDepth:    maxDepth,
-		quadrants:   make(map[Level]map[Z]Quadrant, maxDepth+1),
-		hitOnce:     make(map[Z]map[intgeom.Point][]int, 0),
-		hitMultiple: make(map[Z]map[intgeom.Point][]int, 0),
+		quadrants:   make(map[Level]map[morton.Z]Quadrant, maxDepth+1),
+		hitOnce:     make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple: make(map[morton.Z]map[intgeom.Point][]int, 0),
 	}
 	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
 	return &ix
@@ -459,24 +463,6 @@ func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, tmIDs []tms20.TMID) *PointIndex {
 	tms := loadEmbeddedTileMatrixSet(t, tmsID)
 	deepestID := slices.Max(tmIDs)
-	ix := newPointIndexFromTileMatrixSet(tms, deepestID)
+	ix := FromTileMatrixSet(tms, deepestID)
 	return ix
-}
-
-type fakeCRS struct{}
-
-func (f fakeCRS) Description() string {
-	return ""
-}
-
-func (f fakeCRS) Authority() string {
-	return ""
-}
-
-func (f fakeCRS) Version() string {
-	return ""
-}
-
-func (f fakeCRS) Code() string {
-	return ""
 }

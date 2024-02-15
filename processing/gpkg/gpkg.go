@@ -147,7 +147,7 @@ func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) 
 
 func (source SourceGeopackage) GetTableInfo() []Table {
 	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
-	rows, err := source.handle.Query(query) //nolint:rowserrcheck
+	rows, err := source.handle.Query(query)
 	if err != nil {
 		log.Fatalf("error during closing rows: %v - %v", query, err)
 	}
@@ -262,7 +262,7 @@ func (target *TargetGeopackage) writeFeatures(features []processing.Feature) {
 			_ = ext.AddGeometry(f.Geometry())
 		}
 	}
-	stmt.Close() //nolint:sqlclosecheck
+	stmt.Close()
 	_ = tx.Commit()
 
 	err = target.handle.UpdateGeometryExtent(target.Table.Name, ext)
@@ -346,7 +346,7 @@ func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSyst
 func getTableColumns(h *gpkg.Handle, table string) []column {
 	var columns []column
 	query := `PRAGMA table_info('%v');`
-	rows, err := h.Query(fmt.Sprintf(query, table)) //nolint:rowserrcheck
+	rows, err := h.Query(fmt.Sprintf(query, table))
 
 	if err != nil {
 		log.Fatalf("err during closing rows: %v - %v", query, err)

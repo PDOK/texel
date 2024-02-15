@@ -81,7 +81,6 @@ linters:
     - nilerr  # finds the code that returns nil even if it checks that the error is not nil
     - nolintlint  # reports ill-formed or insufficient nolint directives
     - nosprintfhostport  # checks for misuse of Sprintf to construct a host with port in a URL
-    - perfsprint  # Golang linter for performance, aiming at usages of fmt.Sprintf which have faster alternatives
     - predeclared  # finds code that shadows one of Go's predeclared identifiers
     - promlinter  # checks Prometheus metrics naming via promlint
     - reassign  # checks that package variables are not reassigned

@@ -1,4 +1,4 @@
-package snap
+package morton
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ func Test_toZ(t *testing.T) {
 	for _, tt := range tests {
 		name := fmt.Sprintf(`toZ(%b, %b)`, tt.x, tt.y)
 		t.Run(name, func(t *testing.T) {
-			got, ok := toZ(tt.x, tt.y)
+			got, ok := ToZ(tt.x, tt.y)
 			if tt.notOK {
 				require.False(t, ok)
 			} else {
@@ -50,7 +50,7 @@ func Test_fromZ(t *testing.T) {
 	for _, tt := range tests {
 		name := fmt.Sprintf(`fromZ(%b)`, tt.z)
 		t.Run(name, func(t *testing.T) {
-			gotX, gotY := fromZ(tt.z)
+			gotX, gotY := FromZ(tt.z)
 			require.Equalf(t, [2]uint{tt.x, tt.y}, [2]uint{gotX, gotY}, `%064b should deinterleave into: [%032b,%032b], got: [%032b,%032b]`, tt.z, tt.x, tt.y, gotX, gotY)
 		})
 	}
