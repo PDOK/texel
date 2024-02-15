@@ -172,16 +172,17 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 	lenOuters := len(outers)
 	lenInners := len(inners)
 	lenAll := lenOuters + lenInners
-	indexesToDelete := make(map[int]bool) // true means outer
+	processedIndexes := make(map[int]bool) // true means outer
+	indexesToDelete := make(map[int]bool)  // true means outer
 	for i := 0; i < lenAll; i++ {
-		if _, deleted := indexesToDelete[i]; deleted {
+		if _, processed := processedIndexes[i]; processed {
 			continue
 		}
 		iIsOuter := i < lenOuters
 		equalIndexes := make(map[int]bool) // true means outer
 		equalIndexes[i] = iIsOuter
 		for j := i + 1; j < lenAll; j++ {
-			if _, deleted := indexesToDelete[j]; deleted {
+			if _, processed := processedIndexes[j]; processed {
 				continue
 			}
 			jIsOuter := j < lenOuters
@@ -202,6 +203,11 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 			}
 			equalIndexes[j] = jIsOuter
 		}
+		if len(equalIndexes) <= 1 {
+			continue
+		}
+		maps.Copy(processedIndexes, equalIndexes)
+
 		lenEqualOuters := countVals(equalIndexes, true)
 		lenEqualInners := countVals(equalIndexes, false)
 		difference := int(math.Abs(float64(lenEqualOuters) - float64(lenEqualInners)))
@@ -224,6 +230,10 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 				numInnersToDelete--
 			}
 		}
+	}
+
+	if len(indexesToDelete) == 0 {
+		return outers, inners
 	}
 	newOuters := deleteFromSliceByIndex(outers, indexesToDelete, 0)
 	newInners := deleteFromSliceByIndex(inners, indexesToDelete, lenOuters)
