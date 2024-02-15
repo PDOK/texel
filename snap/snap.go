@@ -145,7 +145,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 	for l := range levelMap {
 		newOuters[l], newInners[l] = dedupeInnersOuters(newOuters[l], newInners[l])
 		newPolygonsForLevel := matchInnersToPolygons(outersToPolygons(newOuters[l]), newInners[l], len(polygon) > 1)
-		if len(newPolygonsForLevel) > 1 {
+		if len(newPolygonsForLevel) > 0 {
 			newPolygons[l] = newPolygonsForLevel
 		}
 	}
