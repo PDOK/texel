@@ -173,6 +173,9 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 	lenOuters := len(outers)
 	var indexesToDelete []int
 	for i := 0; i < len(allRings); i++ {
+		if slices.Contains(indexesToDelete, i) {
+			continue
+		}
 		iIsOuter := i < lenOuters
 		var equalOutersIndexes []int
 		var equalInnersIndexes []int
@@ -183,6 +186,9 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 		}
 	compareTwoRings:
 		for j := i + 1; j < len(allRings); j++ {
+			if slices.Contains(indexesToDelete, j) {
+				continue
+			}
 			jIsOuter := j < lenOuters
 			// check length
 			iLen := len(allRings[i])
