@@ -143,8 +143,8 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 
 	newPolygons := make(map[Level][][][][2]float64, len(levels))
 	for l := range levelMap {
-		newOuters[l], newInners[l] = dedupeAndSortBySizeInnersOuters(newOuters[l], newInners[l])
-		newPolygonsForLevel := matchInnersToPolygons(newPolygonsForLevel, newInners[l], len(polygon) > 1)
+		newOuters[l], newInners[l] = dedupeInnersOuters(newOuters[l], newInners[l])
+		newPolygonsForLevel := matchInnersToPolygons(outersToPolygons(newOuters[l]), newInners[l], len(polygon) > 1)
 		if len(newPolygonsForLevel) > 1 {
 			newPolygons[l] = newPolygonsForLevel
 		}
@@ -153,13 +153,21 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 	// points and lines at the end, as outer rings
 	for level, pointsAndLines := range newPointsAndLines {
 		for _, pointOrLine := range pointsAndLines {
-			newOuters[level] = append(newOuters[level], [][][2]float64{pointOrLine})
+			newPolygons[level] = append(newPolygons[level], [][][2]float64{pointOrLine})
 		}
 	}
-	return floatPolygonsToGeomPolygonsForAllLevels(newOuters)
+	return floatPolygonsToGeomPolygonsForAllLevels(newPolygons)
 }
 
-func dedupeAndSortBySizeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]float64, [][][2]float64) {
+func outersToPolygons(outers [][][2]float64) [][][][2]float64 {
+	polygons := make([][][][2]float64, len(outers))
+	for i := 0; i < len(outers); i++ {
+		polygons[i] = [][][2]float64{outers[i]}
+	}
+	return polygons
+}
+
+func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]float64, [][][2]float64) {
 	// ToDo: optimize by deleting rings from allRings on the fly
 	allRings := append(outers, inners...)
 	lenOuters := len(outers)
@@ -293,42 +301,6 @@ func sortPolyIdxsByOuterAreaDesc(polygons [][][][2]float64) []int {
 		}
 	}
 	return areas.Keys()
-}
-
-// helper for matchInnersToPolygons to delete duplicate polygons
-// comparing them only by their outers and asserting that a deleted polygon didn't have inner rings appended yet
-// yes it's implemented as ~O(n^2),
-// but it's expected that the (outer) rings are usually different even from the first point,
-// making it still more efficient than using a hashmap of the entire rings
-func dedupePolygonsByOuters(polygons [][][][2]float64) (int, [][][][2]float64) {
-	numPolygons := len(polygons)
-	numDeleted := 0
-	for i := 0; i < numPolygons; i++ {
-		ring := polygons[i][0] // only check the outer
-	compareToOther:
-		for j := i + 1; j < numPolygons; j++ {
-			ringLen := len(ring)
-			other := polygons[j][0]
-			otherLen := len(other)
-			if ringLen != otherLen {
-				continue
-			}
-			for k := 0; k < min(ringLen, otherLen); k++ {
-				if ring[k] != other[k] {
-					continue compareToOther
-				}
-			}
-			// delete
-			if len(polygons[j]) > 1 {
-				panicDeletedPolygonHasInnerRing(polygons[j])
-			}
-			polygons = append(polygons[:j], polygons[j+1:]...)
-			j--
-			numPolygons--
-			numDeleted++
-		}
-	}
-	return numDeleted, polygons
 }
 
 // from paulmach/orb, modified to also return whether it's on the boundary
