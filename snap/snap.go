@@ -246,7 +246,7 @@ func ringsAreEqual(ringI, ringJ [][2]float64, iIsOuter, jIsOuter bool) bool {
 		if !differentWindingOrder && ringI[k] != ringJ[idx+k%ringLen] {
 			return false
 		}
-		if differentWindingOrder && ringI[k] != ringJ[idx-k%ringLen] {
+		if differentWindingOrder && ringI[k] != ringJ[(idx+ringLen-k)%ringLen] { // "+iLen" to ensure the modulus returns a positive number
 			return false
 		}
 	}

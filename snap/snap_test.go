@@ -722,6 +722,45 @@ func Test_kmpDeduplicate(t *testing.T) {
 	}
 }
 
+func Test_dedupeInnersOuters(t *testing.T) {
+	type args struct {
+		outers [][][2]float64
+		inners [][][2]float64
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantOuters [][][2]float64
+		wantInners [][][2]float64
+	}{
+		{
+			name: "#outer, #inner = 1, 0",
+			args: args{
+				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}}, // square, counter clockwise
+				inners: [][][2]float64{{{}}},
+			},
+			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}},
+			wantInners: [][][2]float64{{{}}},
+		},
+		{
+			name: "#outer, #inner = 1, 1",
+			args: args{
+				outers: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}}, // square, counter clockwise
+				inners: [][][2]float64{{{0, 0}, {0, 1}, {1, 1}, {1, 0}}}, // square, clockwise
+			},
+			wantOuters: [][][2]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}},
+			wantInners: [][][2]float64{{{0, 0}, {0, 1}, {1, 1}, {1, 0}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1 := dedupeInnersOuters(tt.args.outers, tt.args.inners)
+			assert.Equalf(t, tt.wantOuters, got, "dedupeInnersOuters(%v, %v)", tt.args.outers, tt.args.inners)
+			assert.Equalf(t, tt.wantInners, got1, "dedupeInnersOuters(%v, %v)", tt.args.outers, tt.args.inners)
+		})
+	}
+}
+
 // newSimpleTileMatrixSet creates a tms for snap testing purposes
 // the effective quadrant amount (one axis) on the deepest level will be 2^maxDepth * 16 (vt internal pixel res)
 // the effective quadrant size (one axis) on the deepest level will be cellSize / 16 (vt internal pixel res)
