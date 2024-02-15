@@ -1,7 +1,6 @@
 package snap
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/go-spatial/geom/encoding/wkt"

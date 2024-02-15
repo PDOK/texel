@@ -159,7 +159,6 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 	return floatPolygonsToGeomPolygonsForAllLevels(newOuters)
 }
 
-// lang=python
 func dedupeAndSortBySizeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]float64, [][][2]float64) {
 	// ToDo: optimize by deleting rings from allRings on the fly
 	allRings := append(outers, inners...)
