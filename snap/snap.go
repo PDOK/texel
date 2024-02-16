@@ -2,9 +2,13 @@ package snap
 
 import (
 	"fmt"
+	"github.com/tobshub/go-sortedmap"
+	"log"
 	"math"
 	"slices"
 	"sort"
+
+	"github.com/go-spatial/geom/winding"
 
 	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/muesli/reflow/truncate"
@@ -12,7 +16,6 @@ import (
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/tms20"
-	"github.com/umpc/go-sortedmap"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/maps"
@@ -22,6 +25,8 @@ const (
 	keepPointsAndLines      = true // TODO do something with polys that collapsed into points and lines
 	internalPixelResolution = 16
 )
+
+type IsOuter = bool
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
@@ -89,7 +94,8 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[Leve
 //nolint:cyclop
 func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[Level][]geom.Polygon {
 	levelMap := asKeys(levels)
-	newPolygons := make(map[Level][][][][2]float64, len(levels))
+	newOuters := make(map[Level][][][2]float64, len(levels))
+	newInners := make(map[Level][][][2]float64, len(levels))
 	newPointsAndLines := make(map[Level][][][2]float64, len(levels))
 
 	// Could use polygon.AsSegments(), but it skips rings with <3 segments and starts with the last segment.
@@ -99,7 +105,7 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		}
 		isOuter := ringIdx == 0
 		// winding order is reversed if incorrect
-		ensureCorrectWindingOrder(ring, !isOuter)
+		ring = ensureCorrectWindingOrder(ring, !isOuter)
 		ringLen := len(ring)
 		newRing := make(map[Level][][2]float64, len(levelMap))
 		for level := range levelMap {
@@ -122,23 +128,30 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 		// walk through the new ring and append to the polygon (on all levels)
 		for level := range levelMap {
 			outerRings, innerRings, pointsAndLines := cleanupNewRing(newRing[level], isOuter, ix.hitMultiple[level], ringIdx)
+			// Check if outer ring has become too small
 			if isOuter && len(outerRings) == 0 && (!keepPointsAndLines || len(pointsAndLines) == 0) {
-				delete(levelMap, level) // outer ring has become too small
+				delete(levelMap, level) // If too small, delete it
 				continue
 			}
-			for _, outerRing := range outerRings { // (there are only outer rings if isOuter)
-				newPolygons[level] = append(newPolygons[level], [][][2]float64{outerRing})
+			for _, outerRing := range outerRings {
+				newOuters[level] = append(newOuters[level], outerRing)
 			}
-			if len(newPolygons[level]) == 0 && len(innerRings) > 0 { // should never happen
-				panicInnerRingsButNoOuterRings(level, polygon, innerRings)
-				continue
-			}
-			newPolygons[level] = matchInnersToPolygon(newPolygons[level], innerRings)
+			newInners[level] = append(newInners[level], innerRings...)
 			if keepPointsAndLines {
 				newPointsAndLines[level] = append(newPointsAndLines[level], pointsAndLines...)
 			}
 		}
 	}
+
+	newPolygons := make(map[Level][][][][2]float64, len(levels))
+	for l := range levelMap {
+		newOuters[l], newInners[l] = dedupeInnersOuters(newOuters[l], newInners[l])
+		newPolygonsForLevel := matchInnersToPolygons(outersToPolygons(newOuters[l]), newInners[l], len(polygon) > 1)
+		if len(newPolygonsForLevel) > 0 {
+			newPolygons[l] = newPolygonsForLevel
+		}
+	}
+
 	// points and lines at the end, as outer rings
 	for level, pointsAndLines := range newPointsAndLines {
 		for _, pointOrLine := range pointsAndLines {
@@ -148,44 +161,172 @@ func addPointsAndSnap(ix *PointIndex, polygon geom.Polygon, levels []Level) map[
 	return floatPolygonsToGeomPolygonsForAllLevels(newPolygons)
 }
 
-func matchInnersToPolygon(polygons [][][][2]float64, innerRings [][][2]float64) [][][][2]float64 {
+func outersToPolygons(outers [][][2]float64) [][][][2]float64 {
+	polygons := make([][][][2]float64, len(outers))
+	for i := 0; i < len(outers); i++ {
+		polygons[i] = [][][2]float64{outers[i]}
+	}
+	return polygons
+}
+
+func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]float64, [][][2]float64) {
+	// ToDo: optimize by deleting rings from allRings on the fly
+	lenOuters := len(outers)
+	lenInners := len(inners)
+	lenAll := lenOuters + lenInners
+	processedIndexes := make(map[int]IsOuter)
+	indexesToDelete := make(map[int]IsOuter)
+	for i := 0; i < lenAll; i++ {
+		if _, processed := processedIndexes[i]; processed {
+			continue
+		}
+		iIsOuter := i < lenOuters
+		equalIndexes := orderedmap.New[int, IsOuter]( // ordered for predictable outcome when ranging
+			orderedmap.WithInitialData(orderedmap.Pair[int, IsOuter]{Key: i, Value: iIsOuter}))
+		for j := i + 1; j < lenAll; j++ {
+			if _, processed := processedIndexes[j]; processed {
+				continue
+			}
+			jIsOuter := j < lenOuters
+			var ringI [][2]float64
+			if iIsOuter {
+				ringI = outers[i]
+			} else {
+				ringI = inners[i-lenOuters]
+			}
+			var ringJ [][2]float64
+			if jIsOuter {
+				ringJ = outers[j]
+			} else {
+				ringJ = inners[j-lenOuters]
+			}
+			if !ringsAreEqual(ringI, ringJ, iIsOuter, jIsOuter) {
+				continue
+			}
+			equalIndexes.Set(j, jIsOuter)
+		}
+		if equalIndexes.Len() <= 1 {
+			continue
+		}
+
+		lenEqualOuters := countVals(equalIndexes, true)
+		lenEqualInners := countVals(equalIndexes, false)
+		difference := int(math.Abs(float64(lenEqualOuters) - float64(lenEqualInners)))
+		var numOutersToDelete, numInnersToDelete int
+		if difference == 0 {
+			// delete all but one
+			numOutersToDelete = lenEqualOuters - 1
+			numInnersToDelete = lenEqualInners - 1
+		} else { // difference > 0
+			// delete the surplus
+			numOutersToDelete = min(lenEqualOuters, lenEqualInners)
+			numInnersToDelete = numOutersToDelete
+		}
+		for p := equalIndexes.Oldest(); p != nil; p = p.Next() {
+			equalI, isOuter := p.Key, p.Value
+			processedIndexes[equalI] = isOuter
+			if isOuter && numOutersToDelete > 0 {
+				indexesToDelete[equalI] = isOuter
+				numOutersToDelete--
+			} else if !isOuter && numInnersToDelete > 0 {
+				indexesToDelete[equalI] = isOuter
+				numInnersToDelete--
+			}
+		}
+	}
+
+	if len(indexesToDelete) == 0 {
+		return outers, inners
+	}
+	newOuters := deleteFromSliceByIndex(outers, indexesToDelete, 0)
+	newInners := deleteFromSliceByIndex(inners, indexesToDelete, lenOuters)
+	return newOuters, newInners
+}
+
+func ringsAreEqual(ringI, ringJ [][2]float64, iIsOuter, jIsOuter bool) bool {
+	// check length
+	ringLen := len(ringI)
+	if ringLen != len(ringJ) {
+		return false
+	}
+	idx := slices.Index(ringJ, ringI[0]) // empty ring panics, but that's ok
+	if idx < 0 {
+		return false
+	}
+	differentWindingOrder := iIsOuter && !jIsOuter
+	// Check if rings are equal
+	for k := 0; k < ringLen; k++ {
+		if !differentWindingOrder && ringI[k] != ringJ[(idx+k)%ringLen] {
+			return false
+		}
+		if differentWindingOrder && ringI[k] != ringJ[(idx+ringLen-k)%ringLen] { // "+iLen" to ensure the modulus returns a positive number
+			return false
+		}
+	}
+	return true
+}
+
+func matchInnersToPolygons(polygons [][][][2]float64, innerRings [][][2]float64, hasInners bool) [][][][2]float64 {
 	lenPolygons := len(polygons)
-	if lenPolygons == 0 {
-		return polygons
-	} else if lenPolygons == 1 {
-		polygons[0] = append(polygons[0], innerRings...)
+	if len(innerRings) == 0 {
 		return polygons
 	}
+
+	var polyISortedByOuterAreaDesc []int
+	var innersTurnedOuters [][][2]float64
 matchInners:
 	for _, innerRing := range innerRings {
-		containsPerPolyI := make(map[int]uint, lenPolygons)
+		containsPerPolyI := orderedmap.New[int, uint](orderedmap.WithCapacity[int, uint](lenPolygons)) // TODO don't need ordered map anymore?
 		// this is pretty nested, but usually breaks early
 		for _, vertex := range innerRing {
 			for polyI := range polygons {
-				contains, onBoundary := ringContains(polygons[polyI][0], vertex)
+				contains, _ := ringContains(polygons[polyI][0], vertex)
+				// it doesn't matter if on boundary or not, if not on boundary there could still be multiple (nested) matching polygons
 				if contains {
-					if !onBoundary {
-						polygons[polyI] = append(polygons[polyI], innerRing)
-						continue matchInners
-					}
-					containsPerPolyI[polyI]++
+					containsPerPolyI.Set(polyI, containsPerPolyI.Value(polyI)+1)
 				}
 			}
-			matchingPolyI, _, matchCount := findKeyWithMaxValue(containsPerPolyI)
+			matchingPolyI, _, matchCount := findLastKeyWithMaxValue(containsPerPolyI)
 			if matchCount == 1 {
 				polygons[matchingPolyI] = append(polygons[matchingPolyI], innerRing)
 				continue matchInners
 			}
 		}
-		// no (single) matching outer ring was found (should never happen)
-		if len(containsPerPolyI) == 0 {
-			panicNoMatchingOuterForInnerRing(polygons, innerRing)
+		if containsPerPolyI.Len() == 0 {
+			// no (single) matching outer ring was found
+			// presumably because the inner ring's winding order is incorrect and it should have been an outer
+			// TODO is that presumption correct and is this really never a panic? // panicNoMatchingOuterForInnerRing(polygons, innerRing)
+			// TODO should it be a candidate for other the other inner rings?
+			log.Printf("no matching outer for inner ring found, turned inner into outer. original has inners: %v", hasInners)
+			innersTurnedOuters = append(innersTurnedOuters, reverseClone(innerRing))
 			continue
 		}
-		panicMoreThanOneMatchingOuterRing(polygons, innerRing)
-		continue
+		// multiple matching outer rings were found. use the smallest one
+		// TODO dedupe poly outers (not here)
+		if polyISortedByOuterAreaDesc == nil {
+			polyISortedByOuterAreaDesc = sortPolyIdxsByOuterAreaDesc(polygons)
+		}
+		smallestMatchingPolyI := lastMatch(polyISortedByOuterAreaDesc, orderedMapKeys(containsPerPolyI))
+		polygons[smallestMatchingPolyI] = append(polygons[smallestMatchingPolyI], innerRing)
+	}
+	for i := range innersTurnedOuters {
+		polygons = append(polygons, [][][2]float64{innersTurnedOuters[i]})
 	}
 	return polygons
+}
+
+func sortPolyIdxsByOuterAreaDesc(polygons [][][][2]float64) []int {
+	areas := sortedmap.New[int, float64](len(polygons), func(i, j float64) bool {
+		return i > j // desc
+	})
+	for i := range polygons {
+		if len(polygons[i]) == 0 {
+			areas.Insert(i, 0.0)
+		} else {
+			areas.Insert(i, shoelace(polygons[i][0]))
+		}
+	}
+	return areas.Keys()
 }
 
 // from paulmach/orb, modified to also return whether it's on the boundary
@@ -217,58 +358,58 @@ func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary boo
 // Original implementation: http://rosettacode.org/wiki/Ray-casting_algorithm#Go
 //
 //nolint:cyclop,nestif
-func rayIntersect(p, s, e [2]float64) (intersects, on bool) {
-	if s[0] > e[0] {
-		s, e = e, s
+func rayIntersect(pt, start, end [2]float64) (intersects, on bool) {
+	if start[xAx] > end[xAx] {
+		start, end = end, start
 	}
 
-	if p[0] == s[0] {
-		if p[1] == s[1] {
-			// p == start
+	if pt[xAx] == start[xAx] {
+		if pt[yAx] == start[yAx] {
+			// pt == start
 			return false, true
-		} else if s[0] == e[0] {
-			// vertical segment (s -> e)
+		} else if start[xAx] == end[xAx] {
+			// vertical segment (start -> end)
 			// return true if within the line, check to see if start or end is greater.
-			if s[1] > e[1] && s[1] >= p[1] && p[1] >= e[1] {
+			if start[yAx] > end[yAx] && start[yAx] >= pt[yAx] && pt[yAx] >= end[yAx] {
 				return false, true
 			}
 
-			if e[1] > s[1] && e[1] >= p[1] && p[1] >= s[1] {
+			if end[yAx] > start[yAx] && end[yAx] >= pt[yAx] && pt[yAx] >= start[yAx] {
 				return false, true
 			}
 		}
 
 		// Move the y coordinate to deal with degenerate case
-		p[0] = math.Nextafter(p[0], math.Inf(1))
-	} else if p[0] == e[0] {
-		if p[1] == e[1] {
+		pt[xAx] = math.Nextafter(pt[xAx], math.Inf(1))
+	} else if pt[xAx] == end[xAx] {
+		if pt[yAx] == end[yAx] {
 			// matching the end point
 			return false, true
 		}
 
-		p[0] = math.Nextafter(p[0], math.Inf(1))
+		pt[xAx] = math.Nextafter(pt[xAx], math.Inf(1))
 	}
 
-	if p[0] < s[0] || p[0] > e[0] {
+	if pt[xAx] < start[xAx] || pt[xAx] > end[xAx] {
 		return false, false
 	}
 
-	if s[1] > e[1] {
-		if p[1] > s[1] {
+	if start[yAx] > end[yAx] {
+		if pt[yAx] > start[yAx] {
 			return false, false
-		} else if p[1] < e[1] {
+		} else if pt[yAx] < end[yAx] {
 			return true, false
 		}
 	} else {
-		if p[1] > e[1] {
+		if pt[yAx] > end[yAx] {
 			return false, false
-		} else if p[1] < s[1] {
+		} else if pt[yAx] < start[yAx] {
 			return true, false
 		}
 	}
 
-	rs := (p[1] - s[1]) / (p[0] - s[0])
-	ds := (e[1] - s[1]) / (e[0] - s[0])
+	rs := (pt[yAx] - start[yAx]) / (pt[xAx] - start[xAx])
+	ds := (end[yAx] - start[yAx]) / (end[xAx] - start[xAx])
 
 	if rs == ds {
 		return false, true
@@ -318,32 +459,27 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 }
 
 // if winding order is incorrect, ring is reversed to correct winding order
-func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) {
+func ensureCorrectWindingOrder(ring [][2]float64, shouldBeClockwise bool) [][2]float64 {
 	if !windingOrderIsCorrect(ring, shouldBeClockwise) {
-		slices.Reverse(ring)
+		return reverseClone(ring)
 	}
+	return ring
 }
 
 // validate winding order (CCW for outer rings, CW for inner rings)
 func windingOrderIsCorrect(ring [][2]float64, shouldBeClockwise bool) bool {
-	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
-	mod := func(a, b int) int {
-		return (a%b + b) % b
-	}
-	i, _ := findRightmostLowestPoint(ring)
-	// check angle between the vectors goint into and coming out of the rightmost lowest point
-	points := [3][2]float64{ring[mod(i-1, len(ring))], ring[i], ring[mod(i+1, len(ring))]}
-	return isClockwise(points) == shouldBeClockwise
+	wo := winding.Order{}.OfPoints(ring...)
+	return wo.IsClockwise() && shouldBeClockwise || wo.IsCounterClockwise() && !shouldBeClockwise || wo.IsColinear()
 }
 
 // TODO: rewrite by using intgeoms for as long as possible
 func isHitMultiple(hitMultiple map[intgeom.Point][]int, vertex [2]float64, ringIdx int) bool {
 	intVertex := intgeom.FromGeomPoint(vertex)
 	return slices.Contains(hitMultiple[intVertex], ringIdx) || // exact match
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] + 1, intVertex[1]}], ringIdx) || // fuzzy search
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0] - 1, intVertex[1]}], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] + 1}], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[0], intVertex[1] - 1}], ringIdx)
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] + 1, intVertex[yAx]}], ringIdx) || // fuzzy search
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] - 1, intVertex[yAx]}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx], intVertex[yAx] + 1}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx], intVertex[yAx] - 1}], ringIdx)
 }
 
 // split ring into multiple rings at any point where the ring goes through the point more than once
@@ -428,38 +564,36 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 			}
 		}
 	}
+	// outer ring(s) incorrectly saved as inner ring(s) or vice versa due to winding order, swap
+	if isOuter && len(outerRings) == 0 && len(innerRings) > 0 {
+		for _, innerRing := range innerRings {
+			slices.Reverse(innerRing) // in place, not used elsewhere
+			outerRings = append(outerRings, innerRing)
+		}
+		innerRings = make([][][2]float64, 0)
+	} else if !isOuter && len(innerRings) == 0 && len(outerRings) > 0 {
+		for _, outerRing := range outerRings {
+			slices.Reverse(outerRing) // in place, not used elsewhere
+			innerRings = append(innerRings, outerRing)
+		}
+		outerRings = make([][][2]float64, 0)
+	}
 	return outerRings, innerRings, pointsAndLines
-}
-
-// determines whether a pair of vectors turns clockwise by examining the relationship of their relative angle to the angles of the vectors
-func isClockwise(points [3][2]float64) bool {
-	// modulo function that returns least positive remainder (i.e., mod(-1, 5) returns 4)
-	mod := func(a, b float64) float64 {
-		return math.Mod(math.Mod(a, b)+b, b)
-	}
-	vector1 := vector2d{x: (points[1][0] - points[0][0]), y: (points[1][1] - points[0][1])}
-	vector2 := vector2d{x: (points[2][0] - points[1][0]), y: (points[2][1] - points[1][1])}
-	relativeAngle := math.Acos(vector1.dot(vector2)/(vector1.magnitude()*vector2.magnitude())) * (180 / math.Pi)
-	if vector1.angle() == 0.0 {
-		return relativeAngle > 180
-	}
-	return math.Round(mod((vector2.angle()-relativeAngle), 360)) != math.Round(vector1.angle())
 }
 
 // deduplication using an implementation of the Knuth-Morris-Pratt algorithm
 //
 //nolint:cyclop,funlen
-func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
-	deduplicatedRing := make([][2]float64, len(newRing))
-	copy(deduplicatedRing, newRing)
-	// map of indices to remove, sorted by starting index of each sequence to remove
-	indicesToRemove := sortedmap.New(len(newRing), func(x, y interface{}) bool {
-		return x.([2]int)[0] < y.([2]int)[0]
+func kmpDeduplicate(ring [][2]float64) [][2]float64 {
+	ringLen := len(ring)
+	// sequences (from index uptoandincluding index) to remove, sorted by starting index, mapped to prevent dupes
+	sequencesToRemove := sortedmap.New[string, [2]int](ringLen, func(a, b [2]int) bool {
+		return a[xAx] < b[xAx]
 	})
-	// walk through newRing until a step back is taken, then identify how many steps back are taken and search for repeats
+	// walk through ring until a step back is taken, then identify how many steps back are taken and search for repeats
 	visitedPoints := [][2]float64{}
-	for i := 0; i < len(newRing); {
-		vertex := newRing[i]
+	for i := 0; i < ringLen; {
+		vertex := ring[i]
 		// not a step back, continue
 		if len(visitedPoints) <= 1 || visitedPoints[len(visitedPoints)-2] != vertex {
 			visitedPoints = append(visitedPoints, vertex)
@@ -470,7 +604,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 		reverseSegment := [][2]float64{visitedPoints[len(visitedPoints)-1], visitedPoints[len(visitedPoints)-2]}
 		for j := 3; j <= len(visitedPoints); j++ {
 			nextI := i + (j - 2)
-			if nextI <= len(newRing)-1 && visitedPoints[len(visitedPoints)-j] == newRing[nextI] {
+			if nextI <= ringLen-1 && visitedPoints[len(visitedPoints)-j] == ring[nextI] {
 				reverseSegment = append(reverseSegment, visitedPoints[len(visitedPoints)-j])
 			} else {
 				// end of segment
@@ -480,13 +614,13 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 		// create segment from reverse segment
 		segment := make([][2]float64, len(reverseSegment))
 		copy(segment, reverseSegment)
-		slices.Reverse(segment)
+		slices.Reverse(segment) // in place, not used elsewhere
 		// create search corpus: initialise with section of 3*segment length, then continuously
 		// add 2*segment length until corpus contains a point that is not in segment
 		start := i - len(segment)
 		end := start + (3 * len(segment))
 		k := 0
-		corpus := newRing[start:min(end, len(newRing))]
+		corpus := ring[start:min(end, ringLen)]
 		for {
 			stop := false
 			// check if (additional) corpus contains a point that is not in segment
@@ -496,8 +630,8 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 					break
 				}
 			}
-			// corpus already runs until the end of newRing
-			if end > len(newRing) {
+			// corpus already runs until the end of ring
+			if end > ringLen {
 				stop = true
 			}
 			if stop {
@@ -505,7 +639,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 			}
 			// expand corpus
 			k = len(corpus)
-			corpus = append(corpus, newRing[end:min(end+(2*len(segment)), len(newRing))]...)
+			corpus = append(corpus, ring[end:min(end+(2*len(segment)), ringLen)]...)
 			end += 2 * len(segment)
 		}
 		// search corpus for all matches of segment and reverseSegment
@@ -517,11 +651,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 			// mark all but one occurrance of segment for removal
 			sequenceStart := start + len(segment)
 			sequenceEnd := start + matches[len(matches)-1] + len(segment)
-			segmentRec := sortedmap.Record{
-				Key: fmt.Sprintf("%v", segment),
-				Val: [2]int{sequenceStart, sequenceEnd},
-			}
-			indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
+			sequencesToRemove.Insert(fmt.Sprint(segment), [2]int{sequenceStart, sequenceEnd})
 			// skip past matched section and reset visitedPoints
 			i = sequenceEnd
 			visitedPoints = [][2]float64{}
@@ -530,11 +660,7 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 			// mark all but one occurrance of segment and one occurrance of its reverse for removal
 			sequenceStart := start + (2 * len(segment)) - 1
 			sequenceEnd := start + matches[len(matches)-1] + len(segment)
-			segmentRec := sortedmap.Record{
-				Key: fmt.Sprintf("%v", segment),
-				Val: [2]int{sequenceStart, sequenceEnd},
-			}
-			indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
+			sequencesToRemove.Insert(fmt.Sprint(segment), [2]int{sequenceStart, sequenceEnd})
 			// skip past matched section and reset visitedPoints
 			i = sequenceEnd
 			visitedPoints = [][2]float64{}
@@ -557,67 +683,28 @@ func kmpDeduplicate(newRing [][2]float64) [][2]float64 {
 				sequenceEnd = start + 2*(len(segment)-1)*len(reverseMatches)
 				endPointIdx = start + matches[len(matches)-1] + len(segment)
 			}
-			segmentRec := sortedmap.Record{
-				Key: fmt.Sprintf("%v", segment),
-				Val: [2]int{sequenceStart, sequenceEnd},
-			}
-			indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
-			// check if remaining points are on a straight line, retain only start and end points if so
-			startPointX := newRing[sequenceEnd][0]
-			startPointY := newRing[sequenceEnd][1]
-			onLine := true
-			furthestDistance := 0.0
-			furthestPointIdx := sequenceEnd
-			for n := sequenceEnd + 1; n < endPointIdx; n++ {
-				if newRing[n][0] != startPointX && newRing[n][1] != startPointY {
-					onLine = false
-					break
-				}
-				pointDistance := math.Sqrt(math.Abs(newRing[n][0]-startPointX) + math.Abs(newRing[n][1]-startPointY))
-				if pointDistance > furthestDistance {
-					furthestDistance = pointDistance
-					furthestPointIdx = n
-				}
-			}
-			if onLine {
-				// remove any intermediate points on the return from the end point to the start point
-				sequenceStart := furthestPointIdx + 1
-				sequenceEnd := endPointIdx - 1
-				segmentRec := sortedmap.Record{
-					Key: fmt.Sprintf("%v", newRing[furthestPointIdx:furthestPointIdx+1]),
-					Val: [2]int{sequenceStart, sequenceEnd},
-				}
-				indicesToRemove.Insert(segmentRec.Key, segmentRec.Val)
-			}
+			sequencesToRemove.Insert(fmt.Sprint(segment), [2]int{sequenceStart, sequenceEnd})
+			// (checking if remaining points are on a straight line could be done here
+			//  but is not necessary because snap always inserts it)
 			// skip past matched section and reset visitedPoints
 			i = endPointIdx - 1
 			visitedPoints = [][2]float64{}
 		}
 	}
-	offset := 0
-	for _, key := range indicesToRemove.Keys() {
-		sequence := indicesToRemove.Map()[key].([2]int)
-		deduplicatedRing = append(deduplicatedRing[:sequence[0]-offset], deduplicatedRing[sequence[1]-offset:]...)
-		offset += sequence[1] - sequence[0]
-	}
-	return deduplicatedRing
+	return removeSequences(ring, sequencesToRemove)
 }
 
-func findRightmostLowestPoint(ring [][2]float64) (int, [2]float64) {
-	rightmostLowestPoint := [2]float64{math.MinInt, math.MaxInt}
-	j := 0
-	for i, vertex := range ring {
-		// check if vertex is rightmost lowest point (either y is lower, or y is equal and x is higher)
-		if vertex[1] < rightmostLowestPoint[1] {
-			rightmostLowestPoint[0] = vertex[0]
-			rightmostLowestPoint[1] = vertex[1]
-			j = i
-		} else if vertex[1] == rightmostLowestPoint[1] && vertex[0] > rightmostLowestPoint[0] {
-			rightmostLowestPoint[0] = vertex[0]
-			j = i
-		}
+func removeSequences(ring [][2]float64, sequencesToRemove *sortedmap.SortedMap[string, [2]int]) (newRing [][2]float64) {
+	mmap := sequencesToRemove.Map()
+	keepFrom := 0
+	for _, key := range sequencesToRemove.Keys() {
+		sequenceToRemove := mmap[key]
+		keepTo := sequenceToRemove[0]
+		newRing = append(newRing, ring[keepFrom:keepTo]...)
+		keepFrom = sequenceToRemove[1]
 	}
-	return j, rightmostLowestPoint
+	newRing = append(newRing, ring[keepFrom:]...)
+	return newRing
 }
 
 // repeatedly calls kmpSearch, returning all starting indexes of 'find' in 'corpus'
@@ -700,21 +787,62 @@ func asKeys[T constraints.Ordered](elements []T) map[T]any {
 	return mapped
 }
 
-func findKeyWithMaxValue[K comparable, V constraints.Ordered](m map[K]V) (maxK K, maxV V, winners uint) {
+func findLastKeyWithMaxValue[K comparable, V constraints.Ordered](m *orderedmap.OrderedMap[K, V]) (maxK K, maxV V, numWinners uint) {
 	first := true
-	for k, v := range m {
-		if first || v > maxV {
-			maxK = k
-			maxV = v
-			winners = 1
+	for p := m.Newest(); p != nil; p = p.Prev() {
+		if first || p.Value > maxV {
+			maxK = p.Key
+			maxV = p.Value
+			numWinners = 1
 			first = false
 			continue
 		}
-		if v == maxV {
-			winners++
+		if p.Value == maxV {
+			numWinners++
 		}
 	}
 	return
+}
+
+func orderedMapKeys[K comparable, V any](m *orderedmap.OrderedMap[K, V]) []K {
+	l := make([]K, m.Len())
+	i := 0
+	for p := m.Oldest(); p != nil; p = p.Next() {
+		l[i] = p.Key
+		i++
+	}
+	return l
+}
+
+func lastMatch[T comparable](haystack, needle []T) T {
+	for i := len(haystack) - 1; i >= 0; i-- {
+		if slices.Contains(needle, haystack[i]) {
+			return haystack[i]
+		}
+	}
+	var empty T
+	return empty
+}
+
+func deleteFromSliceByIndex[V any, X any](s []V, indexesToDelete map[int]X, indexOffset int) []V {
+	r := make([]V, 0, len(s))
+	for i := range s {
+		if _, skip := indexesToDelete[i+indexOffset]; skip {
+			continue
+		}
+		r = append(r, s[i])
+	}
+	return r
+}
+
+func countVals[K, V comparable](m *orderedmap.OrderedMap[K, V], v V) int {
+	n := 0
+	for p := m.Oldest(); p != nil; p = p.Next() {
+		if p.Value == v {
+			n++
+		}
+	}
+	return n
 }
 
 func floatPolygonsToGeomPolygonsForAllLevels(floatersPerLevel map[Level][][][][2]float64) map[Level][]geom.Polygon {
@@ -778,6 +906,29 @@ func panicMoreThanOneMatchingOuterRing(polygons [][][][2]float64, innerRing [][2
 	panic(panicMsg)
 }
 
+func panicDeletedPolygonHasInnerRing(polygon [][][2]float64) {
+	panicMsg := fmt.Sprintf("a deleted dupe polygon had more than one ring, %v",
+		truncatedWkt(floatPolygonToGeomPolygon(polygon), 100))
+	panic(panicMsg)
+}
+
 func truncatedWkt(geom geom.Geometry, width uint) string {
 	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
+}
+
+func reverseClone[S ~[]E, E any](s S) S {
+	if s == nil {
+		return nil
+	}
+	l := len(s)
+	c := make(S, l)
+	for i := 0; i < l; i++ {
+		c[l-1-i] = s[i]
+	}
+	return c
+}
+
+func roundFloat(f float64, p uint) float64 {
+	r := math.Pow(10, float64(p))
+	return math.Round(f*r) / r
 }

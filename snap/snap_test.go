@@ -3,7 +3,7 @@ package snap
 import (
 	"testing"
 
-	"log"
+	"github.com/go-spatial/geom/encoding/wkt"
 
 	"github.com/pdok/texel/tms20"
 
@@ -549,7 +549,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring with horizontal rightmostlowest",
+			name:  "inner but no outer error because of not reversing because of horizontal rightmostlowest",
 			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
 			tmIDs: []tms20.TMID{5},
 			polygon: geom.Polygon{{
@@ -564,16 +564,96 @@ func TestSnap_snapPolygon(t *testing.T) {
 				geom.Polygon{{{139520.48, 527777.44}, {139513.76, 527777.44}}},
 			}}, // want no panicInnerRingsButNoOuterRings
 		},
+		{
+			name:  "inner but no outer error because of not reversing because of a very sharp leg/extension",
+			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs: []tms20.TMID{0},
+			polygon: geom.Polygon{{
+				{48158.204, 392310.062},
+				{47753.125, 391885.44}, {48565.4, 391515.876}, {47751.195, 391884.821}, // a very sharp leg/extension
+				{47677.592, 392079.403},
+			}},
+			want: map[tms20.TMID][]geom.Polygon{0: {
+				{{{47587.52, 392144.32}, {47802.56, 391929.28}, {48232.64, 392359.36}}}, // turned counterclockwise
+				{{{47802.56, 391929.28}, {48662.72, 391499.2}}},
+			}}, // want no panicInnerRingsButNoOuterRings
+		},
+		{
+			name:    "split ring from outer is cw, should be ccw",
+			tms:     loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:   []tms20.TMID{0},
+			polygon: geom.Polygon{{{179334.089, 408229.072}, {179121.631, 408528.181}, {179328.228, 408231.924}, {178889.903, 408431.167}, {178531.386, 408106.618}, {178497.492, 407886.329}, {178535.353, 408103.574}, {178862.244, 408226.852}, {178891.816, 408426.547}, {179173.349, 408187.199}, {178893.957, 408423.424}, {178864.491, 408223.293}, {178537.744, 408101.003}, {178504.209, 407887.598}, {178510.008, 407890.491}, {178542.44, 408098.473}, {178867.788, 408219.534}, {178897.835, 408417.763}, {179170.131, 408181.285}}}, // ccw (with a sharp leg/extension also)
+			want: map[tms20.TMID][]geom.Polygon{0: {
+				{{{178976.96, 408487.36}, {178761.92, 408272.32}, {178546.88, 408057.28}, {179192, 408272.32}}}, // ccw
+				// bunch of points and lines:
+				{{{179407.04, 408272.32}, {179192, 408272.32}}}, {{{179192, 408272.32}, {179192, 408487.36}}}, {{{179407.04, 408272.32}, {179192, 408272.32}}}, {{{179192, 408272.32}, {178976.96, 408487.36}}}, {{{178976.96, 408487.36}, {178761.92, 408272.32}}}, {{{178761.92, 408272.32}, {178546.88, 408057.28}}}, {{{178546.88, 408057.28}, {178546.88, 407842.24}}},
+			}},
+		},
+		{
+			name:    "one of three split outer rings is cw and turned outer after no matching outer",
+			tms:     loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:   []tms20.TMID{0},
+			polygon: geom.Polygon{{{88580.011, 439678.996}, {88337.73, 439237.216}, {89273.964, 438026.4}, {89386.079, 438023.335}, {90251.524, 438784.15}, {89852.567, 439284.421}, {89425.263, 439355.284}, {89247.228, 439563.507}, {89089.95, 439692.364}, {88959.832, 439729.531}, {89055.886, 439819.684}, {89466.904, 439382.346}, {89899.488, 439311.969}, {90170.183, 438911.775}, {90329.354, 438821.391}, {90651.094, 438796.963}, {91473.854, 439243.296}, {90632.307, 438747.518}, {90270.708, 438757.632}, {89555.357, 437677.283}, {90499.163, 436096.427}, {91435.651, 435963.019}, {91404.334, 436039.088}, {91254.337, 436091.084}, {90500.745, 436098.362}, {90076.214, 437042.706}, {89870.055, 437307.816}, {89768.94, 437363.42}, {89650.683, 437521.434}, {89640.994, 437568.838}, {89558.222, 437677.647}, {90269.467, 438753.387}, {90632.85, 438744.94}, {91313.174, 439143.369}, {91477.748, 439241.657}, {91475.353, 439245.66}, {91457.592, 439266.852}, {91243.008, 439179.921}, {90710.843, 438897.924}, {90650.175, 438799.288}, {90440.729, 438846.985}, {90395.019, 438846.967}, {90329.938, 438823.822}, {90287.474, 438885.328}, {90172.086, 438913.396}, {90044.257, 439125.421}, {89901.052, 439313.924}, {89885.113, 439321.991}, {89835.824, 439335.083}, {89468.228, 439384.467}, {89173.832, 439758.873}, {89061.413, 439821.909}, {89054.68, 439821.883}, {89023.222, 439801.24}, {88989.659, 439763.597}, {88949.781, 439739.428}, {88958.959, 439726.203}, {89088.39, 439690.41}, {89245.45, 439561.75}, {89388.248, 439376.01}, {89424.081, 439353.075}, {89566.906, 439317.631}, {89851.03, 439282.45}, {90111.766, 438914.525}, {90249.027, 438784.029}, {90211.25, 438760.51}, {90183.492, 438736.293}, {89584.683, 438207.656}, {89384.579, 438025.335}, {89274.819, 438028.749}, {88339.974, 439238.317}, {88419.861, 439377.057}, {88447.454, 439387.602}, {88485.231, 439376.209}, {88505.9, 439379.802}, {88564.366, 439441.722}, {88589.428, 439478.721}, {88598.844, 439504.106}, {88608.517, 439561.563}, {88582.418, 439679.669}, {88565.692, 439724.97}, {88480.367, 439857.335}, {88409.981, 439938.527}, {88412.431, 439940.265}, {88366.171, 440033.682}, {88353.723, 440046.457}, {88356.08, 440054.25}, {88342.856, 440086.861}, {88266.552, 440224.799}, {88252.681, 440243.646}, {88196.44, 440306.135}, {87992.789, 440467.453}, {88250.595, 440274.14}, {88508.083, 439845.775}, {88270.249, 440256.888}, {88194.893, 440335.659}, {88010.485, 440474.349}, {87996.213, 440475.679}, {87990.894, 440469.07}, {88580.011, 439678.996}}},
+			want:    map[tms20.TMID][]geom.Polygon{}, // want no panicNoMatchingOuterForInnerRing
+		},
+		{
+			name:  "sneaky nested pseudo ring creates more than 1 matching outer ring",
+			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs: []tms20.TMID{0},
+			polygon: geom.Polygon{
+				{{198877.1, 506188.635}, {198805.608, 506361.231}, {198633.011, 506432.722}, {198460.415, 506361.23}, {198388.924, 506188.633}, {198460.416, 506016.037}, {198633.013, 505944.546}, {198805.609, 506016.038}},
+				{{198429.407, 506188.635}, {198489.229, 506332.782}, {198633.531, 506392.228}, {198777.528, 506332.045}, {198836.612, 506187.594}, {198776.434, 506044.111}, {198632.5, 505985.022}, {198488.864, 506044.832}, {198429.407, 506188.615}, {198551.204, 506045.823}, {198690.244, 506034.324}, {198792.36, 506147.487}, {198748.509, 506305.863}, {198576.128, 506343.056}},
+				{{198633.012, 506279.536}, {198766.685, 506188.158}, {198632.396, 506055.195}, {198499.739, 506188.974}}},
+			want: map[tms20.TMID][]geom.Polygon{}, // want no panicMoreThanOneMatchingOuterRing
+		},
+		{
+			name: "nested rings",
+			tms:  newSimpleTileMatrixSet(2, 64),
+			tmIDs: []tms20.TMID{
+				1, // 32 * 8.0
+			},
+			polygon: geom.Polygon{
+				{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}}, // big outer
+				{{12.0, 52.0}, {12.0, 12.0}, {52.0, 12.0}, {52.0, 52.0}, {30.0, 52.0}, {30.0, 44.0}, {44.0, 44.0}, {44.0, 20.0}, {20.0, 20.0}, {20.0, 44.0}, {27.0, 44.0}, {27.0, 52.0}},     // big letter C that turns into nested rings when snapped
+				{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {30.0, 76.0}, {30.0, 84.0}, {44.0, 84.0}, {44.0, 108.0}, {20.0, 108.0}, {20.0, 84.0}, {27.0, 84.0}, {27.0, 76.0}, {12.0, 76.0}}, // above mirrored vertically
+				{{30.0, 53.0}, {30.0, 54.0}, {54.0, 54.0}, {54.0, 10.0}, {10.0, 10.0}, {10.0, 54.0}, {27.0, 54.0}, {27.0, 53.0}, {11.0, 53.0}, {11.0, 11.0}, {53.0, 11.0}, {53.0, 53.0}},     // another C around the original C which snaps to a duplicate outer
+				{{28.0, 28.0}, {36.0, 28.0}, {36.0, 36.0}, {29.0, 36.0}, {29.0, 92.0}, {36.0, 92.0}, {36.0, 100.0}, {28.0, 100.0}},                                                           // dumbbell inside the two C's that also turns into a nested ring when snapped (and some lines)
+			},
+			want: map[tms20.TMID][]geom.Polygon{
+				// 1 big outer with 2 holes. and 2 new outers/polygons (inside those holes from the big outer) each with their own hole.
+				// a duplicate inner/outer pair from the extra C is removed
+				1: {
+					{
+						{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
+						{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
+						{{28.0, 52.0}, {52.0, 52.0}, {52.0, 12.0}, {12.0, 12.0}, {12.0, 52.0}},   // cw
+					}, {
+						{{28.0, 44.0}, {20.0, 44.0}, {20.0, 20.0}, {44.0, 20.0}, {44.0, 44.0}}, // ccw
+						{{28.0, 36.0}, {36.0, 36.0}, {36.0, 28.0}, {28.0, 28.0}},               // cw
+					}, {
+						{{28.0, 84.0}, {44.0, 84.0}, {44.0, 108.0}, {20.0, 108.0}, {20.0, 84.0}}, // ccw
+						{{28.0, 100.0}, {36.0, 100.0}, {36.0, 92.0}, {28.0, 92.0}},               // cw
+					},
+					// and some lines
+					{{{28.0, 52.0}, {28.0, 44.0}}},
+					{{{28.0, 76.0}, {28.0, 84.0}}},
+					{{{28.0, 92.0}, {28.0, 84.0}}},
+					{{{28.0, 84.0}, {28.0, 76.0}}},
+					{{{28.0, 76.0}, {28.0, 52.0}}},
+					{{{28.0, 52.0}, {28.0, 44.0}}},
+					{{{28.0, 44.0}, {28.0, 36.0}}},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs)
 			for tmID, wantPoly := range tt.want {
 				if !assert.EqualValues(t, wantPoly, got[tmID]) {
-					// t.Errorf("snapPolygon(...) = %v, want %v", wkt.MustEncode(got[tmID]), wkt.MustEncode(wantPoly))
-					t.Errorf("snapPolygon(...) = %v, want %v", got[tmID], wantPoly)
+					t.Errorf("snapPolygon(%v, _, %v)\n=     %v\nwant: %v",
+						wkt.MustEncode(tt.polygon), tmID, wktMustEncodePolygonSlice(got[tmID]), wktMustEncodePolygonSlice(wantPoly))
 				}
-				log.Printf("snapPolygon(...) = %v", got[tmID])
 			}
 		})
 	}
@@ -607,4 +687,265 @@ func TestSnap_ringContains(t *testing.T) {
 			assert.Equalf(t, tt.wantOnBoundary, gotOnBoundary, "ringContains(%v, %v)", tt.args.ring, tt.args.point)
 		})
 	}
+}
+
+func Test_kmpDeduplicate(t *testing.T) {
+	tests := []struct {
+		name string
+		ring [][2]float64
+		want [][2]float64
+	}{
+		{
+			name: "triangle should stay",
+			ring: [][2]float64{
+				{2, 1}, // A
+				{1, 1}, // B
+				{1, 0}, // C
+				{1, 1}, // B
+				{0, 1}, // D
+				{1, 0}, // C
+				{1, 1}, // B
+			},
+			want: [][2]float64{
+				{2, 1}, // A
+				{1, 1}, // B
+				{0, 1}, // D
+				{1, 0}, // C
+				{1, 1}, // B
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, kmpDeduplicate(tt.ring), "kmpDeduplicate(%v)", tt.ring)
+		})
+	}
+}
+
+func Test_dedupeInnersOuters(t *testing.T) {
+	type args struct {
+		outers [][][2]float64
+		inners [][][2]float64
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantOuters [][][2]float64
+		wantInners [][][2]float64
+	}{
+		{
+			name: "#outer, #inner = 0, 0",
+			args: args{
+				outers: squareRingArray(0, true),
+				inners: squareRingArray(0, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
+			name: "#outer, #inner = 1, 0",
+			args: args{
+				outers: squareRingArray(1, true),
+				inners: squareRingArray(0, false),
+			},
+			wantOuters: squareRingArray(1, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
+			name: "#outer, #inner = 1, 1",
+			args: args{
+				outers: squareRingArray(1, true),
+				inners: squareRingArray(1, false),
+			},
+			wantOuters: squareRingArray(1, true),
+			wantInners: squareRingArray(1, false),
+		},
+		{
+			name: "#outer, #inner = 2, 1",
+			args: args{
+				outers: squareRingArray(2, true),
+				inners: squareRingArray(1, false),
+			},
+			wantOuters: squareRingArray(1, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
+			name: "#outer, #inner = 2, 2",
+			args: args{
+				outers: squareRingArray(2, true),
+				inners: squareRingArray(2, false),
+			},
+			wantOuters: squareRingArray(1, true),
+			wantInners: squareRingArray(1, false),
+		},
+		{
+			name: "#outer, #inner = 0, 1",
+			args: args{
+				outers: squareRingArray(0, true),
+				inners: squareRingArray(1, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(1, false),
+		},
+		{
+			name: "#outer, #inner = 1, 2",
+			args: args{
+				outers: squareRingArray(1, true),
+				inners: squareRingArray(2, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(1, false),
+		},
+		{
+			name: "#outer, #inner = 2, 0",
+			args: args{
+				outers: squareRingArray(2, true),
+				inners: squareRingArray(0, false),
+			},
+			wantOuters: squareRingArray(2, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
+			name: "#outer, #inner = 0, 2",
+			args: args{
+				outers: squareRingArray(0, true),
+				inners: squareRingArray(2, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(2, false),
+		},
+		{
+			name: "#outer, #inner = 3, 1",
+			args: args{
+				outers: squareRingArray(3, true),
+				inners: squareRingArray(1, false),
+			},
+			wantOuters: squareRingArray(2, true),
+			wantInners: squareRingArray(0, false),
+		},
+		{
+			name: "#outer, #inner = 1, 3",
+			args: args{
+				outers: squareRingArray(1, true),
+				inners: squareRingArray(3, false),
+			},
+			wantOuters: squareRingArray(0, true),
+			wantInners: squareRingArray(2, false),
+		},
+		// add different ring, which should be left alone
+		{
+			name: "#outer, #inner = 1, 1 + dummy ring",
+			args: args{
+				outers: squareRingArray(1, true),
+				inners: append(squareRingArray(1, false), [][2]float64{{0, 0}, {1, 0}, {2, 1}}),
+			},
+			wantOuters: squareRingArray(1, true),
+			wantInners: append(squareRingArray(1, false), [][2]float64{{0, 0}, {1, 0}, {2, 1}}),
+		},
+		{
+			name: "#outer, #inner = 3, 1 + dummy ring",
+			args: args{
+				outers: squareRingArray(3, true),
+				inners: append(squareRingArray(1, false), [][2]float64{{0, 0}, {1, 0}, {2, 1}}),
+			},
+			wantOuters: squareRingArray(2, true),
+			wantInners: append(squareRingArray(0, false), [][2]float64{{0, 0}, {1, 0}, {2, 1}}),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1 := dedupeInnersOuters(tt.args.outers, tt.args.inners)
+			assert.Equalf(t, tt.wantOuters, got, "dedupeInnersOuters(%v, %v)", tt.args.outers, tt.args.inners)
+			assert.Equalf(t, tt.wantInners, got1, "dedupeInnersOuters(%v, %v)", tt.args.outers, tt.args.inners)
+		})
+	}
+}
+
+// newSimpleTileMatrixSet creates a tms for snap testing purposes
+// the effective quadrant amount (one axis) on the deepest level will be 2^maxDepth * 16 (vt internal pixel res)
+// the effective quadrant size (one axis) on the deepest level will be cellSize / 16 (vt internal pixel res)
+func newSimpleTileMatrixSet(maxDepth Level, cellSize float64) tms20.TileMatrixSet {
+	zeroZero := tms20.TwoDPoint([2]float64{0.0, 0.0})
+	tms := tms20.TileMatrixSet{
+		CRS:          fakeCRS{},
+		OrderedAxes:  []string{"X", "Y"},
+		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix, maxDepth+1),
+	}
+	for tmID := 0; tmID <= int(maxDepth); tmID++ {
+		// (only values from the root tm are used, for the rest it is assumed to follow quad matrix rules)
+		tmCellSize := cellSize * float64(pow2(maxDepth-uint(tmID)))
+		tms.TileMatrices[tmID] = tms20.TileMatrix{
+			ID:               "0",
+			ScaleDenominator: tmCellSize / tms20.StandardizedRenderingPixelSize,
+			CellSize:         tmCellSize,
+			CornerOfOrigin:   tms20.BottomLeft,
+			PointOfOrigin:    &zeroZero,
+			TileWidth:        1,
+			TileHeight:       1,
+			MatrixWidth:      1,
+			MatrixHeight:     1,
+		}
+	}
+	return tms
+}
+
+func wktMustEncodePolygonSlice(geoms []geom.Polygon) string {
+	s := ""
+	for i := range geoms {
+		s += wktMustEncode(geoms[i]) + "\n"
+	}
+	return s
+}
+
+func wktMustEncode(g geom.Geometry) (s string) {
+	p, isPoly := g.(geom.Polygon)
+	if !isPoly {
+		return wkt.MustEncode(g)
+	}
+
+	var lines []geom.LineString
+	var points []geom.Point
+	pp := make(geom.Polygon, len(p))
+	copy(pp, p)
+	for r := 0; r < len(pp); r++ {
+		switch len(pp[r]) {
+		default:
+			continue
+		case 1:
+			points = append(points, pp[r][0])
+		case 2:
+			lines = append(lines, pp[r])
+		}
+		pp = append(pp[:r], pp[r+1:]...)
+		r--
+	}
+
+	if len(pp) > 0 {
+		s = wkt.MustEncode(pp)
+	}
+	for i := range lines {
+		s += wkt.MustEncode(lines[i])
+	}
+	for i := range points {
+		s += wkt.MustEncode(points[i])
+	}
+	return s
+}
+
+func squareRingArray(number int, isOuter bool) [][][2]float64 {
+	outerSquare := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}} // square, counter clockwise
+	innerSquare := [][2]float64{{0, 0}, {0, 1}, {1, 1}, {1, 0}} // square, clockwise
+	var squares = [][][2]float64{}
+	var square [][2]float64
+	// outer or inner
+	if isOuter {
+		square = outerSquare
+	} else {
+		square = innerSquare
+	}
+	// add squares
+	for i := 0; i < number; i++ {
+		squares = append(squares, square)
+	}
+	return squares
 }

@@ -450,31 +450,6 @@ func newSimplePointIndex(maxDepth Level, cellSize float64) *PointIndex {
 	return &ix
 }
 
-//nolint:unparam
-func newSimpleTileMatrixSet(maxDepth Level, cellSize float64) tms20.TileMatrixSet {
-	zeroZero := tms20.TwoDPoint([2]float64{0.0, 0.0})
-	tms := tms20.TileMatrixSet{
-		CRS:          fakeCRS{},
-		OrderedAxes:  []string{"X", "Y"},
-		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix),
-	}
-	for tmID := 0; tmID <= int(maxDepth); tmID++ {
-		tmCellSize := cellSize * float64(pow2(maxDepth-uint(tmID)))
-		tms.TileMatrices[tmID] = tms20.TileMatrix{
-			ID:               "0",
-			ScaleDenominator: tmCellSize / tms20.StandardizedRenderingPixelSize,
-			CellSize:         tmCellSize,
-			CornerOfOrigin:   tms20.BottomLeft,
-			PointOfOrigin:    &zeroZero,
-			TileWidth:        1,
-			TileHeight:       1,
-			MatrixWidth:      1,
-			MatrixHeight:     1,
-		}
-	}
-	return tms
-}
-
 func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 	tms, err := tms20.LoadEmbeddedTileMatrixSet(tmsID)
 	require.NoError(t, err)
