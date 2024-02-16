@@ -17,11 +17,3 @@ func Bool2int(b bool) int {
 	}
 	return 0
 }
-
-func EuclidianMod(d, m int) int {
-	r := d % m
-	if (r < 0 && m > 0) || (r > 0 && m < 0) {
-		return r + m
-	}
-	return r
-}
