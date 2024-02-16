@@ -1,4 +1,4 @@
-package snap
+package morton
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ var (
 	powersOfTwo = [...]uint{0, 1, 2, 4, 8, 16}
 )
 
-func toZ(x, y uint) (z Z, ok bool) {
+func ToZ(x, y uint) (z Z, ok bool) {
 	ok = x <= math.MaxUint32 && y <= math.MaxUint32
 	for i := 4; i >= 0; i-- {
 		x = (x | (x << powersOfTwo[i+1])) & masks[i]
@@ -29,15 +29,15 @@ func toZ(x, y uint) (z Z, ok bool) {
 	return z, ok
 }
 
-func mustToZ(x, y uint) Z {
-	z, ok := toZ(x, y)
+func MustToZ(x, y uint) Z {
+	z, ok := ToZ(x, y)
 	if !ok {
 		panic(fmt.Errorf(`cannot make Z out of %v and %v`, x, y))
 	}
 	return z
 }
 
-func fromZ(z Z) (x, y uint) {
+func FromZ(z Z) (x, y uint) {
 	x = z
 	y = z >> 1
 	for i := 0; i <= 5; i++ {

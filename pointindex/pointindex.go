@@ -1,13 +1,22 @@
-package snap
+package pointindex
 
 import (
 	"fmt"
 	"io"
+	"math"
 	"slices"
+
+	"github.com/pdok/texel/mathhelp"
+	"github.com/pdok/texel/morton"
+	"github.com/pdok/texel/tms20"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/pdok/texel/intgeom"
+)
+
+const (
+	VectorTileInternalPixelResolution = 16
 )
 
 const (
@@ -26,7 +35,7 @@ const (
 )
 
 type Quadrant struct {
-	z           Z
+	z           morton.Z
 	intExtent   intgeom.Extent // maxX and MaxY are exclusive
 	intCentroid intgeom.Point
 }
@@ -54,13 +63,40 @@ type Quadrant struct {
 type PointIndex struct {
 	Quadrant
 	maxDepth    Level
-	quadrants   map[Level]map[Z]Quadrant
-	hitOnce     map[Z]map[intgeom.Point][]int
-	hitMultiple map[Z]map[intgeom.Point][]int
+	quadrants   map[Level]map[morton.Z]Quadrant
+	hitOnce     map[Level]map[intgeom.Point][]int
+	hitMultiple map[Level]map[intgeom.Point][]int
 }
 
 type Level = uint
 type Q = int // quadrant index (0, 1, 2 or 3)
+
+func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
+	// TODO ensure that the tile matrix set is actually a quad tree, starting at 0. just assuming now.
+	rootTM := tileMatrixSet.TileMatrices[0]
+	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
+	maxDepth := uint(deepestTMID) + levelDiff
+	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
+	if err != nil {
+		panic(fmt.Errorf(`could not make PointIndex from TileMatrixSet %v: %w'`, tileMatrixSet.ID, err))
+	}
+	intBottomLeft := intgeom.FromGeomPoint(bottomLeft)
+	intTopRight := intgeom.FromGeomPoint(topRight)
+	intExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
+	ix := PointIndex{
+		Quadrant: Quadrant{
+			intExtent: intExtent,
+			z:         0,
+		},
+		maxDepth:    maxDepth,
+		quadrants:   make(map[Level]map[morton.Z]Quadrant, maxDepth+1),
+		hitOnce:     make(map[uint]map[intgeom.Point][]int),
+		hitMultiple: make(map[uint]map[intgeom.Point][]int),
+	}
+	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
+
+	return &ix
+}
 
 // InsertPolygon inserts all points from a Polygon
 func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
@@ -72,7 +108,7 @@ func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
 	var level uint
 	for level = 0; level <= ix.maxDepth; level++ {
 		if ix.quadrants[level] == nil {
-			ix.quadrants[level] = make(map[Z]Quadrant, pointsCount) // TODO smaller for the shallower levels
+			ix.quadrants[level] = make(map[morton.Z]Quadrant, pointsCount) // TODO smaller for the shallower levels
 		}
 		// TODO expand for another polygon?
 	}
@@ -86,7 +122,7 @@ func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
 
 // InsertPoint inserts a Point by its absolute coord
 func (ix *PointIndex) InsertPoint(point geom.Point) {
-	deepestSize := pow2(ix.maxDepth)
+	deepestSize := mathhelp.Pow2(ix.maxDepth)
 	intDeepestRes := ix.intExtent.XSpan() / int64(deepestSize)
 	intPoint := intgeom.FromGeomPoint(point)
 	deepestX := int((intPoint.X() - ix.intExtent.MinX()) / intDeepestRes)
@@ -96,7 +132,7 @@ func (ix *PointIndex) InsertPoint(point geom.Point) {
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
-	deepestSize := int(pow2(ix.maxDepth))
+	deepestSize := int(mathhelp.Pow2(ix.maxDepth))
 	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
 		// should never happen
 		panic(fmt.Errorf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, deepestSize, deepestSize))
@@ -108,11 +144,11 @@ func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
 func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 	var l Level
 	for l = 0; l <= ix.maxDepth; l++ {
-		x := uint(deepestX) / pow2(ix.maxDepth-l)
-		y := uint(deepestY) / pow2(ix.maxDepth-l)
-		z := mustToZ(x, y)
+		x := uint(deepestX) / mathhelp.Pow2(ix.maxDepth-l)
+		y := uint(deepestY) / mathhelp.Pow2(ix.maxDepth-l)
+		z := morton.MustToZ(x, y)
 		if ix.quadrants[l] == nil { // probably already initialized by InsertPolygon
-			ix.quadrants[l] = make(map[Z]Quadrant)
+			ix.quadrants[l] = make(map[morton.Z]Quadrant)
 		}
 		extent, centroid := getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
 		ix.quadrants[l][z] = Quadrant{
@@ -124,7 +160,7 @@ func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 }
 
 func getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.Extent) (intgeom.Extent, intgeom.Point) {
-	intQuadrantSpan := intRootExtent.XSpan() / int64(pow2(level))
+	intQuadrantSpan := intRootExtent.XSpan() / int64(mathhelp.Pow2(level))
 	intMinX := intRootExtent.MinX()
 	intMinY := intRootExtent.MinY()
 	intExtent := intgeom.Extent{
@@ -287,13 +323,13 @@ func findIntersectingQuadrants(intLine intgeom.Line, quadrants map[Q]Quadrant, p
 	return found
 }
 
-func getQuadrantZs(parentZ Z) [4]Z {
-	parentX, parentY := fromZ(parentZ)
-	quadrantZs := [4]Z{}
+func getQuadrantZs(parentZ morton.Z) [4]morton.Z {
+	parentX, parentY := morton.FromZ(parentZ)
+	quadrantZs := [4]morton.Z{}
 	for i := 0; i < 4; i++ {
 		x := parentX*2 + uint(oneIfRight(i))
 		y := parentY*2 + uint(oneIfTop(i))
-		z := mustToZ(x, y)
+		z := morton.MustToZ(x, y)
 		quadrantZs[i] = z
 	}
 	return quadrantZs
@@ -315,8 +351,8 @@ type quadrantToCheck struct {
 
 // getInfiniteQuadrant determines in which (infinite) quadrant a point lies
 func getInfiniteQuadrant(intPt intgeom.Point, intCentroid intgeom.Point) int {
-	isRight := bool2int(intPt[0] >= intCentroid[0])
-	isTop := bool2int(intPt[1] >= intCentroid[1]) << 1
+	isRight := mathhelp.Bool2int(intPt[0] >= intCentroid[0])
+	isTop := mathhelp.Bool2int(intPt[1] >= intCentroid[1]) << 1
 	return isRight | isTop
 }
 
@@ -367,6 +403,10 @@ func lineIntersects(intLine intgeom.Line, intExtent intgeom.Extent) bool {
 		}
 	}
 	return false
+}
+
+func (ix *PointIndex) GetHitMultiple(l Level) map[intgeom.Point][]int {
+	return ix.hitMultiple[l]
 }
 
 func checkPointHits(ix *PointIndex, vertex intgeom.Point, ringID int, level uint) {
@@ -425,25 +465,7 @@ func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.
 	exclusiveTip := getExclusiveTip(edgeI, intEdge)
 	lOrd1 := intLine[0][varAx]
 	lOrd2 := intLine[1][varAx]
-	return lOrd1 != lOrd2 && (betweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || betweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
-}
-
-func betweenInc(f, p, q int64) bool {
-	if p <= q {
-		return p <= f && f <= q
-	}
-	return q <= f && f <= p
-}
-
-func pow2(n uint) uint {
-	return 1 << n
-}
-
-func bool2int(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
+	return lOrd1 != lOrd2 && (mathhelp.BetweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || mathhelp.BetweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
 }
 
 func oneIfRight(quadrantI int) int {

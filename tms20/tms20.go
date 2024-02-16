@@ -5,6 +5,7 @@ package tms20
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -134,7 +135,7 @@ func (tms *TileMatrixSet) UnmarshalJSON(data []byte) error {
 	// CRS
 	rawCrs, ok := specials["crs"]
 	if !ok {
-		return fmt.Errorf(`missing key "crs"`)
+		return errors.New(`missing key "crs"`)
 	}
 	tms.CRS, err = unmarshalCRS(rawCrs)
 	if err != nil {
@@ -144,7 +145,7 @@ func (tms *TileMatrixSet) UnmarshalJSON(data []byte) error {
 	// TileMatrices
 	rawTileMatrices, ok := specials["tileMatrices"]
 	if !ok {
-		return fmt.Errorf(`missing key "tileMatrices"`)
+		return errors.New(`missing key "tileMatrices"`)
 	}
 	tms.TileMatrices, err = unmarshalTileMatrices(rawTileMatrices)
 	if err != nil {
@@ -158,13 +159,13 @@ func (tms *TileMatrixSet) UnmarshalJSON(data []byte) error {
 func unmarshalTileMatrices(rawTileMatrices interface{}) (map[TMID]TileMatrix, error) {
 	rawTileMatricesList, ok := rawTileMatrices.([]interface{})
 	if !ok {
-		return nil, fmt.Errorf(`"tileMatrices" should be an array`)
+		return nil, errors.New(`"tileMatrices" should be an array`)
 	}
 	tileMatrices := make(map[TMID]TileMatrix, len(rawTileMatricesList))
 	for _, rawTileMatrix := range rawTileMatricesList {
 		rawTileMatrixMap, ok := rawTileMatrix.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf(`"tileMatrices" should be objects`)
+			return nil, errors.New(`"tileMatrices" should be objects`)
 		}
 		var tileMatrix TileMatrix
 		err := tileMatrix.UnmarshalJSONFromMap(rawTileMatrixMap)
@@ -194,7 +195,7 @@ func unmarshalCRS(rawCrs interface{}) (CRS, error) {
 			return nil, fmt.Errorf(`wrong type key "crs": %T`, rawCrs)
 		}
 	}
-	var errors []error
+	var errs []error
 
 	var uriCrs URICRS
 	err := uriCrs.UnmarshalJSONFromMap(rawCrsMap)
@@ -202,23 +203,23 @@ func unmarshalCRS(rawCrs interface{}) (CRS, error) {
 		uriCrs.asString = asString
 		return &uriCrs, nil
 	}
-	errors = append(errors, err)
+	errs = append(errs, err)
 
 	var wktCrs WKTCRS
 	err = wktCrs.UnmarshalJSONFromMap(rawCrsMap)
 	if err == nil {
 		return &wktCrs, nil
 	}
-	errors = append(errors, err)
+	errs = append(errs, err)
 
 	var referenceSystemCrs ReferenceSystemCRS
 	err = referenceSystemCrs.UnmarshalJSONFromMap(rawCrsMap)
 	if err == nil {
 		return &referenceSystemCrs, nil
 	}
-	errors = append(errors, err)
+	errs = append(errs, err)
 
-	return nil, fmt.Errorf(`could not unmarshal crs into any CRS type. errors: %v`, errors)
+	return nil, fmt.Errorf(`could not unmarshal crs into any CRS type. errors: %v`, errs)
 }
 
 type CRS interface {
@@ -272,7 +273,7 @@ func (crs *URICRS) UnmarshalJSONFromMap(data interface{}) error {
 
 	rawURI, ok := dataMap["uri"]
 	if !ok {
-		return fmt.Errorf(`uri property not found`)
+		return errors.New(`uri property not found`)
 	}
 	crs.uri, ok = rawURI.(string)
 	if !ok {
@@ -357,7 +358,7 @@ func (crs *WKTCRS) UnmarshalJSONFromMap(data interface{}) error {
 
 	rawWKT, ok := dataMap["wkt"]
 	if !ok {
-		return fmt.Errorf(`wkt property not found`)
+		return errors.New(`wkt property not found`)
 	}
 	crs.originalWKT, ok = rawWKT.(map[string]interface{})
 	if !ok {
@@ -427,7 +428,7 @@ func (crs *ReferenceSystemCRS) UnmarshalJSONFromMap(data interface{}) error {
 
 	rawReferenceSystem, ok := dataMap["referenceSystem"]
 	if !ok {
-		return fmt.Errorf(`referenceSystem property not found`)
+		return errors.New(`referenceSystem property not found`)
 	}
 	crs.referenceSystem, ok = rawReferenceSystem.(map[string]interface{})
 	if !ok {
@@ -486,7 +487,7 @@ func (bb *TwoDBoundingBox) UnmarshalJSON(data []byte) error {
 	// CRS
 	rawCrs, ok := specials["crs"]
 	if !ok {
-		return fmt.Errorf(`missing key "crs"`)
+		return errors.New(`missing key "crs"`)
 	}
 	bb.CRS, err = unmarshalCRS(rawCrs)
 	if err != nil {
@@ -541,7 +542,7 @@ func ToXYPoint(tms *TileMatrixSet, point [2]float64) (geom.Point, error) {
 
 func axisOrderIsLatLon(orderedAxes []string) (bool, error) {
 	if len(orderedAxes) < 2 {
-		return false, fmt.Errorf(`could not determine if (empty or single) ordered axes are in lat/lon order`)
+		return false, errors.New(`could not determine if (empty or single) ordered axes are in lat/lon order`)
 	}
 	orderedAxesStr := []byte(strings.ToLower(fmt.Sprintf(`%s,%s`, orderedAxes[0], orderedAxes[1])))
 	if latLonOrderedAxesRegex.Match(orderedAxesStr) {
@@ -549,7 +550,7 @@ func axisOrderIsLatLon(orderedAxes []string) (bool, error) {
 	} else if lonLatOrderedAxesRegex.Match(orderedAxesStr) {
 		return false, nil
 	}
-	return false, fmt.Errorf(`could not determine if ordered axes are in lat/lon order`)
+	return false, errors.New(`could not determine if ordered axes are in lat/lon order`)
 }
 
 // A tile matrix, usually corresponding to a particular zoom level of a TileMatrixSet.
