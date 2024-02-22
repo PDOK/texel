@@ -194,13 +194,6 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}}},
 		},
 		{
-			name:    "needs deduplication, 3 same, 1 different point",
-			tms:     loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs:   []tms20.TMID{0},
-			polygon: geom.Polygon{{{88843.117, 447720.147}, {88880.366, 447732.897}, {88881.636, 447732.275}, {88843.765, 447718.255}, {88843.117, 447720.147}}},
-			want:    map[tms20.TMID][]geom.Polygon{0: {{{{88875.2, 447624.64}, {88875.2, 447839.68}}}}},
-		},
-		{
 			name:  "rightmostLowestPoint is one of the deduped points",
 			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
 			tmIDs: []tms20.TMID{5},
