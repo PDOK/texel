@@ -360,15 +360,37 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 	if newRingLen < 3 {
 		return nil, nil, [][][2]float64{newRing}
 	}
+
+	log.Println(ringIdx)
+	log.Println(geomhelp.WktMustEncode(geom.Polygon{newRing}, 0))
+
+	log.Println("")
+
 	// deduplicate points in the ring
 	newRing = kmpDeduplicate(newRing)
+
+	log.Println(geomhelp.WktMustEncode(geom.Polygon{newRing}, 0))
+	log.Println("")
+
 	newRingLen = len(newRing)
 	// again filter out too small rings, after deduping
 	if newRingLen < 3 {
 		return nil, nil, [][][2]float64{newRing}
 	}
 	// split ring and return results
-	return splitRing(newRing, isOuter, hitMultiple, ringIdx)
+
+	// Debug
+	outerRings, innerRings, pointsAndLines = splitRing(newRing, isOuter, hitMultiple, ringIdx)
+	for _, outer := range outerRings {
+		log.Println(geomhelp.WktMustEncode(geom.Polygon{outer}, 0))
+	}
+	log.Println("")
+	for _, inner := range innerRings {
+		log.Println(geomhelp.WktMustEncode(geom.Polygon{inner}, 0))
+	}
+	log.Println("")
+	// Debug
+	return outerRings, innerRings, pointsAndLines
 }
 
 // if winding order is incorrect, ring is reversed to correct winding order
