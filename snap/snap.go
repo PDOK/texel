@@ -361,7 +361,7 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 		return nil, nil, [][][2]float64{newRing}
 	}
 
-	log.Println(ringIdx)
+	log.Println("new ring:", ringIdx)
 	log.Println(geomhelp.WktMustEncode(geom.Polygon{newRing}, 0))
 
 	log.Println("")
@@ -369,6 +369,7 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 	// deduplicate points in the ring
 	newRing = kmpDeduplicate(newRing)
 
+	log.Println("new ring dedup:", ringIdx)
 	log.Println(geomhelp.WktMustEncode(geom.Polygon{newRing}, 0))
 	log.Println("")
 
@@ -382,10 +383,12 @@ func cleanupNewRing(newRing [][2]float64, isOuter bool, hitMultiple map[intgeom.
 	// Debug
 	outerRings, innerRings, pointsAndLines = splitRing(newRing, isOuter, hitMultiple, ringIdx)
 	for _, outer := range outerRings {
+		log.Println("outer ring")
 		log.Println(geomhelp.WktMustEncode(geom.Polygon{outer}, 0))
 	}
 	log.Println("")
 	for _, inner := range innerRings {
+		log.Println("inner ring")
 		log.Println(geomhelp.WktMustEncode(geom.Polygon{inner}, 0))
 	}
 	log.Println("")
@@ -442,6 +445,10 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 		tempRing := stack.Value(partialRingIdx)
 		if tempRing[0] == tempRing[len(tempRing)-1] {
 			// tempRing is already a complete ring
+			log.Println("Complete ring", partialRingIdx)
+			log.Println(geomhelp.WktMustEncode(geom.Polygon{tempRing[:len(tempRing)-1]}, 0))
+			log.Println("")
+
 			completeRings[partialRingIdx] = tempRing[:len(tempRing)-1]
 			stack.Delete(partialRingIdx)
 		} else {
@@ -459,6 +466,10 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 				}
 				// closed ring, clean up partials
 				if tempRing[0] == tempRing[len(tempRing)-1] {
+					log.Println("closed partial ring", stackIdx)
+					log.Println(geomhelp.WktMustEncode(geom.Polygon{tempRing}, 0))
+					log.Println("")
+
 					completeRings[stackIdx] = tempRing[:len(tempRing)-1]
 					for _, idx := range partialsToRemove {
 						stack.Delete(idx)
