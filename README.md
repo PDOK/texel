@@ -60,24 +60,47 @@ Close thin polygons can turn into lines:
 ## Usage
 
 ```sh
-go build .
-
-go run . -s=[source GPKG] -t=[target GPKG] \
+./texel -s=[source GPKG] -t=[target GPKG] \
    -tms=[tile matrix set for filtering] -z=[tile matrix ids] \
-   -p=[pagesize for writing to target GPKG] -o=[overwrite target GPKG]
+   -p=[pagesize for writing to target GPKG] -o=[overwrite target GPKG] \
+   -pl=[keep points and lines]
 
-go test ./... -covermode=atomic
+./texel --help
 ```
 
-## Docker
+### Docker
+
+```docker
+docker run \
+  --name texel \
+  --rm \
+  -u $(id -u):$(id -g) \
+  -v `pwd`/example:/example \
+  pdok/texel \
+    -s=./example/example.gpkg \
+    -t=./example/example-processed.gpkg \
+    -tms="NetherlandsRDNewQuad" \
+    -z '[5]' \
+    -p=10 \
+    -o=false \
+    -pl=true
+```
+
+## Build
+
+```sh
+go test ./... -covermode=atomic
+
+go build .
+```
+
+### Docker
 
 ```docker
 docker build -t pdok/texel .
-docker run --rm --name texel -v `pwd`/example:/example pdok/texel ./texel \
-   -s=./example/example.gpkg -t=./example/example-processed.gpkg \
-   -tms="NetherlandsRDNewQuad" -z '[5]' \
-   -p=10 -o=false
 ```
+
+
 
 ## References
 
