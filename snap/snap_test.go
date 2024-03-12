@@ -18,16 +18,18 @@ import (
 
 func TestSnap_snapPolygon(t *testing.T) {
 	tests := []struct {
-		name    string
-		tms     tms20.TileMatrixSet
-		tmIDs   []tms20.TMID
-		polygon geom.Polygon
-		want    map[tms20.TMID][]geom.Polygon
+		name               string
+		tms                tms20.TileMatrixSet
+		tmIDs              []tms20.TMID
+		keepPointsAndLines bool
+		polygon            geom.Polygon
+		want               map[tms20.TMID][]geom.Polygon
 	}{
 		{
-			name:  "missing corner",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{14},
+			name:               "missing corner",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{14},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{117220.282, 440135.898},
 				{117210.713, 440135.101},
@@ -46,9 +48,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}}},
 		},
 		{
-			name:  "horizontal line on edge",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{14},
+			name:               "horizontal line on edge",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{14},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{110899.19100000000617001, 504431.15200000000186265},
 				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
@@ -69,9 +72,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}}},
 		},
 		{
-			name:  "needs deduplication",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "needs deduplication",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{0.0, 0.0},
 				{15.0, 0.0},
@@ -96,9 +100,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}}},
 		},
 		{
-			name:  "needs deduplication and reversal",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "needs deduplication and reversal",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{0.0, 2.4},
 				{2.0, 2.4},
@@ -123,9 +128,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}}},
 		},
 		{
-			name:  "needs deduplication with one zigzag",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "needs deduplication with one zigzag",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{0.0, 0.0},
 				{15.0, 0.0},
@@ -156,9 +162,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}}},
 		},
 		{
-			name:  "needs deduplication with more than one zigzag",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "needs deduplication with more than one zigzag",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{0.0, 0.0},
 				{15.0, 0.0},
@@ -194,9 +201,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}}},
 		},
 		{
-			name:  "rightmostLowestPoint is one of the deduped points",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{5},
+			name:               "rightmostLowestPoint is one of the deduped points",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{5},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{69840.279, 445755.872},
 				{69842.666, 445755.289},
@@ -221,9 +229,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "lines and points are not filtered out",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{0},
+			name:               "lines and points are not filtered out",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{0},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{90713.55, 530388.466},
 				{90741.04, 530328.675},
@@ -237,9 +246,23 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "ring length < 3 _after_ deduping, also not filtered out",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{0},
+			name:               "lines and points are filtered out, i.e. keepPointsAndLines = false ",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{0},
+			keepPointsAndLines: false,
+			polygon: geom.Polygon{{
+				{90713.55, 530388.466},
+				{90741.04, 530328.675},
+				{90673.689, 530324.552},
+				{90664.068, 530379.532},
+			}},
+			want: map[tms20.TMID][]geom.Polygon{},
+		},
+		{
+			name:               "ring length < 3 _after_ deduping, also not filtered out",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{0},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{211124.566, 574932.941},
 				{211142.954, 574988.796},
@@ -253,9 +276,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring only, needs splitting",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "outer ring only, needs splitting",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{0.0, 3.0},
 				{3.0, 0.0},
@@ -281,9 +305,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring with one inner ring, outer needs splitting",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "outer ring with one inner ring, outer needs splitting",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{
 					{0.0, 3.0},
@@ -318,9 +343,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring with two inner ring, outer needs splitting, inner rings must be matched to new outer rings",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "outer ring with two inner ring, outer needs splitting, inner rings must be matched to new outer rings",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{
 					{0.0, 3.0},
@@ -362,9 +388,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring only, needs splitting, expect two lines",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "outer ring only, needs splitting, expect two lines",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{0.0, 3.0},
 				{3.0, 0.0},
@@ -394,9 +421,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring with one inner ring, inner needs splitting",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "outer ring with one inner ring, inner needs splitting",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{
 					{0.0, 3.0},
@@ -431,9 +459,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring only, with external line",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "outer ring only, with external line",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{
 					{0.0, 0.0},
@@ -454,9 +483,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "outer ring with 'false' inner rings",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "outer ring with 'false' inner rings",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{
 					{0.0, 0.0},
@@ -483,9 +513,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "snapping creates a new inner ring",
-			tms:   newSimpleTileMatrixSet(1, 8),
-			tmIDs: []tms20.TMID{1},
+			name:               "snapping creates a new inner ring",
+			tms:                newSimpleTileMatrixSet(1, 8),
+			tmIDs:              []tms20.TMID{1},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{
 					{0.0, 0.0},
@@ -518,9 +549,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "splitting of outer and inner ring produces (mirrored) duplicate lines",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{5},
+			name:               "splitting of outer and inner ring produces (mirrored) duplicate lines",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{5},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{{27435.253, 392410.493}, {27339.366, 392266.876}, {27156.23, 392261.72}, {27150.921, 392265.803}, {27153.05, 392268.68}, {27337.2, 392270.744}, {27431.77, 392409.367}, {27435.253, 392410.493}},
 				{{27325.12, 392269.53}, {27157.488, 392265.29}, {27153.165, 392267.869}, {27151.622, 392266.309}, {27156.228, 392262.52}, {27339.052, 392267.615}, {27434.775, 392409.844}, {27338.787, 392271.126}, {27337.382, 392269.953}, {27325.12, 392269.53}},
@@ -554,9 +586,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:  "inner but no outer error because of not reversing because of horizontal rightmostlowest",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{5},
+			name:               "inner but no outer error because of not reversing because of horizontal rightmostlowest",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{5},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{139372.972, 527781.838}, {139525.129, 527782.562}, {139525.711, 527782.368}, {139526.378, 527781.182}, {139526.322, 527780.127}, {139525.935, 527779.501}, {139524.587, 527779.117}, {139519.249, 527779.07}, {139518.262, 527778.621}, {139516.868, 527776.991}, {139517.249, 527776.042}, {139521.038, 527771.641}, {139522.566, 527768.414}, {139518.146, 527765.041}, {139517.85, 527763.597}, {139518.704, 527762.318}, {139524.008, 527757.186}, {139525.037, 527756.403}, {139526.108, 527756.329}, {139527.952, 527757.006}, {139531.819, 527761.335}, {139535.209, 527761.176}, {139536.704, 527762.265}, {139535.71, 527772.004}, {139535.828, 527773.351}, {139537.605, 527775.971}, {139537.763, 527777.456}, {139536.555, 527779.007}, {139534.715, 527779.837}, {139532.606, 527779.984}, {139529.678, 527779.502}, {139528.964, 527779.875}, {139528.698, 527781.132}, {139529.076, 527782.085}, {139544.208, 527783.211}, {139589.555, 527786.608}, {139594.598, 527787.584}, {139609.462, 527788.495}, {139611.557, 527788.435}, {139649.733, 527791.455}, {139650.255, 527791.973}, {139654.415, 527792.496}, {139655.978, 527793.08}, {139670.378, 527794.059}, {139712.26, 527794.864}, {139729.764, 527794.755}, {139757.57, 527795.124}, {139787.205, 527793.835}, {139816.936, 527791.996}, {139824.33, 527791.319298176}, {139824.33, 527756.249181541}, {139806.072, 527754.485}, {139709.471, 527743.599}, {139682.187, 527741.701}, {139628.039, 527739.25}, // something with an inlet that becomes an inner ring
 				{139566.36, 527736.9}, {139433.603, 527736.172}, {139364.846, 527736.093}, // horizontal with rightmostlowest
@@ -570,9 +603,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}, // want no panicInnerRingsButNoOuterRings
 		},
 		{
-			name:  "inner but no outer error because of not reversing because of a very sharp leg/extension",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{0},
+			name:               "inner but no outer error because of not reversing because of a very sharp leg/extension",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{0},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{{
 				{48158.204, 392310.062},
 				{47753.125, 391885.44}, {48565.4, 391515.876}, {47751.195, 391884.821}, // a very sharp leg/extension
@@ -584,10 +618,11 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}}, // want no panicInnerRingsButNoOuterRings
 		},
 		{
-			name:    "split ring from outer is cw, should be ccw",
-			tms:     loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs:   []tms20.TMID{0},
-			polygon: geom.Polygon{{{179334.089, 408229.072}, {179121.631, 408528.181}, {179328.228, 408231.924}, {178889.903, 408431.167}, {178531.386, 408106.618}, {178497.492, 407886.329}, {178535.353, 408103.574}, {178862.244, 408226.852}, {178891.816, 408426.547}, {179173.349, 408187.199}, {178893.957, 408423.424}, {178864.491, 408223.293}, {178537.744, 408101.003}, {178504.209, 407887.598}, {178510.008, 407890.491}, {178542.44, 408098.473}, {178867.788, 408219.534}, {178897.835, 408417.763}, {179170.131, 408181.285}}}, // ccw (with a sharp leg/extension also)
+			name:               "split ring from outer is cw, should be ccw",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{0},
+			keepPointsAndLines: true,
+			polygon:            geom.Polygon{{{179334.089, 408229.072}, {179121.631, 408528.181}, {179328.228, 408231.924}, {178889.903, 408431.167}, {178531.386, 408106.618}, {178497.492, 407886.329}, {178535.353, 408103.574}, {178862.244, 408226.852}, {178891.816, 408426.547}, {179173.349, 408187.199}, {178893.957, 408423.424}, {178864.491, 408223.293}, {178537.744, 408101.003}, {178504.209, 407887.598}, {178510.008, 407890.491}, {178542.44, 408098.473}, {178867.788, 408219.534}, {178897.835, 408417.763}, {179170.131, 408181.285}}}, // ccw (with a sharp leg/extension also)
 			want: map[tms20.TMID][]geom.Polygon{0: {
 				{{{178976.96, 408487.36}, {178761.92, 408272.32}, {178546.88, 408057.28}, {179192, 408272.32}}}, // ccw
 				// bunch of points and lines:
@@ -595,16 +630,18 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}},
 		},
 		{
-			name:    "one of three split outer rings is cw and turned outer after no matching outer",
-			tms:     loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs:   []tms20.TMID{0},
-			polygon: geom.Polygon{{{88580.011, 439678.996}, {88337.73, 439237.216}, {89273.964, 438026.4}, {89386.079, 438023.335}, {90251.524, 438784.15}, {89852.567, 439284.421}, {89425.263, 439355.284}, {89247.228, 439563.507}, {89089.95, 439692.364}, {88959.832, 439729.531}, {89055.886, 439819.684}, {89466.904, 439382.346}, {89899.488, 439311.969}, {90170.183, 438911.775}, {90329.354, 438821.391}, {90651.094, 438796.963}, {91473.854, 439243.296}, {90632.307, 438747.518}, {90270.708, 438757.632}, {89555.357, 437677.283}, {90499.163, 436096.427}, {91435.651, 435963.019}, {91404.334, 436039.088}, {91254.337, 436091.084}, {90500.745, 436098.362}, {90076.214, 437042.706}, {89870.055, 437307.816}, {89768.94, 437363.42}, {89650.683, 437521.434}, {89640.994, 437568.838}, {89558.222, 437677.647}, {90269.467, 438753.387}, {90632.85, 438744.94}, {91313.174, 439143.369}, {91477.748, 439241.657}, {91475.353, 439245.66}, {91457.592, 439266.852}, {91243.008, 439179.921}, {90710.843, 438897.924}, {90650.175, 438799.288}, {90440.729, 438846.985}, {90395.019, 438846.967}, {90329.938, 438823.822}, {90287.474, 438885.328}, {90172.086, 438913.396}, {90044.257, 439125.421}, {89901.052, 439313.924}, {89885.113, 439321.991}, {89835.824, 439335.083}, {89468.228, 439384.467}, {89173.832, 439758.873}, {89061.413, 439821.909}, {89054.68, 439821.883}, {89023.222, 439801.24}, {88989.659, 439763.597}, {88949.781, 439739.428}, {88958.959, 439726.203}, {89088.39, 439690.41}, {89245.45, 439561.75}, {89388.248, 439376.01}, {89424.081, 439353.075}, {89566.906, 439317.631}, {89851.03, 439282.45}, {90111.766, 438914.525}, {90249.027, 438784.029}, {90211.25, 438760.51}, {90183.492, 438736.293}, {89584.683, 438207.656}, {89384.579, 438025.335}, {89274.819, 438028.749}, {88339.974, 439238.317}, {88419.861, 439377.057}, {88447.454, 439387.602}, {88485.231, 439376.209}, {88505.9, 439379.802}, {88564.366, 439441.722}, {88589.428, 439478.721}, {88598.844, 439504.106}, {88608.517, 439561.563}, {88582.418, 439679.669}, {88565.692, 439724.97}, {88480.367, 439857.335}, {88409.981, 439938.527}, {88412.431, 439940.265}, {88366.171, 440033.682}, {88353.723, 440046.457}, {88356.08, 440054.25}, {88342.856, 440086.861}, {88266.552, 440224.799}, {88252.681, 440243.646}, {88196.44, 440306.135}, {87992.789, 440467.453}, {88250.595, 440274.14}, {88508.083, 439845.775}, {88270.249, 440256.888}, {88194.893, 440335.659}, {88010.485, 440474.349}, {87996.213, 440475.679}, {87990.894, 440469.07}, {88580.011, 439678.996}}},
-			want:    map[tms20.TMID][]geom.Polygon{}, // want no panicNoMatchingOuterForInnerRing
+			name:               "one of three split outer rings is cw and turned outer after no matching outer",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{0},
+			keepPointsAndLines: true,
+			polygon:            geom.Polygon{{{88580.011, 439678.996}, {88337.73, 439237.216}, {89273.964, 438026.4}, {89386.079, 438023.335}, {90251.524, 438784.15}, {89852.567, 439284.421}, {89425.263, 439355.284}, {89247.228, 439563.507}, {89089.95, 439692.364}, {88959.832, 439729.531}, {89055.886, 439819.684}, {89466.904, 439382.346}, {89899.488, 439311.969}, {90170.183, 438911.775}, {90329.354, 438821.391}, {90651.094, 438796.963}, {91473.854, 439243.296}, {90632.307, 438747.518}, {90270.708, 438757.632}, {89555.357, 437677.283}, {90499.163, 436096.427}, {91435.651, 435963.019}, {91404.334, 436039.088}, {91254.337, 436091.084}, {90500.745, 436098.362}, {90076.214, 437042.706}, {89870.055, 437307.816}, {89768.94, 437363.42}, {89650.683, 437521.434}, {89640.994, 437568.838}, {89558.222, 437677.647}, {90269.467, 438753.387}, {90632.85, 438744.94}, {91313.174, 439143.369}, {91477.748, 439241.657}, {91475.353, 439245.66}, {91457.592, 439266.852}, {91243.008, 439179.921}, {90710.843, 438897.924}, {90650.175, 438799.288}, {90440.729, 438846.985}, {90395.019, 438846.967}, {90329.938, 438823.822}, {90287.474, 438885.328}, {90172.086, 438913.396}, {90044.257, 439125.421}, {89901.052, 439313.924}, {89885.113, 439321.991}, {89835.824, 439335.083}, {89468.228, 439384.467}, {89173.832, 439758.873}, {89061.413, 439821.909}, {89054.68, 439821.883}, {89023.222, 439801.24}, {88989.659, 439763.597}, {88949.781, 439739.428}, {88958.959, 439726.203}, {89088.39, 439690.41}, {89245.45, 439561.75}, {89388.248, 439376.01}, {89424.081, 439353.075}, {89566.906, 439317.631}, {89851.03, 439282.45}, {90111.766, 438914.525}, {90249.027, 438784.029}, {90211.25, 438760.51}, {90183.492, 438736.293}, {89584.683, 438207.656}, {89384.579, 438025.335}, {89274.819, 438028.749}, {88339.974, 439238.317}, {88419.861, 439377.057}, {88447.454, 439387.602}, {88485.231, 439376.209}, {88505.9, 439379.802}, {88564.366, 439441.722}, {88589.428, 439478.721}, {88598.844, 439504.106}, {88608.517, 439561.563}, {88582.418, 439679.669}, {88565.692, 439724.97}, {88480.367, 439857.335}, {88409.981, 439938.527}, {88412.431, 439940.265}, {88366.171, 440033.682}, {88353.723, 440046.457}, {88356.08, 440054.25}, {88342.856, 440086.861}, {88266.552, 440224.799}, {88252.681, 440243.646}, {88196.44, 440306.135}, {87992.789, 440467.453}, {88250.595, 440274.14}, {88508.083, 439845.775}, {88270.249, 440256.888}, {88194.893, 440335.659}, {88010.485, 440474.349}, {87996.213, 440475.679}, {87990.894, 440469.07}, {88580.011, 439678.996}}},
+			want:               map[tms20.TMID][]geom.Polygon{}, // want no panicNoMatchingOuterForInnerRing
 		},
 		{
-			name:  "sneaky nested pseudo ring creates more than 1 matching outer ring",
-			tms:   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
-			tmIDs: []tms20.TMID{0},
+			name:               "sneaky nested pseudo ring creates more than 1 matching outer ring",
+			tms:                loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			tmIDs:              []tms20.TMID{0},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{{198877.1, 506188.635}, {198805.608, 506361.231}, {198633.011, 506432.722}, {198460.415, 506361.23}, {198388.924, 506188.633}, {198460.416, 506016.037}, {198633.013, 505944.546}, {198805.609, 506016.038}},
 				{{198429.407, 506188.635}, {198489.229, 506332.782}, {198633.531, 506392.228}, {198777.528, 506332.045}, {198836.612, 506187.594}, {198776.434, 506044.111}, {198632.5, 505985.022}, {198488.864, 506044.832}, {198429.407, 506188.615}, {198551.204, 506045.823}, {198690.244, 506034.324}, {198792.36, 506147.487}, {198748.509, 506305.863}, {198576.128, 506343.056}},
@@ -617,6 +654,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 			tmIDs: []tms20.TMID{
 				1, // 32 * 8.0
 			},
+			keepPointsAndLines: true,
 			polygon: geom.Polygon{
 				{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}}, // big outer
 				{{12.0, 52.0}, {12.0, 12.0}, {52.0, 12.0}, {52.0, 52.0}, {30.0, 52.0}, {30.0, 44.0}, {44.0, 44.0}, {44.0, 20.0}, {20.0, 20.0}, {20.0, 44.0}, {27.0, 44.0}, {27.0, 52.0}},     // big letter C that turns into nested rings when snapped
@@ -653,7 +691,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs)
+			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs, tt.keepPointsAndLines)
 			for tmID, wantPoly := range tt.want {
 				if !assert.EqualValues(t, wantPoly, got[tmID]) {
 					t.Errorf("snapPolygon(%v, _, %v)\n=     %v\nwant: %v",

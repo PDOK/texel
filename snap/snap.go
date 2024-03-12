@@ -23,9 +23,8 @@ import (
 )
 
 const (
-	xAx                = 0
-	yAx                = 1
-	keepPointsAndLines = true // TODO do something with polys that collapsed into points and lines
+	xAx = 0
+	yAx = 1
 )
 
 type IsOuter = bool
@@ -34,7 +33,7 @@ type IsOuter = bool
 // and adds points to lines to prevent intersections.
 //
 //nolint:revive
-func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
+func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID, keepPointsAndLines bool) map[tms20.TMID][]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
 	ix := pointindex.FromTileMatrixSet(tileMatrixSet, deepestID)
 	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
@@ -44,7 +43,7 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 	}
 
 	ix.InsertPolygon(polygon)
-	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels)
+	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels, keepPointsAndLines)
 
 	newPolygonsPerTileMatrixID := make(map[tms20.TMID][]geom.Polygon, len(newPolygonsPerLevel))
 	for level, newPolygons := range newPolygonsPerLevel {
@@ -67,7 +66,7 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[poin
 }
 
 //nolint:cyclop
-func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level) map[pointindex.Level][]geom.Polygon {
+func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level, keepPointsAndLines bool) map[pointindex.Level][]geom.Polygon {
 	levelMap := mapslicehelp.AsKeys(levels)
 	newOuters := make(map[pointindex.Level][][][2]float64, len(levels))
 	newInners := make(map[pointindex.Level][][][2]float64, len(levels))
