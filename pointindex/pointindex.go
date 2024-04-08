@@ -3,6 +3,7 @@ package pointindex
 import (
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"slices"
 
@@ -135,7 +136,7 @@ func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
 	deepestSize := int(mathhelp.Pow2(ix.maxDepth))
 	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
 		// should never happen
-		panic(fmt.Errorf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, deepestSize, deepestSize))
+		log.Println(fmt.Errorf("[WARNING] Trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, deepestSize, deepestSize))
 	}
 	ix.insertCoord(deepestX, deepestY)
 }
