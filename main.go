@@ -28,7 +28,6 @@ const OVERWRITE string = `overwrite`
 const TILEMATRIXSET string = `tilematrixset`
 const TILEMATRICES string = `tilematrices`
 const PAGESIZE string = `pagesize`
-const KEEPPOINTSANDLINES string = `keeppointsandlines`
 
 //nolint:funlen
 func main() {
@@ -81,14 +80,6 @@ func main() {
 			Required: false,
 			EnvVars:  []string{strcase.ToScreamingSnake(PAGESIZE)},
 		},
-		&cli.BoolFlag{
-			Name:     KEEPPOINTSANDLINES,
-			Aliases:  []string{"pl"},
-			Usage:    "Parts of polygons are reduced to points and lines after texel, keep these details or not.",
-			Value:    true,
-			Required: false,
-			EnvVars:  []string{strcase.ToScreamingSnake(KEEPPOINTSANDLINES)},
-		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -116,7 +107,9 @@ func main() {
 		gpkgTargets := make(map[int]*gpkg.TargetGeopackage, len(tileMatrixIDs))
 		overwrite := c.Bool(OVERWRITE)
 		pagesize := c.Int(PAGESIZE) // TODO divide by tile matrices count
-		keepPointsAndLines := c.Bool(KEEPPOINTSANDLINES)
+
+		// TODO: This results in broken tiles, we should change this to a collapse option (optionally collapse rings from polygons to lines and points; grow lines as long as possible and add an option for line-length-to-keep)
+		keepPointsAndLines := false
 		for _, tmID := range tileMatrixIDs {
 			gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize)
 			defer gpkgTargets[tmID].Close() // yes, supposed to go here, want to close all at end of func
