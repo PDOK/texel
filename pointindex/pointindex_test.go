@@ -2,7 +2,6 @@ package pointindex
 
 import (
 	"os"
-	"slices"
 	"testing"
 
 	"github.com/pdok/texel/mapslicehelp"
@@ -139,7 +138,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				maxDepth: 0,
+				maxDepth:    0,
+				deepestSize: mathhelp.Pow2(0),
 				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
@@ -155,7 +155,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				maxDepth: 1,
+				maxDepth:    1,
+				deepestSize: mathhelp.Pow2(1),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
@@ -178,7 +179,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 4.0, 4.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 2.0}),
 				},
-				maxDepth: 3,
+				maxDepth:    3,
+				deepestSize: mathhelp.Pow2(3),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -212,7 +214,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 16.0, 16.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{8.0, 8.0}),
 				},
-				maxDepth: 5,
+				maxDepth:    5,
+				deepestSize: mathhelp.Pow2(5),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -263,6 +266,63 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 	}
 }
 
+func TestPointIndex_InsertPoint_Deepest(t *testing.T) {
+	tests := []struct {
+		name  string
+		tmsID string
+		tmID  tms20.TMID
+		point geom.Point
+		want  Quadrant
+	}{
+		{
+			name:  "example point causing panic if span/size is not round",
+			tmsID: "WebMercatorQuad",
+			tmID:  17,
+			point: geom.Point{642743.3299, 6898063.027},
+			want: Quadrant{ // want no panic
+				z:           225954093760580854,
+				intExtent:   intgeom.Extent{6427432856623948, 68980629641080914, 6427433603079302, 68980630387536268},
+				intCentroid: intgeom.Point{6427433229851625, 68980630014308591},
+			},
+		},
+		{
+			name:  "another point causing panic if span/size is not round, even if precision is upped, because of quadrants shifting",
+			tmsID: "WebMercatorQuad",
+			tmID:  17,
+			point: geom.Point{642743.4434337, 6898062.9994258},
+			want: Quadrant{ // want no panic
+				z:           225954093760581026,
+				intExtent:   intgeom.Extent{6427434349534656, 68980629641080914, 6427435095990010, 68980630387536268},
+				intCentroid: intgeom.Point{6427434722762333, 68980630014308591},
+			},
+		},
+		{
+			name:  "in RD, deepestRes is round, so no problems with quadrants shifting",
+			tmsID: "NetherlandsRDNewQuad",
+			tmID:  16,
+			point: geom.Point{155000, 463000},
+			want: Quadrant{
+				z:           0xc0000000000000,
+				intExtent:   intgeom.FromGeomExtent(geom.Extent{155000, 463000, 155000 + 0.00328125, 463000 + 0.00328125}),
+				intCentroid: intgeom.FromGeomPoint(geom.Point{155000 + (0.00328125 / 2), 463000 + (0.00328125 / 2)}),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tms := loadEmbeddedTileMatrixSet(t, tt.tmsID)
+			ix := FromTileMatrixSet(tms, tt.tmID)
+
+			ix.InsertPoint(tt.point)
+			assert.Equal(t, 1, len(ix.quadrants[ix.maxDepth]))
+			for z, quadrant := range ix.quadrants[ix.maxDepth] {
+				assert.EqualValues(t, tt.want, quadrant)
+				assert.EqualValues(t, tt.want.z, z)
+			}
+		})
+	}
+}
+
 func TestPointIndex_SnapClosestPoints(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -307,7 +367,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 		},
 		{
 			name: "horizontal line",
-			ix:   newPointIndexFromEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad", []tms20.TMID{14}),
+			ix:   newPointIndexFromEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad", 14),
 			poly: geom.Polygon{{
 				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
 				{110907.64400000000023283, 504428.79999999998835847}, // horizontal line between quadrants
@@ -399,7 +459,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			}
 			got := ix.SnapClosestPoints(tt.line, mapslicehelp.AsKeys(levels), tt.ringID)
 			if !assert.EqualValues(t, tt.want, got) {
-				ix.toWkt(os.Stdout)
+				ix.ToWkt(os.Stdout)
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
 			}
 		})
@@ -446,6 +506,7 @@ func newSimplePointIndex(maxDepth Level, cellSize float64) *PointIndex {
 			intExtent: intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)},
 		},
 		maxDepth:    maxDepth,
+		deepestSize: mathhelp.Pow2(maxDepth),
 		quadrants:   make(map[Level]map[morton.Z]Quadrant, maxDepth+1),
 		hitOnce:     make(map[morton.Z]map[intgeom.Point][]int, 0),
 		hitMultiple: make(map[morton.Z]map[intgeom.Point][]int, 0),
@@ -460,9 +521,6 @@ func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 	return tms
 }
 
-func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, tmIDs []tms20.TMID) *PointIndex {
-	tms := loadEmbeddedTileMatrixSet(t, tmsID)
-	deepestID := slices.Max(tmIDs)
-	ix := FromTileMatrixSet(tms, deepestID)
-	return ix
+func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, deepestTMID tms20.TMID) *PointIndex {
+	return FromTileMatrixSet(loadEmbeddedTileMatrixSet(t, tmsID), deepestTMID)
 }

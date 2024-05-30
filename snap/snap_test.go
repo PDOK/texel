@@ -688,6 +688,16 @@ func TestSnap_snapPolygon(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:               "no points found panic on TMS other than RD",
+			tms:                loadEmbeddedTileMatrixSet(t, "WebMercatorQuad"),
+			tmIDs:              []tms20.TMID{17},
+			keepPointsAndLines: true,
+			polygon: geom.Polygon{
+				{{642743.3299, 6898063.027}, {642694.6797, 6898049.319}, {642671.3143, 6898042.735}, {642671.3143, 6898042.735}, {642668.1822, 6898053.868}, {642740.1897, 6898074.148}},
+			},
+			want: map[tms20.TMID][]geom.Polygon{}, // want no panicNoPointsFoundForVertices
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

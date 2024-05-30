@@ -62,7 +62,9 @@ type Quadrant struct {
 //	          inc
 type PointIndex struct {
 	Quadrant
-	maxDepth    Level
+	maxDepth Level
+	// Number of quadrants (in one direction) on the deepest level (= 2 ^ maxDepth)
+	deepestSize uint
 	quadrants   map[Level]map[morton.Z]Quadrant
 	hitOnce     map[Level]map[intgeom.Point][]int
 	hitMultiple map[Level]map[intgeom.Point][]int
@@ -89,6 +91,7 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 			z:         0,
 		},
 		maxDepth:    maxDepth,
+		deepestSize: mathhelp.Pow2(maxDepth),
 		quadrants:   make(map[Level]map[morton.Z]Quadrant, maxDepth+1),
 		hitOnce:     make(map[uint]map[intgeom.Point][]int),
 		hitMultiple: make(map[uint]map[intgeom.Point][]int),
@@ -122,8 +125,7 @@ func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
 
 // InsertPoint inserts a Point by its absolute coord
 func (ix *PointIndex) InsertPoint(point geom.Point) {
-	deepestSize := mathhelp.Pow2(ix.maxDepth)
-	intDeepestRes := ix.intExtent.XSpan() / int64(deepestSize)
+	intDeepestRes := ix.intExtent.XSpan() / int64(ix.deepestSize)
 	intPoint := intgeom.FromGeomPoint(point)
 	deepestX := int((intPoint.X() - ix.intExtent.MinX()) / intDeepestRes)
 	deepestY := int((intPoint.Y() - ix.intExtent.MinY()) / intDeepestRes)
@@ -132,10 +134,9 @@ func (ix *PointIndex) InsertPoint(point geom.Point) {
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
-	deepestSize := int(mathhelp.Pow2(ix.maxDepth))
-	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
+	if deepestX < 0 || deepestY < 0 || deepestX > int(ix.deepestSize)-1 || deepestY > int(ix.deepestSize)-1 {
 		// should never happen
-		panic(fmt.Errorf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, deepestSize, deepestSize))
+		panic(fmt.Errorf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, ix.deepestSize, ix.deepestSize))
 	}
 	ix.insertCoord(deepestX, deepestY)
 }
@@ -476,8 +477,8 @@ func oneIfTop(quadrantI int) int {
 	return (quadrantI & top) >> 1
 }
 
-// toWkt creates a WKT representation of the pointcloud. For debugging/visualising.
-func (ix *PointIndex) toWkt(writer io.Writer) {
+// ToWkt creates a WKT representation of the pointcloud. For debugging/visualising.
+func (ix *PointIndex) ToWkt(writer io.Writer) {
 	for level, quadrants := range ix.quadrants {
 		for _, quadrant := range quadrants {
 			_ = wkt.Encode(writer, quadrant.intExtent.ToGeomExtent())
