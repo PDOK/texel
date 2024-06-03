@@ -174,7 +174,7 @@ func validateTileMatrixSet(tms tms20.TileMatrixSet, tileMatrixIDs []tms20.TMID) 
 		log.Printf("warning, (largest) deviation is larger than 1 tile pixel (%f units) on the deepest matrix (%d)\n", deviationInUnits, deepestTMID)
 		log.Println(stats)
 	}
-	return nil
+	return pointindex.IsQuadTree(tms)
 }
 
 func initGPKGTarget(targetPathFmt string, tmID int, overwrite bool, pagesize int) *gpkg.TargetGeopackage {

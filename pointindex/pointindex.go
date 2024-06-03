@@ -3,11 +3,12 @@ package pointindex
 import (
 	"errors"
 	"fmt"
-	"golang.org/x/exp/maps"
 	"io"
 	"math"
 	"slices"
 	"strconv"
+
+	"golang.org/x/exp/maps"
 
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
@@ -75,16 +76,14 @@ type PointIndex struct {
 type Level = uint
 type Q = int // quadrant index (0, 1, 2 or 3)
 
-func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
-	if err := isQuadTree(tileMatrixSet); err != nil {
-		panic(err)
-	}
+func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) (*PointIndex, error) {
+	// assuming IsQuadTree was tested before
 	rootTM := tileMatrixSet.TileMatrices[0]
 	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
 	deepestLevel := uint(deepestTMID) + levelDiff
 	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
 	if err != nil {
-		panic(fmt.Errorf(`could not make PointIndex from TileMatrixSet %v: %w'`, tileMatrixSet.ID, err))
+		return nil, fmt.Errorf(`could not make PointIndex from TileMatrixSet %v: %w'`, tileMatrixSet.ID, err)
 	}
 	intBottomLeft := intgeom.FromGeomPoint(bottomLeft)
 	intTopRight := intgeom.FromGeomPoint(topRight)
@@ -104,7 +103,7 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
-	return &ix
+	return &ix, nil
 }
 
 // InsertPolygon inserts all points from a Polygon
@@ -471,7 +470,7 @@ func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.
 	exclusiveTip := getExclusiveTip(edgeI, intEdge)
 	lOrd1 := intLine[0][varAx]
 	lOrd2 := intLine[1][varAx]
-	return lOrd1 != lOrd2 && (mathhelp.BetweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || mathhelp.BetweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
+	return lOrd1 != lOrd2 && (mathhelp.IBetweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || mathhelp.IBetweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
 }
 
 func oneIfRight(quadrantI int) int {
@@ -496,7 +495,8 @@ func (ix *PointIndex) ToWkt(writer io.Writer) {
 	}
 }
 
-func isQuadTree(tms tms20.TileMatrixSet) error {
+//nolint:nestif
+func IsQuadTree(tms tms20.TileMatrixSet) error {
 	var previousTMID int
 	var previousTM *tms20.TileMatrix
 	tmIDs := maps.Keys(tms.TileMatrices)
@@ -529,6 +529,15 @@ func isQuadTree(tms tms20.TileMatrixSet) error {
 			if tm.CornerOfOrigin != previousTM.CornerOfOrigin {
 				return errors.New("tile matrixes should have the same corner of origin: " + tm.ID)
 			}
+			if tm.TileHeight != previousTM.TileHeight {
+				return errors.New("tile matrix tiles should stay the same size: " + tm.ID)
+			}
+			if tm.MatrixHeight != 2*previousTM.MatrixHeight {
+				return errors.New("tile matrix should double in size each level: " + tm.ID)
+			}
+			if !mathhelp.FBetweenInc(previousTM.CellSize/tm.CellSize, 1.99, 2.01) { // between because of fp error
+				return errors.New("cell size should half each level: " + tm.ID)
+			}
 		}
 
 		previousTMID = tmID
@@ -546,7 +555,10 @@ func DeviationStats(tms tms20.TileMatrixSet, deepestTMID tms20.TMID) (stats stri
 	if err != nil {
 		return
 	}
-	ix := FromTileMatrixSet(tms, deepestTMID)
+	ix, err := FromTileMatrixSet(tms, deepestTMID)
+	if err != nil {
+		return
+	}
 	p := uint(intgeom.Precision + 1)
 	ps := strconv.Itoa(int(p))
 	stats += fmt.Sprintf("deepest level: %d\n", ix.deepestLevel)

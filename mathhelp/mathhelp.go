@@ -1,6 +1,13 @@
 package mathhelp
 
-func BetweenInc(f, p, q int64) bool {
+func IBetweenInc(f, p, q int64) bool {
+	if p <= q {
+		return p <= f && f <= q
+	}
+	return q <= f && f <= p
+}
+
+func FBetweenInc(f, p, q float64) bool {
 	if p <= q {
 		return p <= f && f <= q
 	}

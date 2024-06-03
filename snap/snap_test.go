@@ -1,6 +1,7 @@
 package snap
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/pdok/texel/geomhelp"
@@ -928,7 +929,7 @@ func newSimpleTileMatrixSet(deepestTMID pointindex.Level, cellSize float64) tms2
 		// (only values from the root tm are used, for the rest it is assumed to follow quad matrix rules)
 		tmCellSize := cellSize * float64(mathhelp.Pow2(deepestTMID-uint(tmID)))
 		tms.TileMatrices[tmID] = tms20.TileMatrix{
-			ID:               "0",
+			ID:               strconv.Itoa(tmID),
 			ScaleDenominator: tmCellSize / tms20.StandardizedRenderingPixelSize,
 			CellSize:         tmCellSize,
 			CornerOfOrigin:   tms20.BottomLeft,

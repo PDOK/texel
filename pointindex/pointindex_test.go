@@ -1,6 +1,7 @@
 package pointindex
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -18,6 +19,10 @@ import (
 	"github.com/go-spatial/geom"
 	"github.com/stretchr/testify/assert"
 )
+
+func assertNoErr(t assert.TestingT, err error, _ ...any) bool {
+	return assert.Nil(t, err)
+}
 
 func TestPointIndex_containsPoint(t *testing.T) {
 	tests := []struct {
@@ -320,7 +325,8 @@ func TestPointIndex_InsertPoint_Deepest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tms := loadEmbeddedTileMatrixSet(t, tt.tmsID)
-			ix := FromTileMatrixSet(tms, tt.tmID)
+			ix, err := FromTileMatrixSet(tms, tt.tmID)
+			require.Nil(t, err)
 
 			ix.InsertPoint(tt.point)
 			assert.Equal(t, 1, len(ix.quadrants[ix.deepestLevel]))
@@ -534,5 +540,113 @@ func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 }
 
 func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, deepestTMID tms20.TMID) *PointIndex {
-	return FromTileMatrixSet(loadEmbeddedTileMatrixSet(t, tmsID), deepestTMID)
+	tms, err := FromTileMatrixSet(loadEmbeddedTileMatrixSet(t, tmsID), deepestTMID)
+	require.Nil(t, err)
+	return tms
+}
+
+func TestIsQuadTree(t *testing.T) {
+	tests := []struct {
+		name    string
+		tms     tms20.TileMatrixSet
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name:    "NetherlandsRDNewQuad",
+			tms:     loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			wantErr: assertNoErr,
+		}, {
+			name:    "WebMercatorQuad",
+			tms:     loadEmbeddedTileMatrixSet(t, "WebMercatorQuad"),
+			wantErr: assertNoErr,
+		}, {
+			name:    "EuropeanETRS89_LAEAQuad",
+			tms:     loadEmbeddedTileMatrixSet(t, "EuropeanETRS89_LAEAQuad"),
+			wantErr: assertNoErr,
+		}, {
+			name: "GNOSISGlobalGrid",
+			tms:  loadEmbeddedTileMatrixSet(t, "GNOSISGlobalGrid"),
+			wantErr: func(t assert.TestingT, err error, _ ...any) bool {
+				return assert.ErrorContains(t, err, "tile matrix height should be same as width")
+			},
+		}, {
+			name: "LINZAntarticaMapTilegrid",
+			tms:  loadEmbeddedTileMatrixSet(t, "LINZAntarticaMapTilegrid"),
+			wantErr: func(t assert.TestingT, err error, _ ...any) bool {
+				return assert.ErrorContains(t, err, "tile matrix should double in size each level")
+			},
+		}, {
+			name:    "WorldMercatorWGS84Quad",
+			tms:     loadEmbeddedTileMatrixSet(t, "WorldMercatorWGS84Quad"),
+			wantErr: assertNoErr,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.wantErr(t, IsQuadTree(tt.tms), fmt.Sprintf("IsQuadTree(%v)", tt.tms))
+		})
+	}
+}
+
+func TestDeviationStats(t *testing.T) {
+	tests := []struct {
+		name                  string
+		tms                   tms20.TileMatrixSet
+		deepestTMID           tms20.TMID
+		wantStats             string
+		wantDeviationInUnits  float64
+		wantDeviationInPixels float64
+		margin                float64
+		wantErr               assert.ErrorAssertionFunc
+	}{
+		{
+			name:                  "NetherlandsRDNewQuad",
+			tms:                   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			deepestTMID:           16,
+			wantDeviationInUnits:  0,
+			wantDeviationInPixels: 0,
+			margin:                1e-6, // micrometers
+			wantErr:               assertNoErr,
+		},
+		{
+			name:                  "WebMercatorQuad",
+			tms:                   loadEmbeddedTileMatrixSet(t, "WebMercatorQuad"),
+			deepestTMID:           18,
+			wantDeviationInUnits:  0,
+			wantDeviationInPixels: 0,
+			margin:                1,
+			wantErr:               assertNoErr,
+		},
+		{
+			name:                  "WebMercatorQuad starting from 19 has more than 1 pixel deviation ... ;(",
+			tms:                   loadEmbeddedTileMatrixSet(t, "WebMercatorQuad"),
+			deepestTMID:           19,
+			wantDeviationInUnits:  1,
+			wantDeviationInPixels: 6,
+			margin:                1,
+			wantErr:               assertNoErr,
+		},
+		{
+			name:                  "EuropeanETRS89_LAEAQuad",
+			tms:                   loadEmbeddedTileMatrixSet(t, "EuropeanETRS89_LAEAQuad"),
+			deepestTMID:           15,
+			wantDeviationInUnits:  0,
+			wantDeviationInPixels: 0,
+			margin:                1,
+			wantErr:               assertNoErr,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotStats, gotDeviationInUnits, gotDeviationInPixels, err := DeviationStats(tt.tms, tt.deepestTMID)
+			if !tt.wantErr(t, err, fmt.Sprintf("DeviationStats(%v, %v)", tt.tms.ID, tt.deepestTMID)) {
+				return
+			}
+			if tt.wantStats != "" {
+				assert.Containsf(t, tt.wantStats, gotStats, "DeviationStats(%v, %v)", tt.tms.ID, tt.deepestTMID)
+			}
+			assert.True(t, mathhelp.FBetweenInc(gotDeviationInUnits, tt.wantDeviationInUnits-tt.margin, tt.wantDeviationInUnits+tt.margin), "DeviationStats(%v, %v)", tt.tms.ID, tt.deepestTMID)
+			assert.True(t, mathhelp.FBetweenInc(gotDeviationInPixels, tt.wantDeviationInPixels-tt.margin, tt.wantDeviationInPixels+tt.margin), "DeviationStats(%v, %v)", tt.tms.ID, tt.deepestTMID)
+		})
+	}
 }
