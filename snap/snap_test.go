@@ -915,18 +915,18 @@ func Test_dedupeInnersOuters(t *testing.T) {
 }
 
 // newSimpleTileMatrixSet creates a tms for snap testing purposes
-// the effective quadrant amount (one axis) on the deepest level will be 2^maxDepth * 16 (vt internal pixel res)
+// the effective quadrant amount (one axis) on the deepest level will be 2^deepestLevel * 16 (vt internal pixel res)
 // the effective quadrant size (one axis) on the deepest level will be cellSize / 16 (vt internal pixel res)
-func newSimpleTileMatrixSet(maxDepth pointindex.Level, cellSize float64) tms20.TileMatrixSet {
+func newSimpleTileMatrixSet(deepestTMID pointindex.Level, cellSize float64) tms20.TileMatrixSet {
 	zeroZero := tms20.TwoDPoint([2]float64{0.0, 0.0})
 	tms := tms20.TileMatrixSet{
 		CRS:          fakeCRS{},
 		OrderedAxes:  []string{"X", "Y"},
-		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix, maxDepth+1),
+		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix, deepestTMID+1),
 	}
-	for tmID := 0; tmID <= int(maxDepth); tmID++ {
+	for tmID := 0; tmID <= int(deepestTMID); tmID++ {
 		// (only values from the root tm are used, for the rest it is assumed to follow quad matrix rules)
-		tmCellSize := cellSize * float64(mathhelp.Pow2(maxDepth-uint(tmID)))
+		tmCellSize := cellSize * float64(mathhelp.Pow2(deepestTMID-uint(tmID)))
 		tms.TileMatrices[tmID] = tms20.TileMatrix{
 			ID:               "0",
 			ScaleDenominator: tmCellSize / tms20.StandardizedRenderingPixelSize,
@@ -942,7 +942,6 @@ func newSimpleTileMatrixSet(maxDepth pointindex.Level, cellSize float64) tms20.T
 	return tms
 }
 
-//nolint:unparam
 func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 	tms, err := tms20.LoadEmbeddedTileMatrixSet(tmsID)
 	require.NoError(t, err)

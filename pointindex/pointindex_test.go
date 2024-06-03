@@ -71,7 +71,7 @@ func TestPointIndex_containsPoint(t *testing.T) {
 			want: false,
 		},
 	}
-	extent := intgeom.Extent{0, 0, intOne, intOne}
+	extent := intgeom.Extent{0, 0, intgeom.One, intgeom.One}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := containsPoint(intgeom.FromGeomPoint(tt.pt), extent)
@@ -94,10 +94,10 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}{
 		{
 			name:          "simple",
-			intRootExtent: intgeom.Extent{0, 0, intOne, intOne},
+			intRootExtent: intgeom.Extent{0, 0, intgeom.One, intgeom.One},
 			want: wants{
-				extent:   intgeom.Extent{0, 0, intOne, intOne},
-				centroid: intgeom.Point{intHalf, intHalf},
+				extent:   intgeom.Extent{0, 0, intgeom.One, intgeom.One},
+				centroid: intgeom.Point{intgeom.Half, intgeom.Half},
 			},
 		},
 		{
@@ -111,7 +111,12 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			extent, centroid := getQuadrantExtentAndCentroid(0, 0, 0, tt.intRootExtent)
+			ix := PointIndex{
+				deepestLevel: 0,
+				deepestSize:  1,
+				deepestRes:   tt.intRootExtent.XSpan() / 1,
+			}
+			extent, centroid := ix.getQuadrantExtentAndCentroid(0, 0, 0, tt.intRootExtent)
 			if !assert.EqualValues(t, tt.want.extent, extent) {
 				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", extent, tt.want.extent)
 			}
@@ -138,8 +143,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				maxDepth:    0,
-				deepestSize: mathhelp.Pow2(0),
+				deepestLevel: 0,
+				deepestSize:  mathhelp.Pow2(0),
+				deepestRes:   intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
 				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
@@ -155,8 +161,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				maxDepth:    1,
-				deepestSize: mathhelp.Pow2(1),
+				deepestLevel: 1,
+				deepestSize:  mathhelp.Pow2(1),
+				deepestRes:   intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
@@ -179,8 +186,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 4.0, 4.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 2.0}),
 				},
-				maxDepth:    3,
-				deepestSize: mathhelp.Pow2(3),
+				deepestLevel: 3,
+				deepestSize:  mathhelp.Pow2(3),
+				deepestRes:   intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -214,8 +222,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 16.0, 16.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{8.0, 8.0}),
 				},
-				maxDepth:    5,
-				deepestSize: mathhelp.Pow2(5),
+				deepestLevel: 5,
+				deepestSize:  mathhelp.Pow2(5),
+				deepestRes:   intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -314,8 +323,8 @@ func TestPointIndex_InsertPoint_Deepest(t *testing.T) {
 			ix := FromTileMatrixSet(tms, tt.tmID)
 
 			ix.InsertPoint(tt.point)
-			assert.Equal(t, 1, len(ix.quadrants[ix.maxDepth]))
-			for z, quadrant := range ix.quadrants[ix.maxDepth] {
+			assert.Equal(t, 1, len(ix.quadrants[ix.deepestLevel]))
+			for z, quadrant := range ix.quadrants[ix.deepestLevel] {
 				assert.EqualValues(t, tt.want, quadrant)
 				assert.EqualValues(t, tt.want.z, z)
 			}
@@ -455,7 +464,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			ix.InsertPolygon(poly)
 			levels := tt.levels
 			if levels == nil {
-				levels = []Level{ix.maxDepth}
+				levels = []Level{ix.deepestLevel}
 			}
 			got := ix.SnapClosestPoints(tt.line, mapslicehelp.AsKeys(levels), tt.ringID)
 			if !assert.EqualValues(t, tt.want, got) {
@@ -499,19 +508,22 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 	}
 }
 
-func newSimplePointIndex(maxDepth Level, cellSize float64) *PointIndex {
-	span := cellSize * float64(mathhelp.Pow2(maxDepth))
+func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
+	deepestSize := mathhelp.Pow2(deepestLevel)
+	span := cellSize * float64(deepestSize)
+	intExtent := intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)}
 	ix := PointIndex{
 		Quadrant: Quadrant{
-			intExtent: intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)},
+			intExtent: intExtent,
 		},
-		maxDepth:    maxDepth,
-		deepestSize: mathhelp.Pow2(maxDepth),
-		quadrants:   make(map[Level]map[morton.Z]Quadrant, maxDepth+1),
-		hitOnce:     make(map[morton.Z]map[intgeom.Point][]int, 0),
-		hitMultiple: make(map[morton.Z]map[intgeom.Point][]int, 0),
+		deepestLevel: deepestLevel,
+		deepestSize:  deepestSize,
+		deepestRes:   intExtent.XSpan() / int64(deepestSize),
+		quadrants:    make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:      make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple:  make(map[morton.Z]map[intgeom.Point][]int, 0),
 	}
-	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
+	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
 	return &ix
 }
 

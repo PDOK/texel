@@ -7,7 +7,7 @@ import (
 )
 
 // Line has exactly two points
-type Line [2][2]int64
+type Line [2][2]M
 
 func (l Line) ToGeomLine() geom.Line {
 	return geom.Line{
@@ -35,10 +35,10 @@ func (l Line) Point1() *Point { return (*Point)(&l[0]) }
 // Point2 returns a new copy of the second point in the line.
 func (l Line) Point2() *Point { return (*Point)(&l[1]) }
 
-func (l Line) Vertices() [][2]int64 { return l[:] }
+func (l Line) Vertices() [][2]M { return l[:] }
 
 // ContainsPoint checks to see if the given pont lines on the line segment. (Including the end points.)
-func (l Line) ContainsPoint(pt [2]int64) bool {
+func (l Line) ContainsPoint(pt [2]M) bool {
 	minx, maxx := l[0][0], l[1][0]
 	if minx > maxx {
 		minx, maxx = maxx, minx
