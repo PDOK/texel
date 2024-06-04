@@ -7,7 +7,10 @@ import (
 	"log"
 	"os"
 	"path"
+	"slices"
 	"syscall"
+
+	"github.com/pdok/texel/pointindex"
 
 	"github.com/go-spatial/geom"
 
@@ -92,6 +95,9 @@ func main() {
 		if err != nil {
 			return err
 		}
+		if err = validateTileMatrixSet(tileMatrixSet, tileMatrixIDs); err != nil {
+			return err
+		}
 
 		_, err = os.Stat(c.String(SOURCE))
 		if os.IsNotExist(err) {
@@ -149,6 +155,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func validateTileMatrixSet(tms tms20.TileMatrixSet, tileMatrixIDs []tms20.TMID) error {
+	deepestTMID := slices.Max(tileMatrixIDs)
+	stats, deviationInUnits, deviationInPixels, err := pointindex.DeviationStats(tms, deepestTMID)
+	if err != nil {
+		return err
+	}
+	if deviationInPixels >= 1 {
+		log.Printf("warning, (largest) deviation is larger than 1 tile pixel (%f units) on the deepest matrix (%d)\n", deviationInUnits, deepestTMID)
+		log.Println(stats)
+	}
+	return pointindex.IsQuadTree(tms)
 }
 
 func initGPKGTarget(targetPathFmt string, tmID int, overwrite bool, pagesize int) *gpkg.TargetGeopackage {

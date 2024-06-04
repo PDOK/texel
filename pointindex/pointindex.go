@@ -1,11 +1,15 @@
 package pointindex
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
 	"slices"
+	"strconv"
+
+	"golang.org/x/exp/maps"
 
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
@@ -31,8 +35,6 @@ const (
 	// bottomright = bottom | right // 0b01
 	// topleft     = top | left     // 0b10
 	// topright    = top | right    // 0b11
-	intHalf = 500000000
-	intOne  = 1000000000
 )
 
 type Quadrant struct {
@@ -63,7 +65,10 @@ type Quadrant struct {
 //	          inc
 type PointIndex struct {
 	Quadrant
-	maxDepth    Level
+	deepestLevel Level
+	// Number of quadrants (in one direction) on the deepest level (= 2 ^ deepestLevel)
+	deepestSize uint
+	deepestRes  intgeom.M
 	quadrants   map[Level]map[morton.Z]Quadrant
 	hitOnce     map[Level]map[intgeom.Point][]int
 	hitMultiple map[Level]map[intgeom.Point][]int
@@ -72,31 +77,34 @@ type PointIndex struct {
 type Level = uint
 type Q = int // quadrant index (0, 1, 2 or 3)
 
-func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) *PointIndex {
-	// TODO ensure that the tile matrix set is actually a quad tree, starting at 0. just assuming now.
+func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) (*PointIndex, error) {
+	// assuming IsQuadTree was tested before
 	rootTM := tileMatrixSet.TileMatrices[0]
 	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
-	maxDepth := uint(deepestTMID) + levelDiff
+	deepestLevel := uint(deepestTMID) + levelDiff
 	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
 	if err != nil {
-		panic(fmt.Errorf(`could not make PointIndex from TileMatrixSet %v: %w'`, tileMatrixSet.ID, err))
+		return nil, fmt.Errorf(`could not make PointIndex from TileMatrixSet %v: %w'`, tileMatrixSet.ID, err)
 	}
 	intBottomLeft := intgeom.FromGeomPoint(bottomLeft)
 	intTopRight := intgeom.FromGeomPoint(topRight)
 	intExtent := intgeom.Extent{intBottomLeft.X(), intBottomLeft.Y(), intTopRight.X(), intTopRight.Y()}
+	deepestSize := mathhelp.Pow2(deepestLevel)
 	ix := PointIndex{
 		Quadrant: Quadrant{
 			intExtent: intExtent,
 			z:         0,
 		},
-		maxDepth:    maxDepth,
-		quadrants:   make(map[Level]map[morton.Z]Quadrant, maxDepth+1),
-		hitOnce:     make(map[uint]map[intgeom.Point][]int),
-		hitMultiple: make(map[uint]map[intgeom.Point][]int),
+		deepestLevel: deepestLevel,
+		deepestSize:  deepestSize,
+		deepestRes:   intExtent.XSpan() / int64(deepestSize),
+		quadrants:    make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:      make(map[uint]map[intgeom.Point][]int),
+		hitMultiple:  make(map[uint]map[intgeom.Point][]int),
 	}
-	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
+	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
-	return &ix
+	return &ix, nil
 }
 
 // InsertPolygon inserts all points from a Polygon
@@ -107,7 +115,7 @@ func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
 		pointsCount += len(ring)
 	}
 	var level uint
-	for level = 0; level <= ix.maxDepth; level++ {
+	for level = 0; level <= ix.deepestLevel; level++ {
 		if ix.quadrants[level] == nil {
 			ix.quadrants[level] = make(map[morton.Z]Quadrant, pointsCount) // TODO smaller for the shallower levels
 		}
@@ -123,20 +131,17 @@ func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
 
 // InsertPoint inserts a Point by its absolute coord
 func (ix *PointIndex) InsertPoint(point geom.Point) {
-	deepestSize := mathhelp.Pow2(ix.maxDepth)
-	intDeepestRes := ix.intExtent.XSpan() / int64(deepestSize)
 	intPoint := intgeom.FromGeomPoint(point)
-	deepestX := int((intPoint.X() - ix.intExtent.MinX()) / intDeepestRes)
-	deepestY := int((intPoint.Y() - ix.intExtent.MinY()) / intDeepestRes)
+	deepestX := int((intPoint.X() - ix.intExtent.MinX()) / ix.deepestRes)
+	deepestY := int((intPoint.Y() - ix.intExtent.MinY()) / ix.deepestRes)
 	ix.InsertCoord(deepestX, deepestY)
 }
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
-	deepestSize := int(mathhelp.Pow2(ix.maxDepth))
-	if deepestX < 0 || deepestY < 0 || deepestX > deepestSize-1 || deepestY > deepestSize-1 {
+	if deepestX < 0 || deepestY < 0 || deepestX > int(ix.deepestSize)-1 || deepestY > int(ix.deepestSize)-1 {
 		// should never happen
-		log.Println(fmt.Errorf("[WARNING] Trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, deepestSize, deepestSize))
+		log.Println(fmt.Errorf("[WARNING] Trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, ix.deepestSize, ix.deepestSize))
 	}
 	ix.insertCoord(deepestX, deepestY)
 }
@@ -144,14 +149,14 @@ func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
 // insertCoord adds a point into this pc, assuming the point is inside its extent
 func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 	var l Level
-	for l = 0; l <= ix.maxDepth; l++ {
-		x := uint(deepestX) / mathhelp.Pow2(ix.maxDepth-l)
-		y := uint(deepestY) / mathhelp.Pow2(ix.maxDepth-l)
+	for l = 0; l <= ix.deepestLevel; l++ {
+		x := uint(deepestX) / mathhelp.Pow2(ix.deepestLevel-l)
+		y := uint(deepestY) / mathhelp.Pow2(ix.deepestLevel-l)
 		z := morton.MustToZ(x, y)
 		if ix.quadrants[l] == nil { // probably already initialized by InsertPolygon
 			ix.quadrants[l] = make(map[morton.Z]Quadrant)
 		}
-		extent, centroid := getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
+		extent, centroid := ix.getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
 		ix.quadrants[l][z] = Quadrant{
 			z:           z,
 			intExtent:   extent,
@@ -160,8 +165,8 @@ func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 	}
 }
 
-func getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.Extent) (intgeom.Extent, intgeom.Point) {
-	intQuadrantSpan := intRootExtent.XSpan() / int64(mathhelp.Pow2(level))
+func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.Extent) (intgeom.Extent, intgeom.Point) {
+	intQuadrantSpan := int64(mathhelp.Pow2(ix.deepestLevel-level)) * ix.deepestRes
 	intMinX := intRootExtent.MinX()
 	intMinY := intRootExtent.MinY()
 	intExtent := intgeom.Extent{
@@ -218,7 +223,7 @@ func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level
 	}
 
 	var level Level
-	for level = 1; level <= ix.maxDepth; level++ {
+	for level = 1; level <= ix.deepestLevel; level++ {
 		quadrantsIntersected := make([]Quadrant, 0, 10) // TODO good estimate of expected count, based on line length / quadrant span * geom points?
 		for _, parent := range parents {
 			quadrantZs := getQuadrantZs(parent.z)
@@ -466,7 +471,7 @@ func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.
 	exclusiveTip := getExclusiveTip(edgeI, intEdge)
 	lOrd1 := intLine[0][varAx]
 	lOrd2 := intLine[1][varAx]
-	return lOrd1 != lOrd2 && (mathhelp.BetweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || mathhelp.BetweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
+	return lOrd1 != lOrd2 && (mathhelp.IBetweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || mathhelp.IBetweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
 }
 
 func oneIfRight(quadrantI int) int {
@@ -477,16 +482,107 @@ func oneIfTop(quadrantI int) int {
 	return (quadrantI & top) >> 1
 }
 
-// toWkt creates a WKT representation of the pointcloud. For debugging/visualising.
-func (ix *PointIndex) toWkt(writer io.Writer) {
+// ToWkt creates a WKT representation of the pointcloud. For debugging/visualising.
+func (ix *PointIndex) ToWkt(writer io.Writer) {
 	for level, quadrants := range ix.quadrants {
 		for _, quadrant := range quadrants {
 			_ = wkt.Encode(writer, quadrant.intExtent.ToGeomExtent())
 			_, _ = fmt.Fprintf(writer, "\n")
-			if level == ix.maxDepth {
+			if level == ix.deepestLevel {
 				_ = wkt.Encode(writer, quadrant.intCentroid.ToGeomPoint())
 				_, _ = fmt.Fprintf(writer, "\n")
 			}
 		}
 	}
+}
+
+//nolint:nestif
+func IsQuadTree(tms tms20.TileMatrixSet) error {
+	var previousTMID int
+	var previousTM *tms20.TileMatrix
+	tmIDs := maps.Keys(tms.TileMatrices)
+	slices.Sort(tmIDs)
+	for _, tmID := range tmIDs {
+		tm := tms.TileMatrices[tmID]
+		if tm.MatrixHeight != tm.MatrixWidth {
+			return errors.New("tile matrix height should be same as width: " + tm.ID)
+		}
+		if tm.TileHeight != tm.TileWidth {
+			return errors.New("tiles should be square: " + tm.ID)
+		}
+		tmIDStringToInt, err := strconv.Atoi(tm.ID)
+		if err != nil {
+			return err
+		}
+		if tmIDStringToInt != tmID {
+			return errors.New("tile matrix ID should string representation of its index in the array: " + tm.ID)
+		}
+		if len(tm.VariableMatrixWidths) != 0 {
+			return errors.New("variable matrix widths are not supported: " + tm.ID)
+		}
+		if previousTM != nil {
+			if tmID != previousTMID+1 {
+				return errors.New("tile matrix IDs should be a range with step 1 starting with 0")
+			}
+			if *tm.PointOfOrigin != *previousTM.PointOfOrigin {
+				return errors.New("tile matrixes should have the same point of origin: " + tm.ID)
+			}
+			if tm.CornerOfOrigin != previousTM.CornerOfOrigin {
+				return errors.New("tile matrixes should have the same corner of origin: " + tm.ID)
+			}
+			if tm.TileHeight != previousTM.TileHeight {
+				return errors.New("tile matrix tiles should stay the same size: " + tm.ID)
+			}
+			if tm.MatrixHeight != 2*previousTM.MatrixHeight {
+				return errors.New("tile matrix should double in size each level: " + tm.ID)
+			}
+			if !mathhelp.FBetweenInc(previousTM.CellSize/tm.CellSize, 1.99, 2.01) { // between because of fp error
+				return errors.New("cell size should half each level: " + tm.ID)
+			}
+		}
+
+		previousTMID = tmID
+		previousTM = &tm
+	}
+	return nil
+}
+
+// DeviationStats calcs some stats to show the result of using ints internally
+// if the res (span/size) is not "round" (with intgeom.Precision), a deviation will arise
+//
+//nolint:nakedret
+func DeviationStats(tms tms20.TileMatrixSet, deepestTMID tms20.TMID) (stats string, deviationInUnits, deviationInPixels float64, err error) {
+	bottomLeft, topRight, err := tms.MatrixBoundingBox(0)
+	if err != nil {
+		return
+	}
+	ix, err := FromTileMatrixSet(tms, deepestTMID)
+	if err != nil {
+		return
+	}
+	p := uint(intgeom.Precision + 1)
+	ps := strconv.Itoa(int(p))
+	stats += fmt.Sprintf("deepest level: %d\n", ix.deepestLevel)
+	stats += fmt.Sprintf("deepest pixels count on one axis: %d\n", ix.deepestSize)
+	stats += fmt.Sprintf("float minx, miny: %."+ps+"f, %."+ps+"f\n", bottomLeft.X(), bottomLeft.Y())
+	stats += fmt.Sprintf("float maxx, maxy: %."+ps+"f, %."+ps+"f\n", topRight.X(), topRight.Y())
+	floatSpanX := topRight.X() - bottomLeft.X()
+	stats += fmt.Sprintf("float span X: %."+ps+"f\n", floatSpanX)
+	stats += fmt.Sprintf("int64 span X: %s\n", intgeom.PrintWithDecimals(ix.intExtent.XSpan(), p))
+	floatRes := floatSpanX / float64(ix.deepestSize)
+	stats += fmt.Sprintf("float reso: %."+ps+"f\n", floatRes)
+	intRes := ix.intExtent.XSpan() / int64(ix.deepestSize)
+	stats += fmt.Sprintf("int64 reso: %s\n", intgeom.PrintWithDecimals(intRes, p))
+
+	floatRecalcMaxX := floatRes * float64(ix.deepestSize)
+	stats += fmt.Sprintf("float recalc maxX: %."+ps+"f\n", floatRecalcMaxX)
+	intRecalcMaxX := intgeom.ToGeomOrd(intRes * int64(ix.deepestSize))
+	stats += fmt.Sprintf("int64 recalc maxX: %."+ps+"f\n", intRecalcMaxX)
+
+	deviationInUnits = floatRecalcMaxX - intRecalcMaxX
+	deviationInPixels = deviationInUnits / floatRes
+	stats += fmt.Sprintf("deviation (in units) maxX : %."+ps+"f\n", deviationInUnits)
+	stats += fmt.Sprintf("deviation (in pixels) maxX: %."+ps+"f\n", deviationInPixels)
+
+	return
 }

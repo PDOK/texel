@@ -35,7 +35,10 @@ type IsOuter = bool
 //nolint:revive
 func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID, keepPointsAndLines bool) map[tms20.TMID][]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
-	ix := pointindex.FromTileMatrixSet(tileMatrixSet, deepestID)
+	ix, err := pointindex.FromTileMatrixSet(tileMatrixSet, deepestID)
+	if err != nil {
+		panic(err) // TODO let processing.processPolygonFunc return err
+	}
 	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
 	levels := make([]pointindex.Level, 0, len(tmIDsByLevels))
 	for level := range tmIDsByLevels {

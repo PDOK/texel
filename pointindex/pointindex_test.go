@@ -1,8 +1,8 @@
 package pointindex
 
 import (
+	"fmt"
 	"os"
-	"slices"
 	"testing"
 
 	"github.com/pdok/texel/mapslicehelp"
@@ -19,6 +19,10 @@ import (
 	"github.com/go-spatial/geom"
 	"github.com/stretchr/testify/assert"
 )
+
+func assertNoErr(t assert.TestingT, err error, _ ...any) bool {
+	return assert.Nil(t, err)
+}
 
 func TestPointIndex_containsPoint(t *testing.T) {
 	tests := []struct {
@@ -72,7 +76,7 @@ func TestPointIndex_containsPoint(t *testing.T) {
 			want: false,
 		},
 	}
-	extent := intgeom.Extent{0, 0, intOne, intOne}
+	extent := intgeom.Extent{0, 0, intgeom.One, intgeom.One}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := containsPoint(intgeom.FromGeomPoint(tt.pt), extent)
@@ -95,10 +99,10 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}{
 		{
 			name:          "simple",
-			intRootExtent: intgeom.Extent{0, 0, intOne, intOne},
+			intRootExtent: intgeom.Extent{0, 0, intgeom.One, intgeom.One},
 			want: wants{
-				extent:   intgeom.Extent{0, 0, intOne, intOne},
-				centroid: intgeom.Point{intHalf, intHalf},
+				extent:   intgeom.Extent{0, 0, intgeom.One, intgeom.One},
+				centroid: intgeom.Point{intgeom.Half, intgeom.Half},
 			},
 		},
 		{
@@ -112,7 +116,12 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			extent, centroid := getQuadrantExtentAndCentroid(0, 0, 0, tt.intRootExtent)
+			ix := PointIndex{
+				deepestLevel: 0,
+				deepestSize:  1,
+				deepestRes:   tt.intRootExtent.XSpan() / 1,
+			}
+			extent, centroid := ix.getQuadrantExtentAndCentroid(0, 0, 0, tt.intRootExtent)
 			if !assert.EqualValues(t, tt.want.extent, extent) {
 				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", extent, tt.want.extent)
 			}
@@ -139,7 +148,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				maxDepth: 0,
+				deepestLevel: 0,
+				deepestSize:  mathhelp.Pow2(0),
+				deepestRes:   intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
 				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
@@ -155,7 +166,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				maxDepth: 1,
+				deepestLevel: 1,
+				deepestSize:  mathhelp.Pow2(1),
+				deepestRes:   intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
@@ -178,7 +191,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 4.0, 4.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 2.0}),
 				},
-				maxDepth: 3,
+				deepestLevel: 3,
+				deepestSize:  mathhelp.Pow2(3),
+				deepestRes:   intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -212,7 +227,9 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 16.0, 16.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{8.0, 8.0}),
 				},
-				maxDepth: 5,
+				deepestLevel: 5,
+				deepestSize:  mathhelp.Pow2(5),
+				deepestRes:   intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -263,6 +280,64 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 	}
 }
 
+func TestPointIndex_InsertPoint_Deepest(t *testing.T) {
+	tests := []struct {
+		name  string
+		tmsID string
+		tmID  tms20.TMID
+		point geom.Point
+		want  Quadrant
+	}{
+		{
+			name:  "example point causing panic if span/size is not round",
+			tmsID: "WebMercatorQuad",
+			tmID:  17,
+			point: geom.Point{642743.3299, 6898063.027},
+			want: Quadrant{ // want no panic
+				z:           225954093760580854,
+				intExtent:   intgeom.Extent{6427432856623948, 68980629641080914, 6427433603079302, 68980630387536268},
+				intCentroid: intgeom.Point{6427433229851625, 68980630014308591},
+			},
+		},
+		{
+			name:  "another point causing panic if span/size is not round, even if precision is upped, because of quadrants shifting",
+			tmsID: "WebMercatorQuad",
+			tmID:  17,
+			point: geom.Point{642743.4434337, 6898062.9994258},
+			want: Quadrant{ // want no panic
+				z:           225954093760581026,
+				intExtent:   intgeom.Extent{6427434349534656, 68980629641080914, 6427435095990010, 68980630387536268},
+				intCentroid: intgeom.Point{6427434722762333, 68980630014308591},
+			},
+		},
+		{
+			name:  "in RD, deepestRes is round, so no problems with quadrants shifting",
+			tmsID: "NetherlandsRDNewQuad",
+			tmID:  16,
+			point: geom.Point{155000, 463000},
+			want: Quadrant{
+				z:           0xc0000000000000,
+				intExtent:   intgeom.FromGeomExtent(geom.Extent{155000, 463000, 155000 + 0.00328125, 463000 + 0.00328125}),
+				intCentroid: intgeom.FromGeomPoint(geom.Point{155000 + (0.00328125 / 2), 463000 + (0.00328125 / 2)}),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tms := loadEmbeddedTileMatrixSet(t, tt.tmsID)
+			ix, err := FromTileMatrixSet(tms, tt.tmID)
+			require.Nil(t, err)
+
+			ix.InsertPoint(tt.point)
+			assert.Equal(t, 1, len(ix.quadrants[ix.deepestLevel]))
+			for z, quadrant := range ix.quadrants[ix.deepestLevel] {
+				assert.EqualValues(t, tt.want, quadrant)
+				assert.EqualValues(t, tt.want.z, z)
+			}
+		})
+	}
+}
+
 func TestPointIndex_SnapClosestPoints(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -307,7 +382,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 		},
 		{
 			name: "horizontal line",
-			ix:   newPointIndexFromEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad", []tms20.TMID{14}),
+			ix:   newPointIndexFromEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad", 14),
 			poly: geom.Polygon{{
 				{110906.87099999999918509, 504428.79999999998835847}, // horizontal line between quadrants
 				{110907.64400000000023283, 504428.79999999998835847}, // horizontal line between quadrants
@@ -395,11 +470,11 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			ix.InsertPolygon(poly)
 			levels := tt.levels
 			if levels == nil {
-				levels = []Level{ix.maxDepth}
+				levels = []Level{ix.deepestLevel}
 			}
 			got := ix.SnapClosestPoints(tt.line, mapslicehelp.AsKeys(levels), tt.ringID)
 			if !assert.EqualValues(t, tt.want, got) {
-				ix.toWkt(os.Stdout)
+				ix.ToWkt(os.Stdout)
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
 			}
 		})
@@ -439,18 +514,22 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 	}
 }
 
-func newSimplePointIndex(maxDepth Level, cellSize float64) *PointIndex {
-	span := cellSize * float64(mathhelp.Pow2(maxDepth))
+func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
+	deepestSize := mathhelp.Pow2(deepestLevel)
+	span := cellSize * float64(deepestSize)
+	intExtent := intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)}
 	ix := PointIndex{
 		Quadrant: Quadrant{
-			intExtent: intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)},
+			intExtent: intExtent,
 		},
-		maxDepth:    maxDepth,
-		quadrants:   make(map[Level]map[morton.Z]Quadrant, maxDepth+1),
-		hitOnce:     make(map[morton.Z]map[intgeom.Point][]int, 0),
-		hitMultiple: make(map[morton.Z]map[intgeom.Point][]int, 0),
+		deepestLevel: deepestLevel,
+		deepestSize:  deepestSize,
+		deepestRes:   intExtent.XSpan() / int64(deepestSize),
+		quadrants:    make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:      make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple:  make(map[morton.Z]map[intgeom.Point][]int, 0),
 	}
-	_, ix.intCentroid = getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
+	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
 	return &ix
 }
 
@@ -460,9 +539,114 @@ func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 	return tms
 }
 
-func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, tmIDs []tms20.TMID) *PointIndex {
-	tms := loadEmbeddedTileMatrixSet(t, tmsID)
-	deepestID := slices.Max(tmIDs)
-	ix := FromTileMatrixSet(tms, deepestID)
-	return ix
+func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, deepestTMID tms20.TMID) *PointIndex {
+	tms, err := FromTileMatrixSet(loadEmbeddedTileMatrixSet(t, tmsID), deepestTMID)
+	require.Nil(t, err)
+	return tms
+}
+
+func TestIsQuadTree(t *testing.T) {
+	tests := []struct {
+		name    string
+		tms     tms20.TileMatrixSet
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name:    "NetherlandsRDNewQuad",
+			tms:     loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			wantErr: assertNoErr,
+		}, {
+			name:    "WebMercatorQuad",
+			tms:     loadEmbeddedTileMatrixSet(t, "WebMercatorQuad"),
+			wantErr: assertNoErr,
+		}, {
+			name:    "EuropeanETRS89_LAEAQuad",
+			tms:     loadEmbeddedTileMatrixSet(t, "EuropeanETRS89_LAEAQuad"),
+			wantErr: assertNoErr,
+		}, {
+			name: "GNOSISGlobalGrid",
+			tms:  loadEmbeddedTileMatrixSet(t, "GNOSISGlobalGrid"),
+			wantErr: func(t assert.TestingT, err error, _ ...any) bool {
+				return assert.ErrorContains(t, err, "tile matrix height should be same as width")
+			},
+		}, {
+			name: "LINZAntarticaMapTilegrid",
+			tms:  loadEmbeddedTileMatrixSet(t, "LINZAntarticaMapTilegrid"),
+			wantErr: func(t assert.TestingT, err error, _ ...any) bool {
+				return assert.ErrorContains(t, err, "tile matrix should double in size each level")
+			},
+		}, {
+			name:    "WorldMercatorWGS84Quad",
+			tms:     loadEmbeddedTileMatrixSet(t, "WorldMercatorWGS84Quad"),
+			wantErr: assertNoErr,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.wantErr(t, IsQuadTree(tt.tms), fmt.Sprintf("IsQuadTree(%v)", tt.tms))
+		})
+	}
+}
+
+func TestDeviationStats(t *testing.T) {
+	tests := []struct {
+		name                  string
+		tms                   tms20.TileMatrixSet
+		deepestTMID           tms20.TMID
+		wantStats             string
+		wantDeviationInUnits  float64
+		wantDeviationInPixels float64
+		margin                float64
+		wantErr               assert.ErrorAssertionFunc
+	}{
+		{
+			name:                  "NetherlandsRDNewQuad",
+			tms:                   loadEmbeddedTileMatrixSet(t, "NetherlandsRDNewQuad"),
+			deepestTMID:           16,
+			wantDeviationInUnits:  0,
+			wantDeviationInPixels: 0,
+			margin:                1e-6, // micrometers
+			wantErr:               assertNoErr,
+		},
+		{
+			name:                  "WebMercatorQuad",
+			tms:                   loadEmbeddedTileMatrixSet(t, "WebMercatorQuad"),
+			deepestTMID:           18,
+			wantDeviationInUnits:  0,
+			wantDeviationInPixels: 0,
+			margin:                1,
+			wantErr:               assertNoErr,
+		},
+		{
+			name:                  "WebMercatorQuad starting from 19 has more than 1 pixel deviation ... ;(",
+			tms:                   loadEmbeddedTileMatrixSet(t, "WebMercatorQuad"),
+			deepestTMID:           19,
+			wantDeviationInUnits:  1,
+			wantDeviationInPixels: 6,
+			margin:                1,
+			wantErr:               assertNoErr,
+		},
+		{
+			name:                  "EuropeanETRS89_LAEAQuad",
+			tms:                   loadEmbeddedTileMatrixSet(t, "EuropeanETRS89_LAEAQuad"),
+			deepestTMID:           15,
+			wantDeviationInUnits:  0,
+			wantDeviationInPixels: 0,
+			margin:                1,
+			wantErr:               assertNoErr,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotStats, gotDeviationInUnits, gotDeviationInPixels, err := DeviationStats(tt.tms, tt.deepestTMID)
+			if !tt.wantErr(t, err, fmt.Sprintf("DeviationStats(%v, %v)", tt.tms.ID, tt.deepestTMID)) {
+				return
+			}
+			if tt.wantStats != "" {
+				assert.Containsf(t, tt.wantStats, gotStats, "DeviationStats(%v, %v)", tt.tms.ID, tt.deepestTMID)
+			}
+			assert.True(t, mathhelp.FBetweenInc(gotDeviationInUnits, tt.wantDeviationInUnits-tt.margin, tt.wantDeviationInUnits+tt.margin), "DeviationStats(%v, %v)", tt.tms.ID, tt.deepestTMID)
+			assert.True(t, mathhelp.FBetweenInc(gotDeviationInPixels, tt.wantDeviationInPixels-tt.margin, tt.wantDeviationInPixels+tt.margin), "DeviationStats(%v, %v)", tt.tms.ID, tt.deepestTMID)
+		})
+	}
 }
