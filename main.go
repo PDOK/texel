@@ -32,6 +32,7 @@ const TILEMATRIXSET string = `tilematrixset`
 const TILEMATRICES string = `tilematrices`
 const PAGESIZE string = `pagesize`
 const KEEPPOINTSANDLINES string = `keeppointsandlines`
+const IGNOREOUTSIDEGRID string = `ignoreoutsidegrid`
 
 //nolint:funlen
 func main() {
@@ -93,6 +94,14 @@ func main() {
 			Required: false,
 			EnvVars:  []string{strcase.ToScreamingSnake(KEEPPOINTSANDLINES)},
 		},
+		&cli.BoolFlag{
+			Name:     IGNOREOUTSIDEGRID,
+			Aliases:  []string{"iog"},
+			Usage:    "Ignore polygons that fall (partly) outside the grid, instead of panicking",
+			Value:    false,
+			Required: false,
+			EnvVars:  []string{strcase.ToScreamingSnake(IGNOREOUTSIDEGRID)},
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -123,7 +132,10 @@ func main() {
 		gpkgTargets := make(map[int]*gpkg.TargetGeopackage, len(tileMatrixIDs))
 		overwrite := c.Bool(OVERWRITE)
 		pagesize := c.Int(PAGESIZE) // TODO divide by tile matrices count
-		keepPointsAndLines := c.Bool(KEEPPOINTSANDLINES)
+		snapConfig := snap.Config{
+			KeepPointsAndLines: c.Bool(KEEPPOINTSANDLINES),
+			IgnoreOutsideGrid:  c.Bool(IGNOREOUTSIDEGRID),
+		}
 		for _, tmID := range tileMatrixIDs {
 			gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize)
 			defer gpkgTargets[tmID].Close() // yes, supposed to go here, want to close all at end of func
@@ -151,7 +163,7 @@ func main() {
 				source.Table = table
 				target.Table = table
 			}
-			processBySnapping(source, targets, tileMatrixSet, keepPointsAndLines)
+			processBySnapping(source, targets, tileMatrixSet, snapConfig)
 			log.Printf("  finished %s", table.Name)
 		}
 
@@ -172,7 +184,7 @@ func validateTileMatrixSet(tms tms20.TileMatrixSet, tileMatrixIDs []tms20.TMID) 
 		return err
 	}
 	if deviationInPixels >= 1 {
-		log.Printf("warning, (largest) deviation is larger than 1 tile pixel (%f units) on the deepest matrix (%d)\n", deviationInUnits, deepestTMID)
+		log.Printf("[WARNING] (largest) deviation is larger than 1 tile pixel (%f units) on the deepest matrix (%d)\n", deviationInUnits, deepestTMID)
 		log.Println(stats)
 	}
 	return pointindex.IsQuadTree(tms)
@@ -201,8 +213,8 @@ func injectSuffixIntoPath(p string) string {
 	return path.Join(dir, name+"_%v"+ext)
 }
 
-func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, keepPointsAndLines bool) {
+func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, snapConfig snap.Config) {
 	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon {
-		return snap.SnapPolygon(p, tileMatrixSet, tmIDs, keepPointsAndLines)
+		return snap.SnapPolygon(p, tileMatrixSet, tmIDs, snapConfig)
 	})
 }

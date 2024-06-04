@@ -268,7 +268,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := tt.ix
-			ix.InsertPoint(tt.point)
+			err := ix.InsertPoint(tt.point)
+			require.NoError(t, err)
 			if tt.want.hitOnce == nil {
 				tt.want.hitOnce = make(map[morton.Z]map[intgeom.Point][]int)
 			}
@@ -326,9 +327,10 @@ func TestPointIndex_InsertPoint_Deepest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tms := loadEmbeddedTileMatrixSet(t, tt.tmsID)
 			ix, err := FromTileMatrixSet(tms, tt.tmID)
-			require.Nil(t, err)
+			require.NoError(t, err)
 
-			ix.InsertPoint(tt.point)
+			err = ix.InsertPoint(tt.point)
+			require.NoError(t, err)
 			assert.Equal(t, 1, len(ix.quadrants[ix.deepestLevel]))
 			for z, quadrant := range ix.quadrants[ix.deepestLevel] {
 				assert.EqualValues(t, tt.want, quadrant)
@@ -467,7 +469,8 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := tt.ix
 			poly := tt.poly
-			ix.InsertPolygon(poly)
+			err := ix.InsertPolygon(poly)
+			require.NoError(t, err)
 			levels := tt.levels
 			if levels == nil {
 				levels = []Level{ix.deepestLevel}
