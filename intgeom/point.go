@@ -5,7 +5,7 @@ import (
 )
 
 // Point describes a simple 2D point
-type Point [2]int64
+type Point [2]M
 
 func (p Point) ToGeomPoint() geom.Point {
 	return geom.Point{
@@ -22,18 +22,18 @@ func FromGeomPoint(p geom.Point) Point {
 }
 
 // XY returns an array of 2D coordinates
-func (p Point) XY() [2]int64 {
+func (p Point) XY() [2]M {
 	return p
 }
 
 // SetXY sets a pair of coordinates
-func (p Point) SetXY(xy [2]int64) {
+func (p Point) SetXY(xy [2]M) {
 	p[0] = xy[0]
 	p[1] = xy[1]
 }
 
 // X is the x coordinate of a point in the projection
-func (p Point) X() int64 { return p[0] }
+func (p Point) X() M { return p[0] }
 
 // Y is the y coordinate of a point in the projection
-func (p Point) Y() int64 { return p[1] }
+func (p Point) Y() M { return p[1] }

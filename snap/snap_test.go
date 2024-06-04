@@ -1,6 +1,7 @@
 package snap
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/pdok/texel/geomhelp"
@@ -688,6 +689,16 @@ func TestSnap_snapPolygon(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:               "no points found panic on TMS other than RD",
+			tms:                loadEmbeddedTileMatrixSet(t, "WebMercatorQuad"),
+			tmIDs:              []tms20.TMID{17},
+			keepPointsAndLines: true,
+			polygon: geom.Polygon{
+				{{642743.3299, 6898063.027}, {642694.6797, 6898049.319}, {642671.3143, 6898042.735}, {642671.3143, 6898042.735}, {642668.1822, 6898053.868}, {642740.1897, 6898074.148}},
+			},
+			want: map[tms20.TMID][]geom.Polygon{}, // want no panicNoPointsFoundForVertices
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -905,20 +916,20 @@ func Test_dedupeInnersOuters(t *testing.T) {
 }
 
 // newSimpleTileMatrixSet creates a tms for snap testing purposes
-// the effective quadrant amount (one axis) on the deepest level will be 2^maxDepth * 16 (vt internal pixel res)
+// the effective quadrant amount (one axis) on the deepest level will be 2^deepestLevel * 16 (vt internal pixel res)
 // the effective quadrant size (one axis) on the deepest level will be cellSize / 16 (vt internal pixel res)
-func newSimpleTileMatrixSet(maxDepth pointindex.Level, cellSize float64) tms20.TileMatrixSet {
+func newSimpleTileMatrixSet(deepestTMID pointindex.Level, cellSize float64) tms20.TileMatrixSet {
 	zeroZero := tms20.TwoDPoint([2]float64{0.0, 0.0})
 	tms := tms20.TileMatrixSet{
 		CRS:          fakeCRS{},
 		OrderedAxes:  []string{"X", "Y"},
-		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix, maxDepth+1),
+		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix, deepestTMID+1),
 	}
-	for tmID := 0; tmID <= int(maxDepth); tmID++ {
+	for tmID := 0; tmID <= int(deepestTMID); tmID++ {
 		// (only values from the root tm are used, for the rest it is assumed to follow quad matrix rules)
-		tmCellSize := cellSize * float64(mathhelp.Pow2(maxDepth-uint(tmID)))
+		tmCellSize := cellSize * float64(mathhelp.Pow2(deepestTMID-uint(tmID)))
 		tms.TileMatrices[tmID] = tms20.TileMatrix{
-			ID:               "0",
+			ID:               strconv.Itoa(tmID),
 			ScaleDenominator: tmCellSize / tms20.StandardizedRenderingPixelSize,
 			CellSize:         tmCellSize,
 			CornerOfOrigin:   tms20.BottomLeft,
@@ -932,7 +943,6 @@ func newSimpleTileMatrixSet(maxDepth pointindex.Level, cellSize float64) tms20.T
 	return tms
 }
 
-//nolint:unparam
 func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 	tms, err := tms20.LoadEmbeddedTileMatrixSet(tmsID)
 	require.NoError(t, err)
