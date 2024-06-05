@@ -107,7 +107,7 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 }
 
 // InsertPolygon inserts all points from a Polygon
-func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
+func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) error {
 	// initialize the quadrants map
 	pointsCount := 0
 	for _, ring := range polygon.LinearRings() {
@@ -118,31 +118,47 @@ func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) {
 		if ix.quadrants[level] == nil {
 			ix.quadrants[level] = make(map[morton.Z]Quadrant, pointsCount) // TODO smaller for the shallower levels
 		}
-		// TODO expand for another polygon?
 	}
 
 	for _, ring := range polygon.LinearRings() {
 		for _, vertex := range ring {
-			ix.InsertPoint(vertex)
+			if err := ix.InsertPoint(vertex); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // InsertPoint inserts a Point by its absolute coord
-func (ix *PointIndex) InsertPoint(point geom.Point) {
+func (ix *PointIndex) InsertPoint(point geom.Point) error {
 	intPoint := intgeom.FromGeomPoint(point)
 	deepestX := int((intPoint.X() - ix.intExtent.MinX()) / ix.deepestRes)
 	deepestY := int((intPoint.Y() - ix.intExtent.MinY()) / ix.deepestRes)
-	ix.InsertCoord(deepestX, deepestY)
+	return ix.InsertCoord(deepestX, deepestY)
+}
+
+type OutsideGridError struct {
+	deepestX    int
+	deepestY    int
+	deepestSize uint
+}
+
+func (e OutsideGridError) Error() string {
+	return fmt.Sprintf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", e.deepestX, e.deepestY, e.deepestSize, e.deepestSize)
 }
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
-func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) {
+func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) error {
 	if deepestX < 0 || deepestY < 0 || deepestX > int(ix.deepestSize)-1 || deepestY > int(ix.deepestSize)-1 {
-		// should never happen
-		panic(fmt.Errorf("trying to insert a coord (%v, %v) outside the grid/extent (0, %v; 0, %v)", deepestX, deepestY, ix.deepestSize, ix.deepestSize))
+		return OutsideGridError{
+			deepestX:    deepestX,
+			deepestY:    deepestY,
+			deepestSize: ix.deepestSize,
+		}
 	}
 	ix.insertCoord(deepestX, deepestY)
+	return nil
 }
 
 // insertCoord adds a point into this pc, assuming the point is inside its extent

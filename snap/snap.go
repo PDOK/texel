@@ -1,6 +1,7 @@
 package snap
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -29,11 +30,16 @@ const (
 
 type IsOuter = bool
 
+type Config struct {
+	KeepPointsAndLines bool
+	IgnoreOutsideGrid  bool
+}
+
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
 //
 //nolint:revive
-func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID, keepPointsAndLines bool) map[tms20.TMID][]geom.Polygon {
+func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID, config Config) map[tms20.TMID][]geom.Polygon {
 	deepestID := slices.Max(tmIDs)
 	ix, err := pointindex.FromTileMatrixSet(tileMatrixSet, deepestID)
 	if err != nil {
@@ -45,8 +51,18 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 		levels = append(levels, level)
 	}
 
-	ix.InsertPolygon(polygon)
-	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels, keepPointsAndLines)
+	err = ix.InsertPolygon(polygon)
+	if err != nil {
+		outsideGridErr := new(pointindex.OutsideGridError)
+		if errors.As(err, outsideGridErr) && config.IgnoreOutsideGrid {
+			log.Println("[WARNING] skipping polygon because: " + err.Error())
+			return make(map[tms20.TMID][]geom.Polygon)
+		} else {
+			panic(err)
+		}
+	}
+
+	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels, config.KeepPointsAndLines)
 
 	newPolygonsPerTileMatrixID := make(map[tms20.TMID][]geom.Polygon, len(newPolygonsPerLevel))
 	for level, newPolygons := range newPolygonsPerLevel {

@@ -1,3 +1,6 @@
+ARG GDAL_VERSION=3.6.3
+
+FROM ghcr.io/osgeo/gdal:ubuntu-small-${GDAL_VERSION} AS base
 FROM golang:1.21-bullseye AS build-env
 
 ENV GO111MODULE=on
@@ -25,18 +28,16 @@ RUN go test ./... -covermode=atomic
 
 RUN go build -v -buildvcs=true -ldflags='-s -w -linkmode auto' -a -installsuffix cgo -o /texel .
 
-# FROM scratch
-FROM golang:1.21-bullseye
+FROM base AS build-image
+
 RUN apt-get update && apt-get install -y \
   libsqlite3-mod-spatialite \
   && rm -rf /var/lib/apt/lists/*
 
 # important for time conversion
 ENV TZ Europe/Amsterdam
-
 WORKDIR /
 
-# Import from builder.
-COPY --from=build-env /texel /
+COPY --from=build-env /texel /usr/local/bin/texel
 
-ENTRYPOINT ["/texel"]
+ENTRYPOINT ["texel"]
