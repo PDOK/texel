@@ -715,6 +715,70 @@ func TestSnap_snapPolygon(t *testing.T) {
 			polygon: geom.Polygon{{{0.1, 0.1}, {0.2, 0.1}, {0.2, -0.1}}},
 			want:    map[tms20.TMID][]geom.Polygon{}, // empty, ignored
 		},
+		{
+			name:   "correct winding order",
+			tms:    newSimpleTileMatrixSet(2, 64),
+			config: Config{ReverseWindingOrder: false},
+			tmIDs:  []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{{60.0, 124.0}, {60.0, 4.0}, {4.0, 4.0}, {4.0, 124.0}},                   // cw
+				{{12.0, 76.0}, {28.0, 76.0}, {52.0, 76.0}, {52.0, 116.0}, {12.0, 116.0}}, // ccw
+			},
+			want: map[tms20.TMID][]geom.Polygon{
+				1: {{
+					{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
+					{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
+				}},
+			},
+		},
+		{
+			name:   "reverse winding order",
+			tms:    newSimpleTileMatrixSet(2, 64),
+			config: Config{ReverseWindingOrder: true},
+			tmIDs:  []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
+				{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
+			},
+			want: map[tms20.TMID][]geom.Polygon{
+				1: {{
+					{{60.0, 124.0}, {60.0, 4.0}, {4.0, 4.0}, {4.0, 124.0}},                   // cw
+					{{12.0, 76.0}, {28.0, 76.0}, {52.0, 76.0}, {52.0, 116.0}, {12.0, 116.0}}, // ccw
+				}},
+			},
+		},
+		{
+			name:   "do not reverse winding order",
+			tms:    newSimpleTileMatrixSet(2, 64),
+			config: Config{ReverseWindingOrder: false},
+			tmIDs:  []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
+				{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
+			},
+			want: map[tms20.TMID][]geom.Polygon{
+				1: {{
+					{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
+					{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
+				}},
+			},
+		},
+		{
+			name:   "keep reversed winding order",
+			tms:    newSimpleTileMatrixSet(2, 64),
+			config: Config{ReverseWindingOrder: true},
+			tmIDs:  []tms20.TMID{1},
+			polygon: geom.Polygon{
+				{{60.0, 124.0}, {60.0, 4.0}, {4.0, 4.0}, {4.0, 124.0}},                   // cw
+				{{12.0, 76.0}, {28.0, 76.0}, {52.0, 76.0}, {52.0, 116.0}, {12.0, 116.0}}, // ccw
+			},
+			want: map[tms20.TMID][]geom.Polygon{
+				1: {{
+					{{60.0, 124.0}, {60.0, 4.0}, {4.0, 4.0}, {4.0, 124.0}},                   // cw
+					{{12.0, 76.0}, {28.0, 76.0}, {52.0, 76.0}, {52.0, 116.0}, {12.0, 116.0}}, // ccw
+				}},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

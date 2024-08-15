@@ -31,8 +31,9 @@ const (
 type IsOuter = bool
 
 type Config struct {
-	KeepPointsAndLines bool
-	IgnoreOutsideGrid  bool
+	KeepPointsAndLines  bool
+	IgnoreOutsideGrid   bool
+	ReverseWindingOrder bool
 }
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
@@ -62,7 +63,7 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 		}
 	}
 
-	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels, config.KeepPointsAndLines)
+	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels, config)
 
 	newPolygonsPerTileMatrixID := make(map[tms20.TMID][]geom.Polygon, len(newPolygonsPerLevel))
 	for level, newPolygons := range newPolygonsPerLevel {
@@ -85,7 +86,7 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[poin
 }
 
 //nolint:cyclop
-func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level, keepPointsAndLines bool) map[pointindex.Level][]geom.Polygon {
+func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level, config Config) map[pointindex.Level][]geom.Polygon {
 	levelMap := mapslicehelp.AsKeys(levels)
 	newOuters := make(map[pointindex.Level][][][2]float64, len(levels))
 	newInners := make(map[pointindex.Level][][][2]float64, len(levels))
@@ -122,13 +123,13 @@ func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []
 		for level := range levelMap {
 			outerRings, innerRings, pointsAndLines := cleanupNewRing(newRing[level], isOuter, ix.GetHitMultiple(level), ringIdx)
 			// Check if outer ring has become too small
-			if isOuter && len(outerRings) == 0 && (!keepPointsAndLines || len(pointsAndLines) == 0) {
+			if isOuter && len(outerRings) == 0 && (!config.KeepPointsAndLines || len(pointsAndLines) == 0) {
 				delete(levelMap, level) // If too small, delete it
 				continue
 			}
 			newOuters[level] = append(newOuters[level], outerRings...)
 			newInners[level] = append(newInners[level], innerRings...)
-			if keepPointsAndLines {
+			if config.KeepPointsAndLines {
 				newPointsAndLines[level] = append(newPointsAndLines[level], pointsAndLines...)
 			}
 		}
@@ -138,6 +139,7 @@ func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []
 	for l := range levelMap {
 		newOuters[l], newInners[l] = dedupeInnersOuters(newOuters[l], newInners[l])
 		newPolygonsForLevel := matchInnersToPolygons(outersToPolygons(newOuters[l]), newInners[l], len(polygon) > 1)
+		reverseWindingOrderIfConfigured(newPolygonsForLevel, config)
 		if len(newPolygonsForLevel) > 0 {
 			newPolygons[l] = newPolygonsForLevel
 		}
@@ -150,6 +152,17 @@ func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []
 		}
 	}
 	return geomhelp.FloatPolygonsToGeomPolygonsForAllKeys(newPolygons)
+}
+
+func reverseWindingOrderIfConfigured(polygons [][][][2]float64, config Config) {
+	if !config.ReverseWindingOrder {
+		return
+	}
+	for i := range polygons {
+		for j := range polygons[i] {
+			slices.Reverse(polygons[i][j])
+		}
+	}
 }
 
 func outersToPolygons(outers [][][2]float64) [][][][2]float64 {

@@ -33,6 +33,7 @@ const TILEMATRICES string = `tilematrices`
 const PAGESIZE string = `pagesize`
 const KEEPPOINTSANDLINES string = `keeppointsandlines`
 const IGNOREOUTSIDEGRID string = `ignoreoutsidegrid`
+const REVERSEWINDINGORDER string = `reversewindingorder`
 
 //nolint:funlen
 func main() {
@@ -102,6 +103,14 @@ func main() {
 			Required: false,
 			EnvVars:  []string{strcase.ToScreamingSnake(IGNOREOUTSIDEGRID)},
 		},
+		&cli.BoolFlag{
+			Name:     REVERSEWINDINGORDER,
+			Aliases:  []string{"rwo"},
+			Usage:    "Reverse the winding order of rings in polygons, contrary to the OGC simple features spec",
+			Value:    false,
+			Required: false,
+			EnvVars:  []string{strcase.ToScreamingSnake(REVERSEWINDINGORDER)},
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -133,8 +142,9 @@ func main() {
 		overwrite := c.Bool(OVERWRITE)
 		pagesize := c.Int(PAGESIZE) // TODO divide by tile matrices count
 		snapConfig := snap.Config{
-			KeepPointsAndLines: c.Bool(KEEPPOINTSANDLINES),
-			IgnoreOutsideGrid:  c.Bool(IGNOREOUTSIDEGRID),
+			KeepPointsAndLines:  c.Bool(KEEPPOINTSANDLINES),
+			IgnoreOutsideGrid:   c.Bool(IGNOREOUTSIDEGRID),
+			ReverseWindingOrder: c.Bool(REVERSEWINDINGORDER),
 		}
 		for _, tmID := range tileMatrixIDs {
 			gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize)
