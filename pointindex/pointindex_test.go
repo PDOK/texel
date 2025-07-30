@@ -531,10 +531,11 @@ func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 		},
 		deepestLevel: deepestLevel,
 		deepestSize:  deepestSize,
-		deepestRes:   intExtent.XSpan() / int64(deepestSize),
-		quadrants:    make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
-		hitOnce:      make(map[morton.Z]map[intgeom.Point][]int, 0),
-		hitMultiple:  make(map[morton.Z]map[intgeom.Point][]int, 0),
+		//nolint:gosec // G115
+		deepestRes:  intExtent.XSpan() / int64(deepestSize),
+		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:     make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple: make(map[morton.Z]map[intgeom.Point][]int, 0),
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
 	return &ix
