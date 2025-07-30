@@ -67,6 +67,7 @@ func PrintWithDecimals(o M, n uint) string {
 	if n < Precision {
 		m = m[0:n]
 	} else {
+		//nolint:gosec // G115
 		m += strings.Repeat("0", int(n-Precision))
 	}
 	c := s[0 : l-Precision]

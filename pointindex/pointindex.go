@@ -80,6 +80,7 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 	// assuming IsQuadTree was tested before
 	rootTM := tileMatrixSet.TileMatrices[0]
 	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
+	//nolint:gosec // G115
 	deepestLevel := uint(deepestTMID) + levelDiff
 	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
 	if err != nil {
@@ -96,10 +97,11 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 		},
 		deepestLevel: deepestLevel,
 		deepestSize:  deepestSize,
-		deepestRes:   intExtent.XSpan() / int64(deepestSize),
-		quadrants:    make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
-		hitOnce:      make(map[uint]map[intgeom.Point][]int),
-		hitMultiple:  make(map[uint]map[intgeom.Point][]int),
+		//nolint:gosec // G115
+		deepestRes:  intExtent.XSpan() / int64(deepestSize),
+		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:     make(map[uint]map[intgeom.Point][]int),
+		hitMultiple: make(map[uint]map[intgeom.Point][]int),
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
@@ -150,6 +152,7 @@ func (e OutsideGridError) Error() string {
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) error {
+	//nolint:gosec // G115
 	if deepestX < 0 || deepestY < 0 || deepestX > int(ix.deepestSize)-1 || deepestY > int(ix.deepestSize)-1 {
 		return OutsideGridError{
 			deepestX:    deepestX,
@@ -181,6 +184,7 @@ func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 }
 
 func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.Extent) (intgeom.Extent, intgeom.Point) {
+	//nolint:gosec // G115
 	intQuadrantSpan := int64(mathhelp.Pow2(ix.deepestLevel-level)) * ix.deepestRes
 	intMinX := intRootExtent.MinX()
 	intMinY := intRootExtent.MinY()

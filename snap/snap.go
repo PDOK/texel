@@ -79,6 +79,7 @@ func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[poin
 	tmIDsByLevels := make(map[pointindex.Level]tms20.TMID, len(tmIDs))
 	for _, tmID := range tmIDs {
 		// assuming 2^(tmID) = tm.MatrixWidth = tm.MatrixHeight
+		//nolint:gosec // G115
 		level := uint(tmID) + levelDiff
 		tmIDsByLevels[level] = tmID
 	}
