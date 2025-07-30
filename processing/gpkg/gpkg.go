@@ -123,7 +123,7 @@ func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) 
 				case float64:
 					c = append(c, v)
 				case time.Time:
-					c = append(c, v)
+					c = append(c, v.Format(time.RFC3339))
 				case string:
 					c = append(c, v)
 				case nil:
