@@ -150,7 +150,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 0,
 				deepestSize:  mathhelp.Pow2(0),
-				deepestRes:   intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
+				//nolint:gosec // G115
+				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
 				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),

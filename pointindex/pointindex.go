@@ -600,11 +600,13 @@ func DeviationStats(tms tms20.TileMatrixSet, deepestTMID tms20.TMID) (stats stri
 	stats += fmt.Sprintf("int64 span X: %s\n", intgeom.PrintWithDecimals(ix.intExtent.XSpan(), p))
 	floatRes := floatSpanX / float64(ix.deepestSize)
 	stats += fmt.Sprintf("float reso: %."+ps+"f\n", floatRes)
+	//nolint:gosec // G115
 	intRes := ix.intExtent.XSpan() / int64(ix.deepestSize)
 	stats += fmt.Sprintf("int64 reso: %s\n", intgeom.PrintWithDecimals(intRes, p))
 
 	floatRecalcMaxX := floatRes * float64(ix.deepestSize)
 	stats += fmt.Sprintf("float recalc maxX: %."+ps+"f\n", floatRecalcMaxX)
+	//nolint:gosec // G115
 	intRecalcMaxX := intgeom.ToGeomOrd(intRes * int64(ix.deepestSize))
 	stats += fmt.Sprintf("int64 recalc maxX: %."+ps+"f\n", intRecalcMaxX)
 
