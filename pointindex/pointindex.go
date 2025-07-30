@@ -197,10 +197,13 @@ func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRo
 		intMinY + int64(y)*intQuadrantSpan, // miny
 		//nolint:gosec // G115
 		intMinX + int64(x+1)*intQuadrantSpan, // maxx
+		//nolint:gosec // G115
 		intMinY + int64(y+1)*intQuadrantSpan, // maxy
 	}
 	intCentroid := intgeom.Point{
+		//nolint:gosec // G115
 		intMinX + (int64(x))*intQuadrantSpan + intQuadrantSpan/2, // <-- here is the plus 0.5 internal pixel size
+		//nolint:gosec // G115
 		intMinY + (int64(y))*intQuadrantSpan + intQuadrantSpan/2,
 	}
 	return intExtent, intCentroid
@@ -359,6 +362,7 @@ func getQuadrantZs(parentZ morton.Z) [4]morton.Z {
 	for i := 0; i < 4; i++ {
 		//nolint:gosec // G115
 		x := parentX*2 + uint(oneIfRight(i))
+		//nolint:gosec // G115
 		y := parentY*2 + uint(oneIfTop(i))
 		z := morton.MustToZ(x, y)
 		quadrantZs[i] = z
