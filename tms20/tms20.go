@@ -654,6 +654,7 @@ func (tms *TileMatrixSet) SRID() uint {
 }
 
 func (tms *TileMatrixSet) Size(zoom uint) (*slippy.Tile, bool) {
+	//nolint:gosec // G115
 	tm, ok := tms.TileMatrices[int(zoom)]
 	if !ok {
 		return nil, false
@@ -662,6 +663,7 @@ func (tms *TileMatrixSet) Size(zoom uint) (*slippy.Tile, bool) {
 }
 
 func (tms *TileMatrixSet) FromNative(zoom uint, pt geom.Point) (*slippy.Tile, bool) {
+	//nolint:gosec // G115
 	tm, ok := tms.TileMatrices[int(zoom)]
 	if !ok {
 		return nil, false
@@ -713,6 +715,7 @@ func (tms *TileMatrixSet) FromNative(zoom uint, pt geom.Point) (*slippy.Tile, bo
 
 func (tms *TileMatrixSet) ToNative(tile *slippy.Tile) (geom.Point, bool) {
 	topLeftPt := geom.Point{}
+	//nolint:gosec // G115
 	tm, ok := tms.TileMatrices[int(tile.Z)]
 	if !ok {
 		return topLeftPt, false

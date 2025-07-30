@@ -168,7 +168,9 @@ func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) error {
 func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 	var l Level
 	for l = 0; l <= ix.deepestLevel; l++ {
+		//nolint:gosec // G115
 		x := uint(deepestX) / mathhelp.Pow2(ix.deepestLevel-l)
+		//nolint:gosec // G115
 		y := uint(deepestY) / mathhelp.Pow2(ix.deepestLevel-l)
 		z := morton.MustToZ(x, y)
 		if ix.quadrants[l] == nil { // probably already initialized by InsertPolygon
@@ -189,8 +191,11 @@ func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRo
 	intMinX := intRootExtent.MinX()
 	intMinY := intRootExtent.MinY()
 	intExtent := intgeom.Extent{
-		intMinX + int64(x)*intQuadrantSpan,   // minx
-		intMinY + int64(y)*intQuadrantSpan,   // miny
+		//nolint:gosec // G115
+		intMinX + int64(x)*intQuadrantSpan, // minx
+		//nolint:gosec // G115
+		intMinY + int64(y)*intQuadrantSpan, // miny
+		//nolint:gosec // G115
 		intMinX + int64(x+1)*intQuadrantSpan, // maxx
 		intMinY + int64(y+1)*intQuadrantSpan, // maxy
 	}
@@ -352,6 +357,7 @@ func getQuadrantZs(parentZ morton.Z) [4]morton.Z {
 	parentX, parentY := morton.FromZ(parentZ)
 	quadrantZs := [4]morton.Z{}
 	for i := 0; i < 4; i++ {
+		//nolint:gosec // G115
 		x := parentX*2 + uint(oneIfRight(i))
 		y := parentY*2 + uint(oneIfTop(i))
 		z := morton.MustToZ(x, y)
