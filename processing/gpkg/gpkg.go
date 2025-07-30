@@ -123,7 +123,7 @@ func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) 
 				case float64:
 					c = append(c, v)
 				case time.Time:
-					c = append(c, v)
+					c = append(c, v.Format(time.RFC3339))
 				case string:
 					c = append(c, v)
 				case nil:
@@ -234,6 +234,7 @@ func (target *TargetGeopackage) writeFeatures(features []processing.Feature) {
 	var ext *geom.Extent
 
 	for _, f := range features {
+		//nolint:gosec // G115
 		sb, err := gpkg.NewBinary(int32(target.Table.srs.ID), f.Geometry())
 		if err != nil {
 			log.Fatalf("Could not create a binary geometry: %s", err)
@@ -378,7 +379,8 @@ func buildTable(h *gpkg.Handle, t Table) error {
 		Description:   t.Name,
 		GeometryField: t.gcolumn,
 		GeometryType:  t.gtype,
-		SRS:           int32(t.srs.ID),
+		//nolint:gosec // G115
+		SRS: int32(t.srs.ID),
 		//
 		Z: gpkg.Prohibited,
 		M: gpkg.Prohibited,

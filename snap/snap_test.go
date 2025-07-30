@@ -1011,8 +1011,10 @@ func newSimpleTileMatrixSet(deepestTMID pointindex.Level, cellSize float64) tms2
 		OrderedAxes:  []string{"X", "Y"},
 		TileMatrices: make(map[tms20.TMID]tms20.TileMatrix, deepestTMID+1),
 	}
+	//nolint:gosec // G115
 	for tmID := 0; tmID <= int(deepestTMID); tmID++ {
 		// (only values from the root tm are used, for the rest it is assumed to follow quad matrix rules)
+		//nolint:gosec // G115
 		tmCellSize := cellSize * float64(mathhelp.Pow2(deepestTMID-uint(tmID)))
 		tms.TileMatrices[tmID] = tms20.TileMatrix{
 			ID:               strconv.Itoa(tmID),

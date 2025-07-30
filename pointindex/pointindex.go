@@ -80,6 +80,7 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 	// assuming IsQuadTree was tested before
 	rootTM := tileMatrixSet.TileMatrices[0]
 	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
+	//nolint:gosec // G115
 	deepestLevel := uint(deepestTMID) + levelDiff
 	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
 	if err != nil {
@@ -96,10 +97,11 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 		},
 		deepestLevel: deepestLevel,
 		deepestSize:  deepestSize,
-		deepestRes:   intExtent.XSpan() / int64(deepestSize),
-		quadrants:    make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
-		hitOnce:      make(map[uint]map[intgeom.Point][]int),
-		hitMultiple:  make(map[uint]map[intgeom.Point][]int),
+		//nolint:gosec // G115
+		deepestRes:  intExtent.XSpan() / int64(deepestSize),
+		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:     make(map[uint]map[intgeom.Point][]int),
+		hitMultiple: make(map[uint]map[intgeom.Point][]int),
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
@@ -150,6 +152,7 @@ func (e OutsideGridError) Error() string {
 
 // InsertCoord inserts a Point by its x/y coord on the deepest level
 func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) error {
+	//nolint:gosec // G115
 	if deepestX < 0 || deepestY < 0 || deepestX > int(ix.deepestSize)-1 || deepestY > int(ix.deepestSize)-1 {
 		return OutsideGridError{
 			deepestX:    deepestX,
@@ -165,7 +168,9 @@ func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) error {
 func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 	var l Level
 	for l = 0; l <= ix.deepestLevel; l++ {
+		//nolint:gosec // G115
 		x := uint(deepestX) / mathhelp.Pow2(ix.deepestLevel-l)
+		//nolint:gosec // G115
 		y := uint(deepestY) / mathhelp.Pow2(ix.deepestLevel-l)
 		z := morton.MustToZ(x, y)
 		if ix.quadrants[l] == nil { // probably already initialized by InsertPolygon
@@ -181,17 +186,24 @@ func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 }
 
 func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.Extent) (intgeom.Extent, intgeom.Point) {
+	//nolint:gosec // G115
 	intQuadrantSpan := int64(mathhelp.Pow2(ix.deepestLevel-level)) * ix.deepestRes
 	intMinX := intRootExtent.MinX()
 	intMinY := intRootExtent.MinY()
 	intExtent := intgeom.Extent{
-		intMinX + int64(x)*intQuadrantSpan,   // minx
-		intMinY + int64(y)*intQuadrantSpan,   // miny
+		//nolint:gosec // G115
+		intMinX + int64(x)*intQuadrantSpan, // minx
+		//nolint:gosec // G115
+		intMinY + int64(y)*intQuadrantSpan, // miny
+		//nolint:gosec // G115
 		intMinX + int64(x+1)*intQuadrantSpan, // maxx
+		//nolint:gosec // G115
 		intMinY + int64(y+1)*intQuadrantSpan, // maxy
 	}
 	intCentroid := intgeom.Point{
+		//nolint:gosec // G115
 		intMinX + (int64(x))*intQuadrantSpan + intQuadrantSpan/2, // <-- here is the plus 0.5 internal pixel size
+		//nolint:gosec // G115
 		intMinY + (int64(y))*intQuadrantSpan + intQuadrantSpan/2,
 	}
 	return intExtent, intCentroid
@@ -348,7 +360,9 @@ func getQuadrantZs(parentZ morton.Z) [4]morton.Z {
 	parentX, parentY := morton.FromZ(parentZ)
 	quadrantZs := [4]morton.Z{}
 	for i := 0; i < 4; i++ {
+		//nolint:gosec // G115
 		x := parentX*2 + uint(oneIfRight(i))
+		//nolint:gosec // G115
 		y := parentY*2 + uint(oneIfTop(i))
 		z := morton.MustToZ(x, y)
 		quadrantZs[i] = z
@@ -586,11 +600,13 @@ func DeviationStats(tms tms20.TileMatrixSet, deepestTMID tms20.TMID) (stats stri
 	stats += fmt.Sprintf("int64 span X: %s\n", intgeom.PrintWithDecimals(ix.intExtent.XSpan(), p))
 	floatRes := floatSpanX / float64(ix.deepestSize)
 	stats += fmt.Sprintf("float reso: %."+ps+"f\n", floatRes)
+	//nolint:gosec // G115
 	intRes := ix.intExtent.XSpan() / int64(ix.deepestSize)
 	stats += fmt.Sprintf("int64 reso: %s\n", intgeom.PrintWithDecimals(intRes, p))
 
 	floatRecalcMaxX := floatRes * float64(ix.deepestSize)
 	stats += fmt.Sprintf("float recalc maxX: %."+ps+"f\n", floatRecalcMaxX)
+	//nolint:gosec // G115
 	intRecalcMaxX := intgeom.ToGeomOrd(intRes * int64(ix.deepestSize))
 	stats += fmt.Sprintf("int64 recalc maxX: %."+ps+"f\n", intRecalcMaxX)
 

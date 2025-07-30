@@ -150,7 +150,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 0,
 				deepestSize:  mathhelp.Pow2(0),
-				deepestRes:   intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
+				//nolint:gosec // G115
+				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
 				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
@@ -168,7 +169,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 1,
 				deepestSize:  mathhelp.Pow2(1),
-				deepestRes:   intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
+				//nolint:gosec // G115
+				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
@@ -193,7 +195,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 3,
 				deepestSize:  mathhelp.Pow2(3),
-				deepestRes:   intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
+				//nolint:gosec // G115
+				deepestRes: intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -229,7 +232,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 5,
 				deepestSize:  mathhelp.Pow2(5),
-				deepestRes:   intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
+				//nolint:gosec // G115
+				deepestRes: intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -527,10 +531,11 @@ func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 		},
 		deepestLevel: deepestLevel,
 		deepestSize:  deepestSize,
-		deepestRes:   intExtent.XSpan() / int64(deepestSize),
-		quadrants:    make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
-		hitOnce:      make(map[morton.Z]map[intgeom.Point][]int, 0),
-		hitMultiple:  make(map[morton.Z]map[intgeom.Point][]int, 0),
+		//nolint:gosec // G115
+		deepestRes:  intExtent.XSpan() / int64(deepestSize),
+		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:     make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple: make(map[morton.Z]map[intgeom.Point][]int, 0),
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
 	return &ix
