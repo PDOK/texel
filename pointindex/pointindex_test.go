@@ -169,7 +169,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 1,
 				deepestSize:  mathhelp.Pow2(1),
-				deepestRes:   intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
+				//nolint:gosec // G115
+				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
@@ -194,7 +195,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 3,
 				deepestSize:  mathhelp.Pow2(3),
-				deepestRes:   intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
+				//nolint:gosec // G115
+				deepestRes: intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
@@ -230,7 +232,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 5,
 				deepestSize:  mathhelp.Pow2(5),
-				deepestRes:   intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
+				//nolint:gosec // G115
+				deepestRes: intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
 					0: {0: Quadrant{
 						z:           0,
