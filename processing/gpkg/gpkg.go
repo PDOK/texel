@@ -234,6 +234,8 @@ func (target *TargetGeopackage) writeFeatures(features []processing.Feature) {
 	var ext *geom.Extent
 
 	for _, f := range features {
+		// Ignore potential G115: integer overflow conversion int -> int32 (gosec). Issue in go-spatial.
+		// nolint: G115
 		sb, err := gpkg.NewBinary(int32(target.Table.srs.ID), f.Geometry())
 		if err != nil {
 			log.Fatalf("Could not create a binary geometry: %s", err)
@@ -378,7 +380,9 @@ func buildTable(h *gpkg.Handle, t Table) error {
 		Description:   t.Name,
 		GeometryField: t.gcolumn,
 		GeometryType:  t.gtype,
-		SRS:           int32(t.srs.ID),
+		// Ignore potential G115: integer overflow conversion int -> int32 (gosec). Issue in go-spatial.
+		// nolint: G115
+		SRS: int32(t.srs.ID),
 		//
 		Z: gpkg.Prohibited,
 		M: gpkg.Prohibited,
