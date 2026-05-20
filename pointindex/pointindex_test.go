@@ -521,6 +521,202 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 	}
 }
 
+func TestPointIndex_registerQuadrant(t *testing.T) {
+	basicTileData := TileData{isIntersect: true}
+	tests := []struct {
+		name    string
+		ix      *PointIndex
+		setupIx func(ix *PointIndex)
+		x       intgeom.M
+		y       intgeom.M
+		level   Level
+		result  map[Level]map[morton.Z]TileData
+	}{
+		{
+			name:   "Registreer op hoogste level",
+			ix:     newSimplePointIndex(2, 1),
+			x:      0,
+			y:      0,
+			level:  0,
+			result: map[Level]map[morton.Z]TileData{0: {0: basicTileData}},
+		},
+		{
+			name:  "Registreer op dieper level",
+			ix:    newSimplePointIndex(4, 1),
+			x:     1,
+			y:     1,
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {0: basicTileData},
+				2: {3: basicTileData},
+			},
+		},
+		{
+			name: "Registreer met aanwezige data",
+			ix:   newSimplePointIndex(4, 1),
+			setupIx: func(ix *PointIndex) {
+				ix.registerQuadrant(2, 3, 2)
+			},
+			x:     1,
+			y:     1,
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {0: basicTileData, 3: basicTileData},
+				2: {3: basicTileData, 14: basicTileData},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setupIx != nil {
+				tt.setupIx(tt.ix)
+			}
+			tt.ix.registerQuadrant(tt.x, tt.y, tt.level)
+			assert.EqualValues(t, tt.result, tt.ix.intersect)
+		})
+	}
+}
+
+func TestPointIndex_registerQuadrantAndNeighbours(t *testing.T) {
+	basicTileData := TileData{isIntersect: true}
+	tests := []struct {
+		name   string
+		ix     *PointIndex
+		x      intgeom.M
+		y      intgeom.M
+		level  Level
+		result map[Level]map[morton.Z]TileData
+	}{
+		{
+			name:   "Insert at highest level",
+			ix:     newSimplePointIndex(2, 1),
+			x:      0,
+			y:      0,
+			level:  0,
+			result: map[Level]map[morton.Z]TileData{0: {0: basicTileData}},
+		},
+		{
+			name:  "Insert maximal amount of neighbours.",
+			ix:    newSimplePointIndex(3, 1),
+			x:     1,
+			y:     1,
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
+				2: {0: basicTileData, 1: basicTileData, 2: basicTileData,
+					3: basicTileData, 4: basicTileData, 6: basicTileData,
+					8: basicTileData, 9: basicTileData, 12: basicTileData}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.ix.registerQuadrantAndNeighbours(tt.x, tt.y, tt.level)
+			assert.EqualValues(t, tt.result, tt.ix.intersect)
+		})
+
+	}
+}
+
+func TestPointIndex_amanatides_woo(t *testing.T) {
+	basicTileData := TileData{isIntersect: true}
+	tests := []struct {
+		name   string
+		ix     *PointIndex
+		line   geom.Line
+		level  Level
+		result map[Level]map[morton.Z]TileData
+	}{
+		{
+			name:  "Inserting a line",
+			ix:    newSimplePointIndex(3, intgeom.ToGeomOrd(1)),
+			line:  intgeom.Line{{1, 1}, {3, 5}}.ToGeomLine(),
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
+				2: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData,
+					4: basicTileData, 6: basicTileData,
+					8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData,
+					12: basicTileData, 14: basicTileData},
+			},
+		},
+		{
+			name:  "Inserting a line near edge of index",
+			ix:    newSimplePointIndex(3, intgeom.ToGeomOrd(1)),
+			line:  intgeom.Line{{0, 0}, {2, 4}}.ToGeomLine(),
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
+				2: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData,
+					6: basicTileData,
+					8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData,
+					12: basicTileData, 14: basicTileData},
+			},
+		},
+		{
+			name:  "Downward line along right edge of index",
+			ix:    newSimplePointIndex(2, intgeom.ToGeomOrd(1)),
+			line:  intgeom.Line{{4, 4}, {4, 0}}.ToGeomLine(),
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {1: basicTileData, 3: basicTileData},
+				2: {5: basicTileData, 7: basicTileData, 13: basicTileData, 15: basicTileData},
+			},
+		},
+		{
+			name:  "Line within one tile",
+			ix:    newSimplePointIndex(3, intgeom.ToGeomOrd(1)),
+			line:  intgeom.Line{{1, 7}, {0, 8}}.ToGeomLine(),
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {2: basicTileData},
+				2: {8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData},
+			},
+		},
+		{
+			name:  "Intersecting diagonally in a down-right direction.",
+			ix:    newSimplePointIndex(3, intgeom.ToGeomOrd(1)),
+			line:  intgeom.Line{{3, 5}, {5, 3}}.ToGeomLine(),
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
+				2: {1: basicTileData, 2: basicTileData, 3: basicTileData,
+					4: basicTileData, 5: basicTileData, 6: basicTileData, 7: basicTileData,
+					8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData,
+					12: basicTileData, 13: basicTileData, 14: basicTileData, 15: basicTileData},
+			},
+		},
+		{
+			name:  "Intersecting diagonally in a up-left direction.",
+			ix:    newSimplePointIndex(3, intgeom.ToGeomOrd(1)),
+			line:  intgeom.Line{{5, 3}, {3, 5}}.ToGeomLine(),
+			level: 2,
+			result: map[Level]map[morton.Z]TileData{
+				0: {0: basicTileData},
+				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
+				2: {1: basicTileData, 2: basicTileData, 3: basicTileData,
+					4: basicTileData, 5: basicTileData, 6: basicTileData, 7: basicTileData,
+					8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData,
+					12: basicTileData, 13: basicTileData, 14: basicTileData, 15: basicTileData},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.ix.amanatides_woo(tt.line, tt.level)
+			assert.EqualValues(t, tt.result, tt.ix.intersect)
+		})
+	}
+}
+
 func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 	deepestSize := mathhelp.Pow2(deepestLevel)
 	span := cellSize * float64(deepestSize)

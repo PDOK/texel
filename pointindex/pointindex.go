@@ -71,6 +71,16 @@ type PointIndex struct {
 	quadrants   map[Level]map[morton.Z]Quadrant
 	hitOnce     map[Level]map[intgeom.Point][]int
 	hitMultiple map[Level]map[intgeom.Point][]int
+
+	intersect map[Level]map[morton.Z]TileData
+}
+
+type TileData struct {
+	isOutside           bool
+	isInside            bool
+	isIntersect         bool
+	intersectEdgeRing   []int
+	intersectEdgeVertex []int
 }
 
 type Level = uint
@@ -525,6 +535,128 @@ func oneIfRight(quadrantI int) int {
 
 func oneIfTop(quadrantI int) int {
 	return (quadrantI & top) >> 1
+}
+
+// A version of Amanatides-Woo
+// Concept: parametrize line with parameter t, with t = 0 being the start and t = 1 the endpoint. Then compute the t for which tile boundaries are intersected. By taking a suitable multiple of t, this is guaranteed to be integral. Use these to raycast along the tiles.
+func (ix *PointIndex) amanatides_woo(line geom.Line, l Level) {
+	intLine := intgeom.FromGeomLine(line)
+
+	p1 := intLine.Point1()
+	p2 := intLine.Point2()
+
+	// Find start and end square
+	levelDiff := ix.deepestLevel - l
+	xStart, yStart := ix.findTileCoords(*p1, levelDiff)
+	xEnd, yEnd := ix.findTileCoords(*p2, levelDiff)
+
+	tileSize := ix.deepestRes << levelDiff
+
+	var xLine, yLine, xDir, yDir, xCoord, yCoord intgeom.M
+
+	// Current location
+	xCoord = xStart
+	yCoord = yStart
+
+	// Determine direction of `line` and determine which edges of the starting tile are intersected first.
+	if p1.Y() > p2.Y() {
+		yLine = yStart * tileSize
+		yDir = -1
+	} else {
+		yLine = (yStart + 1) * tileSize
+		yDir = 1
+	}
+
+	if p1.X() > p2.X() {
+		xLine = xStart * tileSize
+		xDir = -1
+	} else {
+		xLine = (xStart + 1) * tileSize
+		xDir = 1
+	}
+
+	xVal := (xLine - p1.X()) * (p2.Y() - p1.Y()) * xDir * yDir
+	yVal := (yLine - p1.Y()) * (p2.X() - p1.X()) * xDir * yDir
+
+	xDelta := yDir * (p2.Y() - p1.Y()) * tileSize
+	yDelta := xDir * (p2.X() - p1.X()) * tileSize
+
+	// Register start tile
+	ix.registerQuadrantAndNeighbours(xCoord, yCoord, l)
+
+	// Main traversal loop
+	for !(xCoord == xEnd && yCoord == yEnd) {
+		// The first two cases are for when you hit an edge.
+		// The last three cases are when you hit a corner.
+		switch {
+		case xVal < yVal:
+			xCoord += xDir
+			xVal += xDelta
+		case yVal < xVal:
+			yCoord += yDir
+			yVal += yDelta
+		case xDir == 1 && yDir == -1:
+			xCoord += xDir
+			xVal += xDelta
+		case xDir == -1 && yDir == 1:
+			yCoord += yDir
+			yVal += yDelta
+		default:
+			xCoord += xDir
+			yCoord += yDir
+			xVal += xDelta
+			yVal += yDelta
+		}
+		ix.registerQuadrantAndNeighbours(xCoord, yCoord, l)
+	}
+}
+
+func (ix *PointIndex) findTileCoords(intPoint intgeom.Point, levelDiff Level) (intgeom.M, intgeom.M) {
+	// I don't check for out of bounds here; this should not occur.
+	deepestX := ((intPoint.X() - ix.intExtent.MinX()) / ix.deepestRes) >> levelDiff
+	deepestY := ((intPoint.Y() - ix.intExtent.MinY()) / ix.deepestRes) >> levelDiff
+	return deepestX, deepestY
+}
+
+func (ix *PointIndex) registerQuadrantAndNeighbours(x intgeom.M, y intgeom.M, l Level) {
+	steps := [3]intgeom.M{-1, 0, 1}
+	levelDiff := ix.deepestLevel - l
+	levelSize := ix.deepestSize >> levelDiff
+
+	var xNeighbour, yNeighbour intgeom.M
+
+	for _, xDiff := range steps {
+		for _, yDiff := range steps {
+			xNeighbour = x + xDiff
+			yNeighbour = y + yDiff
+			if xNeighbour < 0 || xNeighbour > intgeom.M(levelSize)-1 ||
+				yNeighbour < 0 || yNeighbour > intgeom.M(levelSize)-1 {
+				continue // Out of bounds
+			}
+			ix.registerQuadrant(xNeighbour, yNeighbour, l)
+		}
+	}
+}
+
+func (ix *PointIndex) registerQuadrant(x intgeom.M, y intgeom.M, l Level) {
+	z := morton.MustToZ(uint(x), uint(y))
+
+	if ix.intersect == nil {
+		ix.intersect = make(map[Level]map[morton.Z]TileData, l)
+		for i := uint(0); i <= l; i++ {
+			ix.intersect[i] = make(map[morton.Z]TileData)
+		}
+
+	}
+
+	for i := uint(0); i <= l; i++ {
+		levelMap := ix.intersect[l-i]
+		if _, b := levelMap[z]; b {
+			return
+		}
+		levelMap[z] = TileData{isIntersect: true}
+		z = z >> 2
+	}
 }
 
 //nolint:nestif
