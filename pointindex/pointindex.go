@@ -72,15 +72,19 @@ type PointIndex struct {
 	hitOnce     map[Level]map[intgeom.Point][]int
 	hitMultiple map[Level]map[intgeom.Point][]int
 
-	intersect map[Level]map[morton.Z]TileData
+	intersect          map[Level]map[morton.Z]TileData
+	registeredSegments map[morton.Z][]SegmentIdx
+}
+
+type SegmentIdx struct {
+	ringIdx  int
+	pointIdx int
 }
 
 type TileData struct {
-	isOutside           bool
-	isInside            bool
-	isIntersect         bool
-	intersectEdgeRing   []int
-	intersectEdgeVertex []int
+	isOutside   bool
+	isInside    bool
+	isIntersect bool
 }
 
 type Level = uint
@@ -539,8 +543,12 @@ func oneIfTop(quadrantI int) int {
 
 // A version of Amanatides-Woo
 // Concept: parametrize line with parameter t, with t = 0 being the start and t = 1 the endpoint. Then compute the t for which tile boundaries are intersected. By taking a suitable multiple of t, this is guaranteed to be integral. Use these to raycast along the tiles.
-func (ix *PointIndex) amanatides_woo(line geom.Line, l Level) {
+func (ix *PointIndex) amanatides_woo(line geom.Line, l Level, ringIdx int, pointIdx int) {
 	intLine := intgeom.FromGeomLine(line)
+	segmentIdx := SegmentIdx{
+		ringIdx:  ringIdx,
+		pointIdx: pointIdx,
+	}
 
 	p1 := intLine.Point1()
 	p2 := intLine.Point2()
@@ -582,7 +590,7 @@ func (ix *PointIndex) amanatides_woo(line geom.Line, l Level) {
 	yDelta := xDir * (p2.X() - p1.X()) * tileSize
 
 	// Register start tile
-	ix.registerQuadrantAndNeighbours(xCoord, yCoord, l)
+	ix.registerQuadrantAndNeighbours(xCoord, yCoord, l, segmentIdx)
 
 	// Main traversal loop
 	for !(xCoord == xEnd && yCoord == yEnd) {
@@ -607,7 +615,7 @@ func (ix *PointIndex) amanatides_woo(line geom.Line, l Level) {
 			xVal += xDelta
 			yVal += yDelta
 		}
-		ix.registerQuadrantAndNeighbours(xCoord, yCoord, l)
+		ix.registerQuadrantAndNeighbours(xCoord, yCoord, l, segmentIdx)
 	}
 }
 
@@ -618,7 +626,7 @@ func (ix *PointIndex) findTileCoords(intPoint intgeom.Point, levelDiff Level) (i
 	return deepestX, deepestY
 }
 
-func (ix *PointIndex) registerQuadrantAndNeighbours(x intgeom.M, y intgeom.M, l Level) {
+func (ix *PointIndex) registerQuadrantAndNeighbours(x intgeom.M, y intgeom.M, l Level, idx SegmentIdx) {
 	steps := [3]intgeom.M{-1, 0, 1}
 	levelDiff := ix.deepestLevel - l
 	levelSize := ix.deepestSize >> levelDiff
@@ -633,14 +641,16 @@ func (ix *PointIndex) registerQuadrantAndNeighbours(x intgeom.M, y intgeom.M, l 
 				yNeighbour < 0 || yNeighbour > intgeom.M(levelSize)-1 {
 				continue // Out of bounds
 			}
-			ix.registerQuadrant(xNeighbour, yNeighbour, l)
+			ix.registerQuadrant(xNeighbour, yNeighbour, l, idx)
 		}
 	}
 }
 
-func (ix *PointIndex) registerQuadrant(x intgeom.M, y intgeom.M, l Level) {
+func (ix *PointIndex) registerQuadrant(x intgeom.M, y intgeom.M, l Level, idx SegmentIdx) {
 	z := morton.MustToZ(uint(x), uint(y))
+	ix.registerSegment(z, idx)
 
+	// Create maps if nonexistent
 	if ix.intersect == nil {
 		ix.intersect = make(map[Level]map[morton.Z]TileData, l)
 		for i := uint(0); i <= l; i++ {
@@ -649,13 +659,39 @@ func (ix *PointIndex) registerQuadrant(x intgeom.M, y intgeom.M, l Level) {
 
 	}
 
+	// Insert at each level
 	for i := uint(0); i <= l; i++ {
 		levelMap := ix.intersect[l-i]
-		if _, b := levelMap[z]; b {
+		_, b := levelMap[z]
+
+		// Create if does not exist
+		if !b {
+			levelMap[z] = TileData{isIntersect: true}
+		} else {
 			return
 		}
-		levelMap[z] = TileData{isIntersect: true}
+
+		// Update Morton coordinate
 		z = z >> 2
+	}
+}
+
+func (ix *PointIndex) registerSegment(z morton.Z, idx SegmentIdx) {
+	if ix.registeredSegments == nil {
+		ix.registeredSegments = make(map[morton.Z][]SegmentIdx)
+	}
+
+	segments, present := ix.registeredSegments[z]
+
+	if !present {
+		ix.registeredSegments[z] = []SegmentIdx{idx}
+		return
+	}
+
+	lastIdx := segments[len(segments)-1]
+
+	if idx != lastIdx {
+		ix.registeredSegments[z] = append(segments, idx)
 	}
 }
 

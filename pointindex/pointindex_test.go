@@ -522,7 +522,7 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 }
 
 func TestPointIndex_registerQuadrant(t *testing.T) {
-	basicTileData := TileData{isIntersect: true}
+	btd := TileData{isIntersect: true}
 	tests := []struct {
 		name    string
 		ix      *PointIndex
@@ -530,15 +530,18 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 		x       intgeom.M
 		y       intgeom.M
 		level   Level
-		result  map[Level]map[morton.Z]TileData
+
+		result_intersect map[Level]map[morton.Z]TileData
+		result_segments  map[morton.Z][]SegmentIdx
 	}{
 		{
-			name:   "Registreer op hoogste level",
-			ix:     newSimplePointIndex(2, 1),
-			x:      0,
-			y:      0,
-			level:  0,
-			result: map[Level]map[morton.Z]TileData{0: {0: basicTileData}},
+			name:             "Registreer op hoogste level",
+			ix:               newSimplePointIndex(2, 1),
+			x:                0,
+			y:                0,
+			level:            0,
+			result_intersect: map[Level]map[morton.Z]TileData{0: {0: btd}},
+			result_segments:  map[morton.Z][]SegmentIdx{0: {{1, 1}}},
 		},
 		{
 			name:  "Registreer op dieper level",
@@ -546,26 +549,60 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 			x:     1,
 			y:     1,
 			level: 2,
-			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {0: basicTileData},
-				2: {3: basicTileData},
+			result_intersect: map[Level]map[morton.Z]TileData{
+				0: {0: btd},
+				1: {0: btd},
+				2: {3: btd},
 			},
+			result_segments: map[morton.Z][]SegmentIdx{3: {{1, 1}}},
 		},
 		{
 			name: "Registreer met aanwezige data",
 			ix:   newSimplePointIndex(4, 1),
 			setupIx: func(ix *PointIndex) {
-				ix.registerQuadrant(2, 3, 2)
+				ix.registerQuadrant(2, 3, 2, SegmentIdx{1, 2})
 			},
 			x:     1,
 			y:     1,
 			level: 2,
-			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {0: basicTileData, 3: basicTileData},
-				2: {3: basicTileData, 14: basicTileData},
+			result_intersect: map[Level]map[morton.Z]TileData{
+				0: {0: btd},
+				1: {0: btd, 3: btd},
+				2: {3: btd, 14: btd},
 			},
+			result_segments: map[morton.Z][]SegmentIdx{3: {{1, 1}}, 14: {{1, 2}}},
+		},
+		{
+			name: "Registreer met aanwezige data op hetzelfde punt",
+			ix:   newSimplePointIndex(4, 1),
+			setupIx: func(ix *PointIndex) {
+				ix.registerQuadrant(1, 1, 2, SegmentIdx{1, 2})
+			},
+			x:     1,
+			y:     1,
+			level: 2,
+			result_intersect: map[Level]map[morton.Z]TileData{
+				0: {0: btd},
+				1: {0: btd},
+				2: {3: btd},
+			},
+			result_segments: map[morton.Z][]SegmentIdx{3: {{1, 2}, {1, 1}}},
+		},
+		{
+			name: "Registreer met aanwezige data op hetzelfde punt",
+			ix:   newSimplePointIndex(4, 1),
+			setupIx: func(ix *PointIndex) {
+				ix.registerQuadrant(1, 1, 2, SegmentIdx{1, 1})
+			},
+			x:     1,
+			y:     1,
+			level: 2,
+			result_intersect: map[Level]map[morton.Z]TileData{
+				0: {0: btd},
+				1: {0: btd},
+				2: {3: btd},
+			},
+			result_segments: map[morton.Z][]SegmentIdx{3: {{1, 1}}},
 		},
 	}
 	for _, tt := range tests {
@@ -573,14 +610,15 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 			if tt.setupIx != nil {
 				tt.setupIx(tt.ix)
 			}
-			tt.ix.registerQuadrant(tt.x, tt.y, tt.level)
-			assert.EqualValues(t, tt.result, tt.ix.intersect)
+			tt.ix.registerQuadrant(tt.x, tt.y, tt.level, SegmentIdx{1, 1})
+			assert.EqualValues(t, tt.result_intersect, tt.ix.intersect)
+			assert.EqualValues(t, tt.result_segments, tt.ix.registeredSegments)
 		})
 	}
 }
 
 func TestPointIndex_registerQuadrantAndNeighbours(t *testing.T) {
-	basicTileData := TileData{isIntersect: true}
+	btd := TileData{isIntersect: true}
 	tests := []struct {
 		name   string
 		ix     *PointIndex
@@ -595,7 +633,7 @@ func TestPointIndex_registerQuadrantAndNeighbours(t *testing.T) {
 			x:      0,
 			y:      0,
 			level:  0,
-			result: map[Level]map[morton.Z]TileData{0: {0: basicTileData}},
+			result: map[Level]map[morton.Z]TileData{0: {0: btd}},
 		},
 		{
 			name:  "Insert maximal amount of neighbours.",
@@ -604,16 +642,16 @@ func TestPointIndex_registerQuadrantAndNeighbours(t *testing.T) {
 			y:     1,
 			level: 2,
 			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
-				2: {0: basicTileData, 1: basicTileData, 2: basicTileData,
-					3: basicTileData, 4: basicTileData, 6: basicTileData,
-					8: basicTileData, 9: basicTileData, 12: basicTileData}},
+				0: {0: btd},
+				1: {0: btd, 1: btd, 2: btd, 3: btd},
+				2: {0: btd, 1: btd, 2: btd,
+					3: btd, 4: btd, 6: btd,
+					8: btd, 9: btd, 12: btd}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.ix.registerQuadrantAndNeighbours(tt.x, tt.y, tt.level)
+			tt.ix.registerQuadrantAndNeighbours(tt.x, tt.y, tt.level, SegmentIdx{1, 1})
 			assert.EqualValues(t, tt.result, tt.ix.intersect)
 		})
 
@@ -621,7 +659,7 @@ func TestPointIndex_registerQuadrantAndNeighbours(t *testing.T) {
 }
 
 func TestPointIndex_amanatides_woo(t *testing.T) {
-	basicTileData := TileData{isIntersect: true}
+	btd := TileData{isIntersect: true}
 	tests := []struct {
 		name   string
 		ix     *PointIndex
@@ -635,12 +673,12 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			line:  intgeom.Line{{1, 1}, {3, 5}}.ToGeomLine(),
 			level: 2,
 			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
-				2: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData,
-					4: basicTileData, 6: basicTileData,
-					8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData,
-					12: basicTileData, 14: basicTileData},
+				0: {0: btd},
+				1: {0: btd, 1: btd, 2: btd, 3: btd},
+				2: {0: btd, 1: btd, 2: btd, 3: btd,
+					4: btd, 6: btd,
+					8: btd, 9: btd, 10: btd, 11: btd,
+					12: btd, 14: btd},
 			},
 		},
 		{
@@ -649,12 +687,12 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			line:  intgeom.Line{{0, 0}, {2, 4}}.ToGeomLine(),
 			level: 2,
 			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
-				2: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData,
-					6: basicTileData,
-					8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData,
-					12: basicTileData, 14: basicTileData},
+				0: {0: btd},
+				1: {0: btd, 1: btd, 2: btd, 3: btd},
+				2: {0: btd, 1: btd, 2: btd, 3: btd,
+					6: btd,
+					8: btd, 9: btd, 10: btd, 11: btd,
+					12: btd, 14: btd},
 			},
 		},
 		{
@@ -663,9 +701,9 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			line:  intgeom.Line{{4, 4}, {4, 0}}.ToGeomLine(),
 			level: 2,
 			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {1: basicTileData, 3: basicTileData},
-				2: {5: basicTileData, 7: basicTileData, 13: basicTileData, 15: basicTileData},
+				0: {0: btd},
+				1: {1: btd, 3: btd},
+				2: {5: btd, 7: btd, 13: btd, 15: btd},
 			},
 		},
 		{
@@ -674,9 +712,9 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			line:  intgeom.Line{{1, 7}, {0, 8}}.ToGeomLine(),
 			level: 2,
 			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {2: basicTileData},
-				2: {8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData},
+				0: {0: btd},
+				1: {2: btd},
+				2: {8: btd, 9: btd, 10: btd, 11: btd},
 			},
 		},
 		{
@@ -685,12 +723,12 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			line:  intgeom.Line{{3, 5}, {5, 3}}.ToGeomLine(),
 			level: 2,
 			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
-				2: {1: basicTileData, 2: basicTileData, 3: basicTileData,
-					4: basicTileData, 5: basicTileData, 6: basicTileData, 7: basicTileData,
-					8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData,
-					12: basicTileData, 13: basicTileData, 14: basicTileData, 15: basicTileData},
+				0: {0: btd},
+				1: {0: btd, 1: btd, 2: btd, 3: btd},
+				2: {1: btd, 2: btd, 3: btd,
+					4: btd, 5: btd, 6: btd, 7: btd,
+					8: btd, 9: btd, 10: btd, 11: btd,
+					12: btd, 13: btd, 14: btd, 15: btd},
 			},
 		},
 		{
@@ -699,19 +737,19 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			line:  intgeom.Line{{5, 3}, {3, 5}}.ToGeomLine(),
 			level: 2,
 			result: map[Level]map[morton.Z]TileData{
-				0: {0: basicTileData},
-				1: {0: basicTileData, 1: basicTileData, 2: basicTileData, 3: basicTileData},
-				2: {1: basicTileData, 2: basicTileData, 3: basicTileData,
-					4: basicTileData, 5: basicTileData, 6: basicTileData, 7: basicTileData,
-					8: basicTileData, 9: basicTileData, 10: basicTileData, 11: basicTileData,
-					12: basicTileData, 13: basicTileData, 14: basicTileData, 15: basicTileData},
+				0: {0: btd},
+				1: {0: btd, 1: btd, 2: btd, 3: btd},
+				2: {1: btd, 2: btd, 3: btd,
+					4: btd, 5: btd, 6: btd, 7: btd,
+					8: btd, 9: btd, 10: btd, 11: btd,
+					12: btd, 13: btd, 14: btd, 15: btd},
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.ix.amanatides_woo(tt.line, tt.level)
+			tt.ix.amanatides_woo(tt.line, tt.level, 1, 1)
 			assert.EqualValues(t, tt.result, tt.ix.intersect)
 		})
 	}
