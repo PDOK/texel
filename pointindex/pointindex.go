@@ -695,6 +695,99 @@ func (ix *PointIndex) registerSegment(z morton.Z, idx SegmentIdx) {
 	}
 }
 
+func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, targetLevel Level) {
+	rings := polygon.LinearRings()
+
+	for ringidx, ring := range rings {
+		for vertexidx, vertex := range ring {
+			nextIdx := (vertexidx + 1) % len(ring)
+			nextVertex := ring[nextIdx]
+			line := geom.Line{vertex, nextVertex}
+			ix.amanatides_woo(line, targetLevel, ringidx, vertexidx)
+		}
+	}
+}
+
+// Going level-by-level in the tree, finding tiles left of origin marked as intersecting
+func (ix *PointIndex) findIntersectingTilesLeft(xOrigin uint, yOrigin uint, targetLevel Level) []morton.Z {
+	todoListAtCurrentLevel := []morton.Z{0}
+	var todoListAtNextLevel []morton.Z
+	var leftChild, rightChild morton.Z
+	for currentLevel := Level(0); currentLevel < targetLevel; currentLevel++ {
+		todoListAtNextLevel = make([]morton.Z, 0) // currentLen is relatively arbitrary (check if works)
+
+		xOriginAtNextLevel := xOrigin >> (targetLevel - currentLevel - 1)
+		yOriginAtNextLevel := yOrigin >> (targetLevel - currentLevel - 1)
+
+		nextLevelDown := yOriginAtNextLevel%2 == 0
+		for _, currentZ := range todoListAtCurrentLevel {
+
+			if nextLevelDown {
+				leftChild = currentZ << 2
+				rightChild = (currentZ << 2) + 1
+			} else {
+				leftChild = (currentZ << 2) + 2
+				rightChild = (currentZ << 2) + 3
+			}
+			_, presentleft := ix.intersect[currentLevel+1][leftChild]
+			_, presentright := ix.intersect[currentLevel+1][rightChild]
+
+			if presentleft {
+				todoListAtNextLevel = append(todoListAtNextLevel, leftChild)
+			}
+
+			rightX, _ := morton.FromZ(rightChild)
+
+			if presentright && (rightX <= xOriginAtNextLevel) {
+				todoListAtNextLevel = append(todoListAtNextLevel, rightChild)
+			}
+		}
+		todoListAtCurrentLevel = todoListAtNextLevel
+	}
+	return todoListAtCurrentLevel
+}
+
+func (ix *PointIndex) determineTileOnOutside(zOrigin morton.Z, targetLevel Level, polygon geom.Polygon) bool {
+	xOrigin, yOrigin := morton.FromZ(zOrigin)
+
+	// Binary search to find all tiles left of `zOrigin` that are intersected
+	intersectingTilesLeft := ix.findIntersectingTilesLeft(xOrigin, yOrigin, targetLevel)
+
+	// Check all found tiles for intersecting segments
+	seen := make(map[SegmentIdx]bool)
+	intersectionAmount := 0
+
+	for _, currentZ := range intersectingTilesLeft {
+		for _, segmentIdx := range ix.registeredSegments[currentZ] {
+			if seen[segmentIdx] {
+				continue
+			}
+			seen[segmentIdx] = true
+			ring := polygon.LinearRings()[segmentIdx.ringIdx]
+			float_pt1 := ring[segmentIdx.pointIdx]
+			float_pt2 := ring[(segmentIdx.pointIdx+1)%len(ring)]
+
+			y1 := intgeom.FromGeomOrd(float_pt1[1])
+			y2 := intgeom.FromGeomOrd(float_pt2[1])
+
+			minY := min(y1, y2)
+			maxY := max(y1, y2)
+
+			// Only count a segment if the northernmost vertex is unique and intersects the ray
+			switch {
+			case minY == maxY:
+			case maxY < intgeom.M(yOrigin):
+			case minY >= intgeom.M(yOrigin):
+				continue
+			default:
+				intersectionAmount++
+			}
+		}
+	}
+
+	return intersectionAmount%2 == 0
+}
+
 //nolint:nestif
 func IsQuadTree(tms tms20.TileMatrixSet) error {
 	var previousTMID int

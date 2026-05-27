@@ -644,9 +644,12 @@ func TestPointIndex_registerQuadrantAndNeighbours(t *testing.T) {
 			result: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd, 1: btd, 2: btd, 3: btd},
-				2: {0: btd, 1: btd, 2: btd,
+				2: {
+					0: btd, 1: btd, 2: btd,
 					3: btd, 4: btd, 6: btd,
-					8: btd, 9: btd, 12: btd}},
+					8: btd, 9: btd, 12: btd,
+				},
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -654,7 +657,6 @@ func TestPointIndex_registerQuadrantAndNeighbours(t *testing.T) {
 			tt.ix.registerQuadrantAndNeighbours(tt.x, tt.y, tt.level, SegmentIdx{1, 1})
 			assert.EqualValues(t, tt.result, tt.ix.intersect)
 		})
-
 	}
 }
 
@@ -675,10 +677,12 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			result: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd, 1: btd, 2: btd, 3: btd},
-				2: {0: btd, 1: btd, 2: btd, 3: btd,
+				2: {
+					0: btd, 1: btd, 2: btd, 3: btd,
 					4: btd, 6: btd,
 					8: btd, 9: btd, 10: btd, 11: btd,
-					12: btd, 14: btd},
+					12: btd, 14: btd,
+				},
 			},
 		},
 		{
@@ -689,10 +693,12 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			result: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd, 1: btd, 2: btd, 3: btd},
-				2: {0: btd, 1: btd, 2: btd, 3: btd,
+				2: {
+					0: btd, 1: btd, 2: btd, 3: btd,
 					6: btd,
 					8: btd, 9: btd, 10: btd, 11: btd,
-					12: btd, 14: btd},
+					12: btd, 14: btd,
+				},
 			},
 		},
 		{
@@ -725,10 +731,12 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			result: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd, 1: btd, 2: btd, 3: btd},
-				2: {1: btd, 2: btd, 3: btd,
+				2: {
+					1: btd, 2: btd, 3: btd,
 					4: btd, 5: btd, 6: btd, 7: btd,
 					8: btd, 9: btd, 10: btd, 11: btd,
-					12: btd, 13: btd, 14: btd, 15: btd},
+					12: btd, 13: btd, 14: btd, 15: btd,
+				},
 			},
 		},
 		{
@@ -739,10 +747,12 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 			result: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd, 1: btd, 2: btd, 3: btd},
-				2: {1: btd, 2: btd, 3: btd,
+				2: {
+					1: btd, 2: btd, 3: btd,
 					4: btd, 5: btd, 6: btd, 7: btd,
 					8: btd, 9: btd, 10: btd, 11: btd,
-					12: btd, 13: btd, 14: btd, 15: btd},
+					12: btd, 13: btd, 14: btd, 15: btd,
+				},
 			},
 		},
 	}
@@ -751,6 +761,167 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.ix.amanatides_woo(tt.line, tt.level, 1, 1)
 			assert.EqualValues(t, tt.result, tt.ix.intersect)
+		})
+	}
+}
+
+func TestPointIndex_findIntersectingTilesLeft(t *testing.T) {
+	tests := []struct {
+		name        string
+		ix          *PointIndex
+		xOrigin     uint
+		yOrigin     uint
+		targetLevel Level
+		tilesHit    []morton.Z
+	}{
+		{
+			name:        "Empty tiles hit",
+			ix:          newSimplePointIndex(3, 1),
+			xOrigin:     2,
+			yOrigin:     1,
+			targetLevel: 2,
+			tilesHit:    []morton.Z{},
+		},
+		{
+			name:        "Single tile hit",
+			ix:          newSimplePointIndex(3, 1),
+			xOrigin:     2,
+			yOrigin:     1,
+			targetLevel: 2,
+			tilesHit:    []morton.Z{3},
+		},
+		{
+			name:        "Single tile hit, but missed by algorithm",
+			ix:          newSimplePointIndex(3, 1),
+			xOrigin:     2,
+			yOrigin:     1,
+			targetLevel: 2,
+			tilesHit:    []morton.Z{1, 3},
+		},
+		{
+			name:        "Single tile hit, but missed by algorithm",
+			ix:          newSimplePointIndex(3, 1),
+			xOrigin:     2,
+			yOrigin:     1,
+			targetLevel: 2,
+			tilesHit:    []morton.Z{1, 3, 7},
+		},
+	}
+	for _, tt := range tests {
+		expected := []morton.Z{}
+		t.Run(tt.name, func(t *testing.T) {
+			expected = []morton.Z{}
+			for _, currentZ := range tt.tilesHit {
+				currentX, currentY := morton.FromZ(currentZ)
+				tt.ix.registerQuadrant(intgeom.M(currentX), intgeom.M(currentY), tt.targetLevel, SegmentIdx{0, 0})
+				if currentY == tt.yOrigin && currentX <= tt.xOrigin {
+					expected = append(expected, currentZ)
+				}
+			}
+			actual := tt.ix.findIntersectingTilesLeft(tt.xOrigin, tt.yOrigin, tt.targetLevel)
+			assert.Equal(t, expected, actual)
+		})
+	}
+}
+
+func TestPointIndex_determineTileOnOutside(t *testing.T) {
+	tests := []struct {
+		name        string
+		ix          *PointIndex
+		polygon     geom.Polygon
+		targetLevel Level
+		targetCell  morton.Z
+		expected    bool
+	}{
+		{
+			name:        "Empty polygon",
+			ix:          newSimplePointIndex(3, 1),
+			targetLevel: 2,
+			polygon:     geom.Polygon{},
+			targetCell:  10,
+			expected:    true,
+		},
+		{
+			name:        "Inside square",
+			ix:          newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			targetLevel: 3,
+			polygon: geom.Polygon{{
+				{0, 0},
+				{0, intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(15), intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(15), 0},
+			}},
+			targetCell: 15,
+			expected:   false,
+		},
+		{
+			name:        "Edge lies on ray",
+			ix:          newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			targetLevel: 3,
+			polygon: geom.Polygon{{
+				{0, 0},
+				{0, intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(7), intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(7), 0},
+			}},
+			targetCell: 16,
+			expected:   true,
+		},
+		{
+			name:        "Ray passes through corner, no hit",
+			ix:          newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			targetLevel: 3,
+			polygon: geom.Polygon{{
+				{0, 0},
+				{0, intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(15), intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(15), 0},
+				{intgeom.ToGeomOrd(1), intgeom.ToGeomOrd(6)},
+			}},
+			targetCell: 15,
+			expected:   false,
+		},
+		{
+			name:        "Ray passes through corner, hit",
+			ix:          newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			targetLevel: 3,
+			polygon: geom.Polygon{{
+				{0, 0},
+				{intgeom.ToGeomOrd(1), intgeom.ToGeomOrd(6)},
+				{0, intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(15), intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(15), 0},
+			}},
+			targetCell: 15,
+			expected:   false,
+		},
+		{
+			name:        "Within a hole",
+			ix:          newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			targetLevel: 3,
+			polygon: geom.Polygon{
+				{
+					{0, 0},
+					{0, intgeom.ToGeomOrd(15)},
+					{intgeom.ToGeomOrd(15), intgeom.ToGeomOrd(15)},
+					{intgeom.ToGeomOrd(15), 0},
+				},
+				{
+					{intgeom.ToGeomOrd(1), intgeom.ToGeomOrd(1)},
+					{intgeom.ToGeomOrd(1), intgeom.ToGeomOrd(14)},
+					{intgeom.ToGeomOrd(14), intgeom.ToGeomOrd(14)},
+					{intgeom.ToGeomOrd(14), intgeom.ToGeomOrd(1)},
+				},
+			},
+			targetCell: 15,
+			expected:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.ix.registerPolygonEdges(tt.polygon, tt.targetLevel)
+			actual := tt.ix.determineTileOnOutside(tt.targetCell, tt.targetLevel, tt.polygon)
+			assert.Equal(t, tt.expected, actual)
 		})
 	}
 }
