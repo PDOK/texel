@@ -926,6 +926,88 @@ func TestPointIndex_determineTileOnOutside(t *testing.T) {
 	}
 }
 
+func TestPointIndex_classifyTiles(t *testing.T) {
+	iI := TileData{isIntersect: true}
+	io := TileData{isOutside: true}
+	ii := TileData{isInside: true}
+	tests := []struct {
+		name        string
+		ix          *PointIndex
+		polygon     geom.Polygon
+		targetLevel Level
+		expected    map[Level]map[morton.Z]TileData
+	}{
+		{
+			name:        "Empty polygon",
+			ix:          newSimplePointIndex(2, 1),
+			polygon:     geom.Polygon{},
+			targetLevel: 1,
+			expected: map[Level]map[morton.Z]TileData{
+				0: {0: TileData{isOutside: true}},
+				1: {},
+			},
+		},
+		{
+			name: "Triangle with interior tile",
+			ix:   newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			polygon: geom.Polygon{{
+				{intgeom.ToGeomOrd(0), intgeom.ToGeomOrd(0)},
+				{intgeom.ToGeomOrd(5), intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(15), intgeom.ToGeomOrd(5)},
+			}},
+			targetLevel: 3,
+			expected: map[Level]map[morton.Z]TileData{
+				0: {0: iI},
+				1: {0: iI, 1: iI, 2: iI, 3: iI},
+				2: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: iI},
+				3: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: ii, 16: iI, 17: iI, 18: iI, 19: iI, 20: iI, 21: io, 22: iI, 23: iI, 24: iI, 25: iI, 26: iI, 27: iI, 28: iI, 29: iI, 30: iI, 31: iI, 32: iI, 33: iI, 34: iI, 35: iI, 36: iI, 37: iI, 38: iI, 39: iI, 40: iI, 41: iI, 42: io, 43: iI, 44: iI, 45: iI, 46: iI, 47: iI, 48: iI, 49: iI, 50: iI, 51: iI, 52: iI, 53: iI, 54: iI, 55: iI, 56: iI, 57: iI, 58: iI, 59: iI, 60: iI, 61: io, 62: io, 63: io,},
+			},
+		},
+		{
+			name: "Triangle with pinched ring",
+			ix:   newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			polygon: geom.Polygon{{
+				{intgeom.ToGeomOrd(0), intgeom.ToGeomOrd(0)},
+				{intgeom.ToGeomOrd(5), intgeom.ToGeomOrd(15)},
+				{intgeom.ToGeomOrd(15), intgeom.ToGeomOrd(5)},
+			}, {
+				{intgeom.ToGeomOrd(0), intgeom.ToGeomOrd(0)},
+				{intgeom.ToGeomOrd(5), intgeom.ToGeomOrd(14)},
+				{intgeom.ToGeomOrd(14), intgeom.ToGeomOrd(5)},
+			}},
+			targetLevel: 3,
+			expected: map[Level]map[morton.Z]TileData{
+				0: {0: iI},
+				1: {0: iI, 1: iI, 2: iI, 3: iI},
+				2: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: iI},
+				3: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: iI, 16: iI, 17: iI, 18: iI, 19: iI, 20: iI, 21: io, 22: iI, 23: iI, 24: iI, 25: iI, 26: iI, 27: iI, 28: iI, 29: iI, 30: iI, 31: iI, 32: iI, 33: iI, 34: iI, 35: iI, 36: iI, 37: iI, 38: iI, 39: iI, 40: iI, 41: iI, 42: io, 43: iI, 44: iI, 45: iI, 46: iI, 47: iI, 48: iI, 49: iI, 50: iI, 51: iI, 52: iI, 53: iI, 54: iI, 55: iI, 56: iI, 57: iI, 58: iI, 59: iI, 60: iI, 61: io, 62: io, 63: io,},
+			},
+		},
+		{
+			name: "Outside detection at higher level",
+			ix: newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			polygon: geom.Polygon{{
+				{intgeom.ToGeomOrd(1), intgeom.ToGeomOrd(1)},
+				{intgeom.ToGeomOrd(1), intgeom.ToGeomOrd(12)},
+				{intgeom.ToGeomOrd(2), intgeom.ToGeomOrd(12)},
+				{intgeom.ToGeomOrd(2), intgeom.ToGeomOrd(1)},
+			}},
+			targetLevel: 2,
+			expected: map[Level]map[morton.Z]TileData {
+				0: {0: iI},
+				1: {0: iI, 1: io, 2: iI, 3: io},
+				2: {0: iI, 1: iI, 2: iI, 3: iI, 8: iI, 9: iI, 10: iI, 11: iI},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.ix.classifyTiles(tt.polygon, tt.targetLevel)
+			assert.Equal(t, tt.expected, tt.ix.intersect)
+		})
+	}
+}
+
 func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 	deepestSize := mathhelp.Pow2(deepestLevel)
 	span := cellSize * float64(deepestSize)

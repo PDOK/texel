@@ -87,8 +87,10 @@ type TileData struct {
 	isIntersect bool
 }
 
-type Level = uint
-type Q = int // quadrant index (0, 1, 2 or 3)
+type (
+	Level = uint
+	Q     = int // quadrant index (0, 1, 2 or 3)
+)
 
 func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) (*PointIndex, error) {
 	// assuming IsQuadTree was tested before
@@ -389,18 +391,13 @@ func findIntersectingQuadrants(intLine intgeom.Line, quadrants map[Q]Quadrant, p
 }
 
 func getQuadrantZs(parentZ morton.Z) [4]morton.Z {
-	parentX, parentY := morton.FromZ(parentZ)
-	quadrantZs := [4]morton.Z{}
-	for i := range 4 {
-		//nolint:gosec // G115
-		x := parentX*2 + uint(oneIfRight(i))
-		//nolint:gosec // G115
-		y := parentY*2 + uint(oneIfTop(i))
-		z := morton.MustToZ(x, y)
-		//nolint:gosec // G602
-		quadrantZs[i] = z
+	baseChildZ := parentZ << 2
+	return [4]morton.Z{
+		baseChildZ,
+		baseChildZ + 1,
+		baseChildZ + 2,
+		baseChildZ + 3,
 	}
-	return quadrantZs
 }
 
 // containsPoint checks whether a point is contained in a quadrant's extent.
@@ -658,7 +655,6 @@ func (ix *PointIndex) registerQuadrant(x intgeom.M, y intgeom.M, l Level, idx Se
 		}
 
 	}
-
 	// Insert at each level
 	for i := uint(0); i <= l; i++ {
 		levelMap := ix.intersect[l-i]
@@ -786,6 +782,51 @@ func (ix *PointIndex) determineTileOnOutside(zOrigin morton.Z, targetLevel Level
 	}
 
 	return intersectionAmount%2 == 0
+}
+
+// This function kickstarts the recursion
+func (ix *PointIndex) classifyNonIntersectingTiles(polygon geom.Polygon, targetLevel Level) {
+	ix.classifyNonIntersectingTilesHelper(polygon, targetLevel, 0, 0)
+}
+
+// Recursively walk through quadtree, raycasing on unknown tiles
+func (ix *PointIndex) classifyNonIntersectingTilesHelper(polygon geom.Polygon, targetLevel Level, currentLevel Level, currentZ morton.Z) {
+	tileData, present := ix.intersect[currentLevel][currentZ]
+
+	if present && tileData.isIntersect {
+		if currentLevel == targetLevel {
+			return
+		}
+		nextLevel := currentLevel + 1
+		for _, childZ := range getQuadrantZs(currentZ) {
+			ix.classifyNonIntersectingTilesHelper(polygon, targetLevel, nextLevel, childZ)
+		}
+		return
+	}
+
+	levelDiff := targetLevel - currentLevel
+	targetZ := currentZ << (2 * levelDiff)
+
+	isOutside := ix.determineTileOnOutside(targetZ, targetLevel, polygon)
+
+	var newTileData TileData
+
+	if isOutside {
+		newTileData = TileData{isOutside: true}
+	} else {
+		newTileData = TileData{isInside: true}
+	}
+
+	ix.intersect[currentLevel][currentZ] = newTileData
+}
+
+func (ix *PointIndex) classifyTiles(polygon geom.Polygon, targetLevel Level) {
+	ix.intersect = make(map[Level]map[morton.Z]TileData)
+	for i := Level(0); i <= targetLevel; i++ {
+		ix.intersect[i] = make(map[morton.Z]TileData)
+	}
+	ix.registerPolygonEdges(polygon, targetLevel)
+	ix.classifyNonIntersectingTiles(polygon, targetLevel)
 }
 
 //nolint:nestif
