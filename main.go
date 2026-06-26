@@ -204,9 +204,8 @@ func initGPKGTarget(targetPathFmt string, tmID int, overwrite bool, pagesize int
 	targetPath := fmt.Sprintf(targetPathFmt, tmID)
 	if overwrite {
 		err := os.Remove(targetPath)
-		var pathError *os.PathError
 		if err != nil {
-			if !(errors.As(err, &pathError) && errors.Is(pathError.Err, syscall.ENOENT)) {
+			if pathError, ok := errors.AsType[*os.PathError](err); !ok || !errors.Is(pathError.Err, syscall.ENOENT) {
 				log.Fatalf("could not remove target file: %e", err)
 			}
 		}

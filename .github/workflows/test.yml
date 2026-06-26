@@ -9,15 +9,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: setup cgo dependencies
-        run: sudo apt-get update && sudo apt-get install libcurl4-openssl-dev libssl-dev
+      - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          check-latest: true
+          go-version-file: 'go.mod'
 
       - name: Download
         run: go mod download all

@@ -8,14 +8,14 @@ import (
 	"slices"
 	"strconv"
 
-	"golang.org/x/exp/maps"
+	"github.com/go-spatial/geom/encoding/wkt"
+	"golang.org/x/exp/maps" //nolint:exptostd
 
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
 	"github.com/pdok/texel/tms20"
 
 	"github.com/go-spatial/geom"
-	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/pdok/texel/intgeom"
 )
 
@@ -116,7 +116,7 @@ func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) error {
 		pointsCount += len(ring)
 	}
 	var level uint
-	for level = 0; level <= ix.deepestLevel; level++ {
+	for level = 0; level <= ix.deepestLevel; level++ { //nolint:intrange
 		if ix.quadrants[level] == nil {
 			ix.quadrants[level] = make(map[morton.Z]Quadrant, pointsCount) // TODO smaller for the shallower levels
 		}
@@ -164,10 +164,58 @@ func (ix *PointIndex) InsertCoord(deepestX int, deepestY int) error {
 	return nil
 }
 
+// SnapClosestPoints returns the points (centroids) in the index that are intersected by a line
+// on multiple levels
+func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, ringID int) map[Level][][2]float64 {
+	intLine := intgeom.FromGeomLine(line)
+	quadrantsPerLevel := ix.snapClosestPoints(intLine, levelMap)
+
+	pointsPerLevel := make(map[Level][][2]float64, len(levelMap))
+	for level, quadrants := range quadrantsPerLevel {
+		if len(quadrants) == 0 {
+			continue
+		}
+		if ix.hitOnce[level] == nil {
+			ix.hitOnce[level] = make(map[intgeom.Point][]int)
+		}
+		if ix.hitMultiple[level] == nil {
+			ix.hitMultiple[level] = make(map[intgeom.Point][]int)
+		}
+		points := make([][2]float64, len(quadrants))
+		for i, quadrant := range quadrants {
+			points[i] = quadrant.intCentroid.ToGeomPoint()
+			// ignore first point to avoid superfluous duplicates
+			if i > 0 {
+				checkPointHits(ix, quadrant.intCentroid, ringID, level)
+			}
+		}
+		pointsPerLevel[level] = points
+	}
+	return pointsPerLevel
+}
+
+// ToWkt creates a WKT representation of the pointcloud. For debugging/visualising.
+func (ix *PointIndex) ToWkt(writer io.Writer) {
+	for level, quadrants := range ix.quadrants {
+		for _, quadrant := range quadrants {
+			_ = wkt.Encode(writer, quadrant.intExtent.ToGeomExtent())
+			_, _ = fmt.Fprintf(writer, "\n")
+			if level == ix.deepestLevel {
+				_ = wkt.Encode(writer, quadrant.intCentroid.ToGeomPoint())
+				_, _ = fmt.Fprintf(writer, "\n")
+			}
+		}
+	}
+}
+
+func (ix *PointIndex) GetHitMultiple(l Level) map[intgeom.Point][]int {
+	return ix.hitMultiple[l]
+}
+
 // insertCoord adds a point into this pc, assuming the point is inside its extent
 func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
 	var l Level
-	for l = 0; l <= ix.deepestLevel; l++ {
+	for l = 0; l <= ix.deepestLevel; l++ { //nolint:intrange
 		//nolint:gosec // G115
 		x := uint(deepestX) / mathhelp.Pow2(ix.deepestLevel-l)
 		//nolint:gosec // G115
@@ -207,36 +255,6 @@ func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRo
 		intMinY + (int64(y))*intQuadrantSpan + intQuadrantSpan/2,
 	}
 	return intExtent, intCentroid
-}
-
-// SnapClosestPoints returns the points (centroids) in the index that are intersected by a line
-// on multiple levels
-func (ix *PointIndex) SnapClosestPoints(line geom.Line, levelMap map[Level]any, ringID int) map[Level][][2]float64 {
-	intLine := intgeom.FromGeomLine(line)
-	quadrantsPerLevel := ix.snapClosestPoints(intLine, levelMap)
-
-	pointsPerLevel := make(map[Level][][2]float64, len(levelMap))
-	for level, quadrants := range quadrantsPerLevel {
-		if len(quadrants) == 0 {
-			continue
-		}
-		if ix.hitOnce[level] == nil {
-			ix.hitOnce[level] = make(map[intgeom.Point][]int)
-		}
-		if ix.hitMultiple[level] == nil {
-			ix.hitMultiple[level] = make(map[intgeom.Point][]int)
-		}
-		points := make([][2]float64, len(quadrants))
-		for i, quadrant := range quadrants {
-			points[i] = quadrant.intCentroid.ToGeomPoint()
-			// ignore first point to avoid superfluous duplicates
-			if i > 0 {
-				checkPointHits(ix, quadrant.intCentroid, ringID, level)
-			}
-		}
-		pointsPerLevel[level] = points
-	}
-	return pointsPerLevel
 }
 
 func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level]any) map[Level][]Quadrant {
@@ -359,12 +377,13 @@ func findIntersectingQuadrants(intLine intgeom.Line, quadrants map[Q]Quadrant, p
 func getQuadrantZs(parentZ morton.Z) [4]morton.Z {
 	parentX, parentY := morton.FromZ(parentZ)
 	quadrantZs := [4]morton.Z{}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		//nolint:gosec // G115
 		x := parentX*2 + uint(oneIfRight(i))
 		//nolint:gosec // G115
 		y := parentY*2 + uint(oneIfTop(i))
 		z := morton.MustToZ(x, y)
+		//nolint:gosec // G602
 		quadrantZs[i] = z
 	}
 	return quadrantZs
@@ -440,10 +459,6 @@ func lineIntersects(intLine intgeom.Line, intExtent intgeom.Extent) bool {
 	return false
 }
 
-func (ix *PointIndex) GetHitMultiple(l Level) map[intgeom.Point][]int {
-	return ix.hitMultiple[l]
-}
-
 func checkPointHits(ix *PointIndex, vertex intgeom.Point, ringID int, level uint) {
 	levelHitOnce := ix.hitOnce[level]
 	levelHitMultiple := ix.hitMultiple[level]
@@ -469,9 +484,10 @@ func isExclusiveEdge(edgeI int) bool {
 // getExclusiveTip returns the tip point of an inclusive edge that is not-inclusive
 func getExclusiveTip(edgeI int, edge intgeom.Line) intgeom.Point {
 	i := edgeI % 4
-	if i == 0 {
+	switch i {
+	case 0:
 		return edge[1]
-	} else if i == 3 {
+	case 3:
 		return edge[0]
 	}
 	panic(fmt.Sprintf("not an inclusive edge: %v", edgeI))
@@ -511,25 +527,11 @@ func oneIfTop(quadrantI int) int {
 	return (quadrantI & top) >> 1
 }
 
-// ToWkt creates a WKT representation of the pointcloud. For debugging/visualising.
-func (ix *PointIndex) ToWkt(writer io.Writer) {
-	for level, quadrants := range ix.quadrants {
-		for _, quadrant := range quadrants {
-			_ = wkt.Encode(writer, quadrant.intExtent.ToGeomExtent())
-			_, _ = fmt.Fprintf(writer, "\n")
-			if level == ix.deepestLevel {
-				_ = wkt.Encode(writer, quadrant.intCentroid.ToGeomPoint())
-				_, _ = fmt.Fprintf(writer, "\n")
-			}
-		}
-	}
-}
-
 //nolint:nestif
 func IsQuadTree(tms tms20.TileMatrixSet) error {
 	var previousTMID int
 	var previousTM *tms20.TileMatrix
-	tmIDs := maps.Keys(tms.TileMatrices)
+	tmIDs := maps.Keys(tms.TileMatrices) //nolint:exptostd
 	slices.Sort(tmIDs)
 	for _, tmID := range tmIDs {
 		tm := tms.TileMatrices[tmID]

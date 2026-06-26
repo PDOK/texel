@@ -100,7 +100,7 @@ type TileMatrixSet struct {
 type TMID = int
 
 func (tms *TileMatrixSet) MarshalJSON() ([]byte, error) {
-	var tileMatrices []*TileMatrix
+	var tileMatrices []*TileMatrix //nolint:prealloc
 	for tmID := range tms.TileMatrices {
 		tm := tms.TileMatrices[tmID]
 		tileMatrices = append(tileMatrices, &tm)
@@ -156,14 +156,14 @@ func (tms *TileMatrixSet) UnmarshalJSON(data []byte) error {
 	return validate.Struct(tms)
 }
 
-func unmarshalTileMatrices(rawTileMatrices interface{}) (map[TMID]TileMatrix, error) {
-	rawTileMatricesList, ok := rawTileMatrices.([]interface{})
+func unmarshalTileMatrices(rawTileMatrices any) (map[TMID]TileMatrix, error) {
+	rawTileMatricesList, ok := rawTileMatrices.([]any)
 	if !ok {
 		return nil, errors.New(`"tileMatrices" should be an array`)
 	}
 	tileMatrices := make(map[TMID]TileMatrix, len(rawTileMatricesList))
 	for _, rawTileMatrix := range rawTileMatricesList {
-		rawTileMatrixMap, ok := rawTileMatrix.(map[string]interface{})
+		rawTileMatrixMap, ok := rawTileMatrix.(map[string]any)
 		if !ok {
 			return nil, errors.New(`"tileMatrices" should be objects`)
 		}
@@ -183,14 +183,14 @@ func unmarshalTileMatrices(rawTileMatrices interface{}) (map[TMID]TileMatrix, er
 
 // unmarshalCRS tries 4 different CRS types (oneOf)
 // TODO maybe there is already a library that can parse this, something like gdal/ogr
-func unmarshalCRS(rawCrs interface{}) (CRS, error) {
-	var rawCrsMap map[string]interface{}
+func unmarshalCRS(rawCrs any) (CRS, error) {
+	var rawCrsMap map[string]any
 	rawCrsString, asString := rawCrs.(string)
 	if asString {
-		rawCrsMap = map[string]interface{}{"uri": rawCrsString}
+		rawCrsMap = map[string]any{"uri": rawCrsString}
 	} else {
 		var ok bool
-		rawCrsMap, ok = rawCrs.(map[string]interface{})
+		rawCrsMap, ok = rawCrs.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf(`wrong type key "crs": %T`, rawCrs)
 		}
@@ -257,8 +257,8 @@ func (crs *URICRS) UnmarshalJSON(data []byte) error {
 	return unmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
 }
 
-func (crs *URICRS) UnmarshalJSONFromMap(data interface{}) error {
-	dataMap, ok := data.(map[string]interface{})
+func (crs *URICRS) UnmarshalJSONFromMap(data any) error {
+	dataMap, ok := data.(map[string]any)
 	if !ok {
 		return fmt.Errorf(`data is not a map but a %T`, data)
 	}
@@ -315,7 +315,7 @@ type WKTCRS struct {
 	description string
 	// An object defining the CRS using the JSON encoding for Well-known text representation of coordinate reference systems 2.0
 	wkt         ProjJSON
-	originalWKT map[string]interface{}
+	originalWKT map[string]any
 }
 
 // TODO expand the ProjJSON type
@@ -330,8 +330,8 @@ type ProjJSONID struct {
 
 func (crs *WKTCRS) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Description string                 `json:"description,omitempty"`
-		WKT         map[string]interface{} `json:"wkt"`
+		Description string         `json:"description,omitempty"`
+		WKT         map[string]any `json:"wkt"`
 	}{
 		Description: crs.description,
 		WKT:         crs.originalWKT,
@@ -342,8 +342,8 @@ func (crs *WKTCRS) UnmarshalJSON(data []byte) error {
 	return unmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
 }
 
-func (crs *WKTCRS) UnmarshalJSONFromMap(data interface{}) error {
-	dataMap, ok := data.(map[string]interface{})
+func (crs *WKTCRS) UnmarshalJSONFromMap(data any) error {
+	dataMap, ok := data.(map[string]any)
 	if !ok {
 		return fmt.Errorf(`data is not a map but a %T`, data)
 	}
@@ -360,7 +360,7 @@ func (crs *WKTCRS) UnmarshalJSONFromMap(data interface{}) error {
 	if !ok {
 		return errors.New(`wkt property not found`)
 	}
-	crs.originalWKT, ok = rawWKT.(map[string]interface{})
+	crs.originalWKT, ok = rawWKT.(map[string]any)
 	if !ok {
 		return fmt.Errorf(`wkt property is not an object but a %T`, rawWKT)
 	}
@@ -395,13 +395,13 @@ func (crs *WKTCRS) Code() string {
 type ReferenceSystemCRS struct {
 	description string
 	// A reference system data structure as defined in the MD_ReferenceSystem of the ISO 19115
-	referenceSystem map[string]interface{} `validate:"required"`
+	referenceSystem map[string]any `validate:"required"`
 }
 
 func (crs *ReferenceSystemCRS) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Description     string                 `json:"description,omitempty"`
-		ReferenceSystem map[string]interface{} `json:"wkt"`
+		Description     string         `json:"description,omitempty"`
+		ReferenceSystem map[string]any `json:"wkt"`
 	}{
 		Description:     crs.description,
 		ReferenceSystem: crs.referenceSystem,
@@ -412,8 +412,8 @@ func (crs *ReferenceSystemCRS) UnmarshalJSON(data []byte) error {
 	return unmarshalJSONMapUsingUnmarshalJSONFromMap(crs, data)
 }
 
-func (crs *ReferenceSystemCRS) UnmarshalJSONFromMap(data interface{}) error {
-	dataMap, ok := data.(map[string]interface{})
+func (crs *ReferenceSystemCRS) UnmarshalJSONFromMap(data any) error {
+	dataMap, ok := data.(map[string]any)
 	if !ok {
 		return fmt.Errorf(`data is not a map but a %T`, data)
 	}
@@ -430,7 +430,7 @@ func (crs *ReferenceSystemCRS) UnmarshalJSONFromMap(data interface{}) error {
 	if !ok {
 		return errors.New(`referenceSystem property not found`)
 	}
-	crs.referenceSystem, ok = rawReferenceSystem.(map[string]interface{})
+	crs.referenceSystem, ok = rawReferenceSystem.(map[string]any)
 	if !ok {
 		return fmt.Errorf(`referenceSystem property is not an object but a %T`, rawReferenceSystem)
 	}
@@ -589,13 +589,13 @@ func (tm *TileMatrix) UnmarshalJSON(data []byte) error {
 	return unmarshalJSONMapUsingUnmarshalJSONFromMap(tm, data)
 }
 
-func (tm *TileMatrix) UnmarshalJSONFromMap(data interface{}) error {
+func (tm *TileMatrix) UnmarshalJSONFromMap(data any) error {
 	err := defaults.Set(tm)
 	if err != nil {
 		return err
 	}
 
-	dataMap, ok := data.(map[string]interface{})
+	dataMap, ok := data.(map[string]any)
 	if !ok {
 		return fmt.Errorf(`data is not a map but a %T`, data)
 	}
@@ -617,7 +617,7 @@ const (
 	extJSON                   = ".json"
 )
 
-func (c *CornerOfOrigin) UnmarshalJSONFromMap(data interface{}) error {
+func (c *CornerOfOrigin) UnmarshalJSONFromMap(data any) error {
 	dataString, ok := data.(string)
 	if !ok {
 		return fmt.Errorf(`CornerOfOrigin data is not a string but a %T`, data)
@@ -794,7 +794,7 @@ func (tms *TileMatrixSet) MatrixBoundingBox(tmID TMID) (bottomLeft geom.Point, t
 }
 
 func unmarshalJSONMapUsingUnmarshalJSONFromMap(target marshmallow.UnmarshalerFromJSONMap, data []byte) error {
-	var dataMap map[string]interface{}
+	var dataMap map[string]any
 	err := json.Unmarshal(data, &dataMap)
 	if err != nil {
 		return err

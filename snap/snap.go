@@ -9,10 +9,10 @@ import (
 	"sort"
 
 	"github.com/pdok/texel/geomhelp"
-	"github.com/pdok/texel/pointindex"
-
 	"github.com/pdok/texel/mapslicehelp"
+	"github.com/pdok/texel/pointindex"
 	"github.com/tobshub/go-sortedmap"
+	"golang.org/x/exp/maps" //nolint:exptostd
 
 	"github.com/go-spatial/geom/winding"
 
@@ -20,7 +20,6 @@ import (
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/tms20"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
-	"golang.org/x/exp/maps"
 )
 
 const (
@@ -168,7 +167,7 @@ func reverseWindingOrderIfConfigured(polygons [][][][2]float64, config Config) {
 
 func outersToPolygons(outers [][][2]float64) [][][][2]float64 {
 	polygons := make([][][][2]float64, len(outers))
-	for i := 0; i < len(outers); i++ {
+	for i := range outers {
 		polygons[i] = [][][2]float64{outers[i]}
 	}
 	return polygons
@@ -182,7 +181,7 @@ func dedupeInnersOuters(outers [][][2]float64, inners [][][2]float64) ([][][2]fl
 	lenAll := lenOuters + lenInners
 	processedIndexes := make(map[int]IsOuter)
 	indexesToDelete := make(map[int]IsOuter)
-	for i := 0; i < lenAll; i++ {
+	for i := range lenAll {
 		if _, processed := processedIndexes[i]; processed {
 			continue
 		}
@@ -264,7 +263,7 @@ func ringsAreEqual(ringI, ringJ [][2]float64, iIsOuter, jIsOuter bool) bool {
 	}
 	differentWindingOrder := iIsOuter && !jIsOuter
 	// Check if rings are equal
-	for k := 0; k < ringLen; k++ {
+	for k := range ringLen {
 		if !differentWindingOrder && ringI[k] != ringJ[(idx+k)%ringLen] {
 			return false
 		}
@@ -349,7 +348,7 @@ func ringContains(ring [][2]float64, point [2]float64) (contains, onBoundary boo
 		return true, true
 	}
 
-	for i := 0; i < len(ring)-1; i++ {
+	for i := range len(ring) - 1 {
 		intersects, on := geomhelp.RayIntersect(point, ring[i], ring[i+1])
 		if on {
 			return true, true
@@ -485,7 +484,7 @@ func splitRing(ring [][2]float64, isOuter bool, hitMultiple map[intgeom.Point][]
 			panicPartialRingsRemainingOnStack(stack)
 		}
 	}
-	completeRingKeys := maps.Keys(completeRings)
+	completeRingKeys := maps.Keys(completeRings) //nolint:exptostd
 	sort.Ints(completeRingKeys)
 	for _, completeRingKey := range completeRingKeys {
 		completeRing := completeRings[completeRingKey]
@@ -593,7 +592,7 @@ func kmpDeduplicate(ring [][2]float64) [][2]float64 {
 		switch {
 		case len(matches) > 1 && (len(matches)-len(reverseMatches)) == 1:
 			// zigzag found (segment occurs one time more often than its reverse)
-			// mark all but one occurrance of segment for removal
+			// mark all but one occurrence of segment for removal
 			sequenceStart := start + len(segment)
 			sequenceEnd := start + matches[len(matches)-1] + len(segment)
 			sequencesToRemove.Insert(fmt.Sprint(segment), [2]int{sequenceStart, sequenceEnd})
@@ -602,7 +601,7 @@ func kmpDeduplicate(ring [][2]float64) [][2]float64 {
 			visitedPoints = [][2]float64{}
 		case len(matches) > 1 && len(matches) == len(reverseMatches):
 			// multiple backtrace found (segment occurs more than once, and equally as many times as its reverse)
-			// mark all but one occurrance of segment and one occurrance of its reverse for removal
+			// mark all but one occurrence of segment and one occurrence of its reverse for removal
 			sequenceStart := start + (2 * len(segment)) - 1
 			sequenceEnd := start + matches[len(matches)-1] + len(segment)
 			sequencesToRemove.Insert(fmt.Sprint(segment), [2]int{sequenceStart, sequenceEnd})

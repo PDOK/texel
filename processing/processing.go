@@ -159,7 +159,7 @@ type featureForTileMatrixWrapper struct {
 	tileMatrixID int
 }
 
-func (f *featureForTileMatrixWrapper) Columns() []interface{} {
+func (f *featureForTileMatrixWrapper) Columns() []any {
 	return f.wrapped.Columns()
 }
 
@@ -185,7 +185,7 @@ func wrapFeatureForTileMatrix(feature Feature, tileMatrixID int, newGeometry geo
 func polygonsToMulti(polygons []geom.Polygon) geom.MultiPolygon {
 	l := len(polygons)
 	multiPolygon := make(geom.MultiPolygon, l)
-	for i := 0; i < l; i++ {
+	for i := range l {
 		multiPolygon[i] = polygons[i]
 	}
 	return multiPolygon

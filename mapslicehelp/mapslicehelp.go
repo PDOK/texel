@@ -1,12 +1,11 @@
 package mapslicehelp
 
 import (
+	"cmp"
 	"slices"
 
 	"github.com/tobshub/go-sortedmap"
-
 	orderedmap "github.com/wk8/go-ordered-map/v2"
-	"golang.org/x/exp/constraints"
 )
 
 func LastElement[T any](elements []T) *T {
@@ -17,7 +16,7 @@ func LastElement[T any](elements []T) *T {
 	return nil
 }
 
-func AsKeys[T constraints.Ordered](elements []T) map[T]any {
+func AsKeys[T cmp.Ordered](elements []T) map[T]any {
 	mapped := make(map[T]any, len(elements))
 	for _, element := range elements {
 		mapped[element] = struct{}{}
@@ -25,7 +24,7 @@ func AsKeys[T constraints.Ordered](elements []T) map[T]any {
 	return mapped
 }
 
-func FindLastKeyWithMaxValue[K comparable, V constraints.Ordered](m *orderedmap.OrderedMap[K, V]) (maxK K, maxV V, numWinners uint) {
+func FindLastKeyWithMaxValue[K comparable, V cmp.Ordered](m *orderedmap.OrderedMap[K, V]) (maxK K, maxV V, numWinners uint) {
 	first := true
 	for p := m.Newest(); p != nil; p = p.Prev() {
 		if first || p.Value > maxV {
@@ -81,7 +80,7 @@ func ReverseClone[S ~[]E, E any](s S) S {
 	}
 	l := len(s)
 	c := make(S, l)
-	for i := 0; i < l; i++ {
+	for i := range l {
 		c[l-1-i] = s[i]
 	}
 	return c

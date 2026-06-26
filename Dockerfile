@@ -1,7 +1,7 @@
 ARG GDAL_VERSION=3.6.3
 
 FROM ghcr.io/osgeo/gdal:ubuntu-small-${GDAL_VERSION} AS base
-FROM golang:1.21-bullseye AS build-env
+FROM golang:1.26-bookworm AS build-env
 
 ENV GO111MODULE=on
 ENV GOPROXY=https://proxy.golang.org

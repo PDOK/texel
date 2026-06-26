@@ -21,7 +21,7 @@ import (
 )
 
 func assertNoErr(t assert.TestingT, err error, _ ...any) bool {
-	return assert.Nil(t, err)
+	return assert.NoError(t, err)
 }
 
 func TestPointIndex_containsPoint(t *testing.T) {
@@ -122,10 +122,10 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 				deepestRes:   tt.intRootExtent.XSpan() / 1,
 			}
 			extent, centroid := ix.getQuadrantExtentAndCentroid(0, 0, 0, tt.intRootExtent)
-			if !assert.EqualValues(t, tt.want.extent, extent) {
+			if !assert.Equal(t, tt.want.extent, extent) {
 				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", extent, tt.want.extent)
 			}
-			if !assert.EqualValues(t, tt.want.centroid, centroid) {
+			if !assert.Equal(t, tt.want.centroid, centroid) {
 				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", centroid, tt.want.centroid)
 			}
 		})
@@ -280,7 +280,7 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 			if tt.want.hitMultiple == nil {
 				tt.want.hitMultiple = make(map[morton.Z]map[intgeom.Point][]int)
 			}
-			assert.EqualValues(t, tt.want, *ix)
+			assert.Equal(t, tt.want, *ix)
 		})
 	}
 }
@@ -335,10 +335,10 @@ func TestPointIndex_InsertPoint_Deepest(t *testing.T) {
 
 			err = ix.InsertPoint(tt.point)
 			require.NoError(t, err)
-			assert.Equal(t, 1, len(ix.quadrants[ix.deepestLevel]))
+			assert.Len(t, ix.quadrants[ix.deepestLevel], 1)
 			for z, quadrant := range ix.quadrants[ix.deepestLevel] {
-				assert.EqualValues(t, tt.want, quadrant)
-				assert.EqualValues(t, tt.want.z, z)
+				assert.Equal(t, tt.want, quadrant)
+				assert.Equal(t, tt.want.z, z)
 			}
 		})
 	}
@@ -480,7 +480,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 				levels = []Level{ix.deepestLevel}
 			}
 			got := ix.SnapClosestPoints(tt.line, mapslicehelp.AsKeys(levels), tt.ringID)
-			if !assert.EqualValues(t, tt.want, got) {
+			if !assert.Equal(t, tt.want, got) {
 				ix.ToWkt(os.Stdout)
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
 			}
@@ -542,14 +542,18 @@ func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 }
 
 func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
+	t.Helper()
+
 	tms, err := tms20.LoadEmbeddedTileMatrixSet(tmsID)
 	require.NoError(t, err)
 	return tms
 }
 
 func newPointIndexFromEmbeddedTileMatrixSet(t *testing.T, tmsID string, deepestTMID tms20.TMID) *PointIndex {
+	t.Helper()
+
 	tms, err := FromTileMatrixSet(loadEmbeddedTileMatrixSet(t, tmsID), deepestTMID)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	return tms
 }
 
