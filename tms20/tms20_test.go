@@ -117,7 +117,7 @@ func TestTileMatrixSet_Size(t *testing.T) {
 		t.Run(fmt.Sprintf("%v.Size(%v)", tt.id, tt.zoom), func(t *testing.T) {
 			tms, err := loadTestOrEmbeddedTileMatrix(tt.id)
 			require.NoError(t, err)
-			tile, ok := tms.Size(tt.args.zoom)
+			tile, ok := tms.Size(tt.zoom)
 			if ok != tt.ok {
 				t.Errorf("Size(...) ok = %v, want %v", ok, tt.ok)
 			}
@@ -168,7 +168,7 @@ func TestTileMatrixSet_FromNative(t *testing.T) {
 		t.Run(fmt.Sprintf("%v.FromNative(%v, %v)", tt.id, tt.zoom, tt.pt.XY()), func(t *testing.T) {
 			tms, err := loadTestOrEmbeddedTileMatrix(tt.id)
 			require.NoError(t, err)
-			tile, ok := tms.FromNative(tt.args.zoom, tt.args.pt)
+			tile, ok := tms.FromNative(tt.zoom, tt.pt)
 			if ok != tt.ok {
 				t.Errorf("FromNative(...) ok = %v, want %v", ok, tt.ok)
 			}

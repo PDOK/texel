@@ -12,11 +12,11 @@ import (
 )
 
 type featureGPKG struct {
-	columns  []interface{}
+	columns  []any
 	geometry geom.Geometry
 }
 
-func (f featureGPKG) Columns() []interface{} {
+func (f featureGPKG) Columns() []any {
 	return f.columns
 }
 
@@ -65,6 +65,7 @@ func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
 	}
 }
 
+//nolint:recvcheck // TODO double check this
 type SourceGeopackage struct {
 	Table  Table
 	handle *gpkg.Handle
@@ -92,9 +93,9 @@ func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) 
 	}
 
 	for rows.Next() {
-		vals := make([]interface{}, len(cols))
-		valPtrs := make([]interface{}, len(cols))
-		for i := 0; i < len(cols); i++ {
+		vals := make([]any, len(cols))
+		valPtrs := make([]any, len(cols))
+		for i := range cols {
 			valPtrs[i] = &vals[i]
 		}
 
@@ -102,7 +103,7 @@ func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) 
 			log.Fatalf("err reading row values: %v", err)
 		}
 		var f featureGPKG
-		var c []interface{}
+		var c []any
 
 		for i, colName := range cols {
 			switch colName {
@@ -245,7 +246,7 @@ func (target *TargetGeopackage) writeFeatures(features []processing.Feature) {
 
 		_, err = stmt.Exec(data...)
 		if err != nil {
-			var fid interface{} = "unknown"
+			var fid any = "unknown"
 			if len(data) > 0 {
 				fid = data[0]
 			}
@@ -284,7 +285,7 @@ func openGeopackage(file string) *gpkg.Handle {
 // used for creating feature tables in the target Geopackage
 func (t Table) createSQL() string {
 	create := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%v"`, t.Name)
-	var columnparts []string
+	var columnparts []string //nolint:prealloc
 	for _, column := range t.columns {
 		columnpart := column.name + ` ` + column.ctype
 		if column.notnull == 1 {
@@ -304,7 +305,7 @@ func (t Table) createSQL() string {
 // selectSQL build a SELECT statement based on the table and columns
 // used for reading the source features
 func (t Table) selectSQL() string {
-	var csql []string
+	var csql []string //nolint:prealloc
 	for _, c := range t.columns {
 		csql = append(csql, c.name)
 	}

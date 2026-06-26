@@ -5,7 +5,7 @@ import (
 )
 
 type Feature interface {
-	Columns() []interface{}
+	Columns() []any
 	Geometry() geom.Geometry
 }
 
@@ -15,9 +15,9 @@ type FeatureForTileMatrix interface {
 }
 
 type Source interface {
-	ReadFeatures(chan<- Feature)
+	ReadFeatures(ch chan<- Feature)
 }
 
 type Target interface {
-	WriteFeatures(<-chan Feature)
+	WriteFeatures(ch <-chan Feature)
 }

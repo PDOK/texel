@@ -790,7 +790,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}
 			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs, tt.config)
 			for tmID, wantPoly := range tt.want {
-				if !assert.EqualValues(t, wantPoly, got[tmID]) {
+				if !assert.Equal(t, wantPoly, got[tmID]) {
 					t.Errorf("snapPolygon(%v, _, %v)\n=     %v\nwant: %v",
 						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncodeSlice(got[tmID], 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
 				}
@@ -1032,6 +1032,8 @@ func newSimpleTileMatrixSet(deepestTMID pointindex.Level, cellSize float64) tms2
 }
 
 func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
+	t.Helper()
+
 	tms, err := tms20.LoadEmbeddedTileMatrixSet(tmsID)
 	require.NoError(t, err)
 	return tms
@@ -1058,7 +1060,7 @@ func (f fakeCRS) Code() string {
 func squareRingArray(number int, isOuter bool) [][][2]float64 {
 	outerSquare := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}} // square, counter clockwise
 	innerSquare := [][2]float64{{0, 0}, {0, 1}, {1, 1}, {1, 0}} // square, clockwise
-	var squares = [][][2]float64{}
+	var squares = [][][2]float64{}                              //nolint:prealloc
 	var square [][2]float64
 	// outer or inner
 	if isOuter {
@@ -1067,7 +1069,7 @@ func squareRingArray(number int, isOuter bool) [][][2]float64 {
 		square = innerSquare
 	}
 	// add squares
-	for i := 0; i < number; i++ {
+	for range number {
 		squares = append(squares, square)
 	}
 	return squares

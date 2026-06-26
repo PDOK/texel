@@ -40,7 +40,7 @@ func MustToZ(x, y uint) Z {
 func FromZ(z Z) (x, y uint) {
 	x = z
 	y = z >> 1
-	for i := 0; i <= 5; i++ {
+	for i := range 6 {
 		x = (x | (x >> powersOfTwo[i])) & masks[i]
 		y = (y | (y >> powersOfTwo[i])) & masks[i]
 	}
