@@ -531,17 +531,17 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 		y       intgeom.M
 		level   Level
 
-		result_intersect map[Level]map[morton.Z]TileData
-		result_segments  map[morton.Z][]SegmentIdx
+		resultIntersect map[Level]map[morton.Z]TileData
+		resultSegments  map[morton.Z][]SegmentIdx
 	}{
 		{
-			name:             "Registreer op hoogste level",
-			ix:               newSimplePointIndex(2, 1),
-			x:                0,
-			y:                0,
-			level:            0,
-			result_intersect: map[Level]map[morton.Z]TileData{0: {0: btd}},
-			result_segments:  map[morton.Z][]SegmentIdx{0: {{1, 1}}},
+			name:            "Registreer op hoogste level",
+			ix:              newSimplePointIndex(2, 1),
+			x:               0,
+			y:               0,
+			level:           0,
+			resultIntersect: map[Level]map[morton.Z]TileData{0: {0: btd}},
+			resultSegments:  map[morton.Z][]SegmentIdx{0: {{1, 1}}},
 		},
 		{
 			name:  "Registreer op dieper level",
@@ -549,12 +549,12 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 			x:     1,
 			y:     1,
 			level: 2,
-			result_intersect: map[Level]map[morton.Z]TileData{
+			resultIntersect: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd},
 				2: {3: btd},
 			},
-			result_segments: map[morton.Z][]SegmentIdx{3: {{1, 1}}},
+			resultSegments: map[morton.Z][]SegmentIdx{3: {{1, 1}}},
 		},
 		{
 			name: "Registreer met aanwezige data",
@@ -565,12 +565,12 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 			x:     1,
 			y:     1,
 			level: 2,
-			result_intersect: map[Level]map[morton.Z]TileData{
+			resultIntersect: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd, 3: btd},
 				2: {3: btd, 14: btd},
 			},
-			result_segments: map[morton.Z][]SegmentIdx{3: {{1, 1}}, 14: {{1, 2}}},
+			resultSegments: map[morton.Z][]SegmentIdx{3: {{1, 1}}, 14: {{1, 2}}},
 		},
 		{
 			name: "Registreer met aanwezige data op hetzelfde punt",
@@ -581,12 +581,12 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 			x:     1,
 			y:     1,
 			level: 2,
-			result_intersect: map[Level]map[morton.Z]TileData{
+			resultIntersect: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd},
 				2: {3: btd},
 			},
-			result_segments: map[morton.Z][]SegmentIdx{3: {{1, 2}, {1, 1}}},
+			resultSegments: map[morton.Z][]SegmentIdx{3: {{1, 2}, {1, 1}}},
 		},
 		{
 			name: "Registreer met aanwezige data op hetzelfde punt",
@@ -597,12 +597,12 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 			x:     1,
 			y:     1,
 			level: 2,
-			result_intersect: map[Level]map[morton.Z]TileData{
+			resultIntersect: map[Level]map[morton.Z]TileData{
 				0: {0: btd},
 				1: {0: btd},
 				2: {3: btd},
 			},
-			result_segments: map[morton.Z][]SegmentIdx{3: {{1, 1}}},
+			resultSegments: map[morton.Z][]SegmentIdx{3: {{1, 1}}},
 		},
 	}
 	for _, tt := range tests {
@@ -611,8 +611,8 @@ func TestPointIndex_registerQuadrant(t *testing.T) {
 				tt.setupIx(tt.ix)
 			}
 			tt.ix.registerQuadrant(tt.x, tt.y, tt.level, SegmentIdx{1, 1})
-			assert.EqualValues(t, tt.result_intersect, tt.ix.intersect)
-			assert.EqualValues(t, tt.result_segments, tt.ix.registeredSegments)
+			assert.Equal(t, tt.resultIntersect, tt.ix.intersect)
+			assert.Equal(t, tt.resultSegments, tt.ix.registeredSegments)
 		})
 	}
 }
@@ -655,7 +655,7 @@ func TestPointIndex_registerQuadrantAndNeighbours(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.ix.registerQuadrantAndNeighbours(tt.x, tt.y, tt.level, SegmentIdx{1, 1})
-			assert.EqualValues(t, tt.result, tt.ix.intersect)
+			assert.Equal(t, tt.result, tt.ix.intersect)
 		})
 	}
 }
@@ -759,8 +759,8 @@ func TestPointIndex_amanatides_woo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.ix.amanatides_woo(tt.line, tt.level, 1, 1)
-			assert.EqualValues(t, tt.result, tt.ix.intersect)
+			tt.ix.AmanatidesWoo(tt.line, tt.level, 1, 1)
+			assert.Equal(t, tt.result, tt.ix.intersect)
 		})
 	}
 }
@@ -813,7 +813,7 @@ func TestPointIndex_findIntersectingTilesLeft(t *testing.T) {
 			expected = []morton.Z{}
 			for _, currentZ := range tt.tilesHit {
 				currentX, currentY := morton.FromZ(currentZ)
-				tt.ix.registerQuadrant(intgeom.M(currentX), intgeom.M(currentY), tt.targetLevel, SegmentIdx{0, 0})
+				tt.ix.registerQuadrant(intgeom.M(currentX), intgeom.M(currentY), tt.targetLevel, SegmentIdx{0, 0}) //nolint:gosec // Guaranteed by FromZ
 				if currentY == tt.yOrigin && currentX <= tt.xOrigin {
 					expected = append(expected, currentZ)
 				}
@@ -960,7 +960,7 @@ func TestPointIndex_classifyTiles(t *testing.T) {
 				0: {0: iI},
 				1: {0: iI, 1: iI, 2: iI, 3: iI},
 				2: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: iI},
-				3: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: ii, 16: iI, 17: iI, 18: iI, 19: iI, 20: iI, 21: io, 22: iI, 23: iI, 24: iI, 25: iI, 26: iI, 27: iI, 28: iI, 29: iI, 30: iI, 31: iI, 32: iI, 33: iI, 34: iI, 35: iI, 36: iI, 37: iI, 38: iI, 39: iI, 40: iI, 41: iI, 42: io, 43: iI, 44: iI, 45: iI, 46: iI, 47: iI, 48: iI, 49: iI, 50: iI, 51: iI, 52: iI, 53: iI, 54: iI, 55: iI, 56: iI, 57: iI, 58: iI, 59: iI, 60: iI, 61: io, 62: io, 63: io,},
+				3: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: ii, 16: iI, 17: iI, 18: iI, 19: iI, 20: iI, 21: io, 22: iI, 23: iI, 24: iI, 25: iI, 26: iI, 27: iI, 28: iI, 29: iI, 30: iI, 31: iI, 32: iI, 33: iI, 34: iI, 35: iI, 36: iI, 37: iI, 38: iI, 39: iI, 40: iI, 41: iI, 42: io, 43: iI, 44: iI, 45: iI, 46: iI, 47: iI, 48: iI, 49: iI, 50: iI, 51: iI, 52: iI, 53: iI, 54: iI, 55: iI, 56: iI, 57: iI, 58: iI, 59: iI, 60: iI, 61: io, 62: io, 63: io},
 			},
 		},
 		{
@@ -980,12 +980,12 @@ func TestPointIndex_classifyTiles(t *testing.T) {
 				0: {0: iI},
 				1: {0: iI, 1: iI, 2: iI, 3: iI},
 				2: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: iI},
-				3: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: iI, 16: iI, 17: iI, 18: iI, 19: iI, 20: iI, 21: io, 22: iI, 23: iI, 24: iI, 25: iI, 26: iI, 27: iI, 28: iI, 29: iI, 30: iI, 31: iI, 32: iI, 33: iI, 34: iI, 35: iI, 36: iI, 37: iI, 38: iI, 39: iI, 40: iI, 41: iI, 42: io, 43: iI, 44: iI, 45: iI, 46: iI, 47: iI, 48: iI, 49: iI, 50: iI, 51: iI, 52: iI, 53: iI, 54: iI, 55: iI, 56: iI, 57: iI, 58: iI, 59: iI, 60: iI, 61: io, 62: io, 63: io,},
+				3: {0: iI, 1: iI, 2: iI, 3: iI, 4: iI, 5: iI, 6: iI, 7: iI, 8: iI, 9: iI, 10: iI, 11: iI, 12: iI, 13: iI, 14: iI, 15: iI, 16: iI, 17: iI, 18: iI, 19: iI, 20: iI, 21: io, 22: iI, 23: iI, 24: iI, 25: iI, 26: iI, 27: iI, 28: iI, 29: iI, 30: iI, 31: iI, 32: iI, 33: iI, 34: iI, 35: iI, 36: iI, 37: iI, 38: iI, 39: iI, 40: iI, 41: iI, 42: io, 43: iI, 44: iI, 45: iI, 46: iI, 47: iI, 48: iI, 49: iI, 50: iI, 51: iI, 52: iI, 53: iI, 54: iI, 55: iI, 56: iI, 57: iI, 58: iI, 59: iI, 60: iI, 61: io, 62: io, 63: io},
 			},
 		},
 		{
 			name: "Outside detection at higher level",
-			ix: newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
+			ix:   newSimplePointIndex(4, intgeom.ToGeomOrd(1)),
 			polygon: geom.Polygon{{
 				{intgeom.ToGeomOrd(1), intgeom.ToGeomOrd(1)},
 				{intgeom.ToGeomOrd(1), intgeom.ToGeomOrd(12)},
@@ -993,7 +993,7 @@ func TestPointIndex_classifyTiles(t *testing.T) {
 				{intgeom.ToGeomOrd(2), intgeom.ToGeomOrd(1)},
 			}},
 			targetLevel: 2,
-			expected: map[Level]map[morton.Z]TileData {
+			expected: map[Level]map[morton.Z]TileData{
 				0: {0: iI},
 				1: {0: iI, 1: io, 2: iI, 3: io},
 				2: {0: iI, 1: iI, 2: iI, 3: iI, 8: iI, 9: iI, 10: iI, 11: iI},

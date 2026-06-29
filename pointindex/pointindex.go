@@ -27,9 +27,9 @@ const (
 	xAx = 0
 	yAx = 1
 	// left        = 0b00
-	right = 0b01
+	// right = 0b01
 	// bottom      = 0b00
-	top = 0b10
+	// top = 0b10
 	// bottomleft  = bottom | left  // 0b00
 	// bottomright = bottom | right // 0b01
 	// topleft     = top | left     // 0b10
@@ -226,84 +226,6 @@ func (ix *PointIndex) ToWkt(writer io.Writer) {
 
 func (ix *PointIndex) GetHitMultiple(l Level) map[intgeom.Point][]int {
 	return ix.hitMultiple[l]
-}
-
-// insertCoord adds a point into this pc, assuming the point is inside its extent
-func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
-	var l Level
-	for l = 0; l <= ix.deepestLevel; l++ { //nolint:intrange
-		//nolint:gosec // G115
-		x := uint(deepestX) / mathhelp.Pow2(ix.deepestLevel-l)
-		//nolint:gosec // G115
-		y := uint(deepestY) / mathhelp.Pow2(ix.deepestLevel-l)
-		z := morton.MustToZ(x, y)
-		if ix.quadrants[l] == nil { // probably already initialized by InsertPolygon
-			ix.quadrants[l] = make(map[morton.Z]Quadrant)
-		}
-		extent, centroid := ix.getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
-		ix.quadrants[l][z] = Quadrant{
-			z:           z,
-			intExtent:   extent,
-			intCentroid: centroid,
-		}
-	}
-}
-
-func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.Extent) (intgeom.Extent, intgeom.Point) {
-	//nolint:gosec // G115
-	intQuadrantSpan := int64(mathhelp.Pow2(ix.deepestLevel-level)) * ix.deepestRes
-	intMinX := intRootExtent.MinX()
-	intMinY := intRootExtent.MinY()
-	intExtent := intgeom.Extent{
-		//nolint:gosec // G115
-		intMinX + int64(x)*intQuadrantSpan, // minx
-		//nolint:gosec // G115
-		intMinY + int64(y)*intQuadrantSpan, // miny
-		//nolint:gosec // G115
-		intMinX + int64(x+1)*intQuadrantSpan, // maxx
-		//nolint:gosec // G115
-		intMinY + int64(y+1)*intQuadrantSpan, // maxy
-	}
-	intCentroid := intgeom.Point{
-		//nolint:gosec // G115
-		intMinX + (int64(x))*intQuadrantSpan + intQuadrantSpan/2, // <-- here is the plus 0.5 internal pixel size
-		//nolint:gosec // G115
-		intMinY + (int64(y))*intQuadrantSpan + intQuadrantSpan/2,
-	}
-	return intExtent, intCentroid
-}
-
-func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level]any) map[Level][]Quadrant {
-	if len(levelMap) == 0 || !lineIntersects(intLine, ix.intExtent) {
-		return nil
-	}
-	quadrantsIntersectedPerLevel := make(map[Level][]Quadrant, len(levelMap))
-	parents := []Quadrant{ix.Quadrant}
-	if _, includeLevelZero := levelMap[0]; includeLevelZero {
-		quadrantsIntersectedPerLevel[0] = parents
-	}
-
-	var level Level
-	for level = 1; level <= ix.deepestLevel; level++ {
-		quadrantsIntersected := make([]Quadrant, 0, 10) // TODO good estimate of expected count, based on line length / quadrant span * geom points?
-		for _, parent := range parents {
-			quadrantZs := getQuadrantZs(parent.z)
-			quadrantsWithPoints := make(map[Q]Quadrant, 4)
-			for q, quadrantZ := range quadrantZs {
-				if quadrant, exists := ix.quadrants[level][quadrantZ]; exists {
-					quadrantsWithPoints[q] = quadrant
-				}
-			}
-			for _, q := range findIntersectingQuadrants(intLine, quadrantsWithPoints, parent) {
-				quadrantsIntersected = append(quadrantsIntersected, quadrantsWithPoints[q])
-			}
-		}
-		parents = quadrantsIntersected
-		if _, isLevelIncluded := levelMap[level]; isLevelIncluded {
-			quadrantsIntersectedPerLevel[level] = quadrantsIntersected
-		}
-	}
-	return quadrantsIntersectedPerLevel
 }
 
 //nolint:cyclop
@@ -530,25 +452,16 @@ func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.
 	return lOrd1 != lOrd2 && (mathhelp.IBetweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || mathhelp.IBetweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
 }
 
-func oneIfRight(quadrantI int) int {
-	return quadrantI & right
-}
-
-func oneIfTop(quadrantI int) int {
-	return (quadrantI & top) >> 1
-}
-
 // A version of Amanatides-Woo
 // Concept: parametrize line with parameter t, with t = 0 being the start and t = 1 the endpoint. Then compute the t for which tile boundaries are intersected. By taking a suitable multiple of t, this is guaranteed to be integral. Use these to raycast along the tiles.
-func (ix *PointIndex) amanatides_woo(line geom.Line, l Level, ringIdx int, pointIdx int) {
+func (ix *PointIndex) AmanatidesWoo(line geom.Line, l Level, ringIdx int, pointIdx int) {
 	intLine := intgeom.FromGeomLine(line)
 	segmentIdx := SegmentIdx{
 		ringIdx:  ringIdx,
 		pointIdx: pointIdx,
 	}
 
-	p1 := intLine.Point1()
-	p2 := intLine.Point2()
+	p1, p2 := intLine.Point1(), intLine.Point2()
 
 	// Find start and end square
 	levelDiff := ix.deepestLevel - l
@@ -560,8 +473,7 @@ func (ix *PointIndex) amanatides_woo(line geom.Line, l Level, ringIdx int, point
 	var xLine, yLine, xDir, yDir, xCoord, yCoord intgeom.M
 
 	// Current location
-	xCoord = xStart
-	yCoord = yStart
+	xCoord, yCoord = xStart, yStart
 
 	// Determine direction of `line` and determine which edges of the starting tile are intersected first.
 	if p1.Y() > p2.Y() {
@@ -590,7 +502,7 @@ func (ix *PointIndex) amanatides_woo(line geom.Line, l Level, ringIdx int, point
 	ix.registerQuadrantAndNeighbours(xCoord, yCoord, l, segmentIdx)
 
 	// Main traversal loop
-	for !(xCoord == xEnd && yCoord == yEnd) {
+	for xCoord != xEnd || yCoord != yEnd {
 		// The first two cases are for when you hit an edge.
 		// The last three cases are when you hit a corner.
 		switch {
@@ -616,6 +528,84 @@ func (ix *PointIndex) amanatides_woo(line geom.Line, l Level, ringIdx int, point
 	}
 }
 
+// insertCoord adds a point into this pc, assuming the point is inside its extent
+func (ix *PointIndex) insertCoord(deepestX int, deepestY int) {
+	var l Level
+	for l = 0; l <= ix.deepestLevel; l++ { //nolint:intrange
+		//nolint:gosec // G115
+		x := uint(deepestX) / mathhelp.Pow2(ix.deepestLevel-l)
+		//nolint:gosec // G115
+		y := uint(deepestY) / mathhelp.Pow2(ix.deepestLevel-l)
+		z := morton.MustToZ(x, y)
+		if ix.quadrants[l] == nil { // probably already initialized by InsertPolygon
+			ix.quadrants[l] = make(map[morton.Z]Quadrant)
+		}
+		extent, centroid := ix.getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
+		ix.quadrants[l][z] = Quadrant{
+			z:           z,
+			intExtent:   extent,
+			intCentroid: centroid,
+		}
+	}
+}
+
+func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRootExtent intgeom.Extent) (intgeom.Extent, intgeom.Point) {
+	//nolint:gosec // G115
+	intQuadrantSpan := int64(mathhelp.Pow2(ix.deepestLevel-level)) * ix.deepestRes
+	intMinX := intRootExtent.MinX()
+	intMinY := intRootExtent.MinY()
+	intExtent := intgeom.Extent{
+		//nolint:gosec // G115
+		intMinX + int64(x)*intQuadrantSpan, // minx
+		//nolint:gosec // G115
+		intMinY + int64(y)*intQuadrantSpan, // miny
+		//nolint:gosec // G115
+		intMinX + int64(x+1)*intQuadrantSpan, // maxx
+		//nolint:gosec // G115
+		intMinY + int64(y+1)*intQuadrantSpan, // maxy
+	}
+	intCentroid := intgeom.Point{
+		//nolint:gosec // G115
+		intMinX + (int64(x))*intQuadrantSpan + intQuadrantSpan/2, // <-- here is the plus 0.5 internal pixel size
+		//nolint:gosec // G115
+		intMinY + (int64(y))*intQuadrantSpan + intQuadrantSpan/2,
+	}
+	return intExtent, intCentroid
+}
+
+func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level]any) map[Level][]Quadrant {
+	if len(levelMap) == 0 || !lineIntersects(intLine, ix.intExtent) {
+		return nil
+	}
+	quadrantsIntersectedPerLevel := make(map[Level][]Quadrant, len(levelMap))
+	parents := []Quadrant{ix.Quadrant}
+	if _, includeLevelZero := levelMap[0]; includeLevelZero {
+		quadrantsIntersectedPerLevel[0] = parents
+	}
+
+	var level Level
+	for level = 1; level <= ix.deepestLevel; level++ {
+		quadrantsIntersected := make([]Quadrant, 0, 10) // TODO good estimate of expected count, based on line length / quadrant span * geom points?
+		for _, parent := range parents {
+			quadrantZs := getQuadrantZs(parent.z)
+			quadrantsWithPoints := make(map[Q]Quadrant, 4)
+			for q, quadrantZ := range quadrantZs {
+				if quadrant, exists := ix.quadrants[level][quadrantZ]; exists {
+					quadrantsWithPoints[q] = quadrant
+				}
+			}
+			for _, q := range findIntersectingQuadrants(intLine, quadrantsWithPoints, parent) {
+				quadrantsIntersected = append(quadrantsIntersected, quadrantsWithPoints[q])
+			}
+		}
+		parents = quadrantsIntersected
+		if _, isLevelIncluded := levelMap[level]; isLevelIncluded {
+			quadrantsIntersectedPerLevel[level] = quadrantsIntersected
+		}
+	}
+	return quadrantsIntersectedPerLevel
+}
+
 func (ix *PointIndex) findTileCoords(intPoint intgeom.Point, levelDiff Level) (intgeom.M, intgeom.M) {
 	// I don't check for out of bounds here; this should not occur.
 	deepestX := ((intPoint.X() - ix.intExtent.MinX()) / ix.deepestRes) >> levelDiff
@@ -634,8 +624,8 @@ func (ix *PointIndex) registerQuadrantAndNeighbours(x intgeom.M, y intgeom.M, l 
 		for _, yDiff := range steps {
 			xNeighbour = x + xDiff
 			yNeighbour = y + yDiff
-			if xNeighbour < 0 || xNeighbour > intgeom.M(levelSize)-1 ||
-				yNeighbour < 0 || yNeighbour > intgeom.M(levelSize)-1 {
+			if xNeighbour < 0 || xNeighbour > intgeom.M(levelSize)-1 || //nolint:gosec
+				yNeighbour < 0 || yNeighbour > intgeom.M(levelSize)-1 { //nolint:gosec
 				continue // Out of bounds
 			}
 			ix.registerQuadrant(xNeighbour, yNeighbour, l, idx)
@@ -644,7 +634,7 @@ func (ix *PointIndex) registerQuadrantAndNeighbours(x intgeom.M, y intgeom.M, l 
 }
 
 func (ix *PointIndex) registerQuadrant(x intgeom.M, y intgeom.M, l Level, idx SegmentIdx) {
-	z := morton.MustToZ(uint(x), uint(y))
+	z := morton.MustToZ(uint(x), uint(y)) //nolint:gosec // Overflows checked by MustToZ
 	ix.registerSegment(z, idx)
 
 	// Create maps if nonexistent
@@ -668,7 +658,7 @@ func (ix *PointIndex) registerQuadrant(x intgeom.M, y intgeom.M, l Level, idx Se
 		}
 
 		// Update Morton coordinate
-		z = z >> 2
+		z >>= 2
 	}
 }
 
@@ -699,7 +689,7 @@ func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, targetLevel Lev
 			nextIdx := (vertexidx + 1) % len(ring)
 			nextVertex := ring[nextIdx]
 			line := geom.Line{vertex, nextVertex}
-			ix.amanatides_woo(line, targetLevel, ringidx, vertexidx)
+			ix.AmanatidesWoo(line, targetLevel, ringidx, vertexidx)
 		}
 	}
 }
@@ -709,7 +699,7 @@ func (ix *PointIndex) findIntersectingTilesLeft(xOrigin uint, yOrigin uint, targ
 	todoListAtCurrentLevel := []morton.Z{0}
 	var todoListAtNextLevel []morton.Z
 	var leftChild, rightChild morton.Z
-	for currentLevel := Level(0); currentLevel < targetLevel; currentLevel++ {
+	for currentLevel := range targetLevel {
 		todoListAtNextLevel = make([]morton.Z, 0) // currentLen is relatively arbitrary (check if works)
 
 		xOriginAtNextLevel := xOrigin >> (targetLevel - currentLevel - 1)
@@ -760,11 +750,11 @@ func (ix *PointIndex) determineTileOnOutside(zOrigin morton.Z, targetLevel Level
 			}
 			seen[segmentIdx] = true
 			ring := polygon.LinearRings()[segmentIdx.ringIdx]
-			float_pt1 := ring[segmentIdx.pointIdx]
-			float_pt2 := ring[(segmentIdx.pointIdx+1)%len(ring)]
+			floatPt1 := ring[segmentIdx.pointIdx]
+			floatPt2 := ring[(segmentIdx.pointIdx+1)%len(ring)]
 
-			y1 := intgeom.FromGeomOrd(float_pt1[1])
-			y2 := intgeom.FromGeomOrd(float_pt2[1])
+			y1 := intgeom.FromGeomOrd(floatPt1[1])
+			y2 := intgeom.FromGeomOrd(floatPt2[1])
 
 			minY := min(y1, y2)
 			maxY := max(y1, y2)
@@ -772,8 +762,8 @@ func (ix *PointIndex) determineTileOnOutside(zOrigin morton.Z, targetLevel Level
 			// Only count a segment if the northernmost vertex is unique and intersects the ray
 			switch {
 			case minY == maxY:
-			case maxY < intgeom.M(yOrigin):
-			case minY >= intgeom.M(yOrigin):
+			case maxY < intgeom.M(yOrigin): //nolint:gosec // Guaranteed by FromZ
+			case minY >= intgeom.M(yOrigin): //nolint:gosec // Guaranteed by FromZ
 				continue
 			default:
 				intersectionAmount++
