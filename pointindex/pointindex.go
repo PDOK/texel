@@ -42,6 +42,10 @@ type Quadrant struct {
 	intCentroid intgeom.Point
 }
 
+func (q *Quadrant) Extent() geom.Extent {
+	return q.intExtent.ToGeomExtent()
+}
+
 // PointIndex is a pointcloud annex quadtree to enable snapping lines to a grid accounting for those points.
 // Quadrants:
 //

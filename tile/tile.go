@@ -2,26 +2,22 @@ package tile
 
 import (
 	"github.com/go-spatial/geom"
+	"github.com/go-spatial/geom/encoding/mvt"
 	"github.com/pdok/texel/pointindex"
 )
 
-func translateToTileCoord(q pointindex.Quadrant, p geom.Polygon) geom.Polygon {
-	translatedPol := make(geom.Polygon, len(p))
-	basepoint := q.Centroid()
-
-	for i, ring := range p.LinearRings() {
-		translatedPol[i] = make([][2]float64, len(ring))
-		for j, point := range ring {
-			translatedPol[i][j] = [2]float64{point[0] - basepoint[0], point[1] - basepoint[1]}
-		}
-	}
-
-	return p
-}
+const precision = 4096
 
 func EncodePolygon(q pointindex.Quadrant, p geom.Polygon) ([]uint32, int32) {
-	translatedPol := translateToTileCoord(q, p)
-	encgeom, geomtype, err := EncodeGeometry(translatedPol)
+	ext := q.Extent()
+	preparedGeo := mvt.PrepareGeo(p, &ext, float64(precision))
+
+	// This should not be necessary. 
+//	sg, err := convert.ToTegola(preparedGeo)
+//	tegolaGeo, err := validate.CleanGeometry(context.TODO(), sg, &ext)
+//	validatedGeo := convert.ToGeom(tegolaGeo)
+
+	encgeom, geomtype, err := EncodeGeometry(preparedGeo)
 	if err != nil {
 		panic(err)
 	}
