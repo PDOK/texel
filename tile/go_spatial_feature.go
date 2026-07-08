@@ -2,13 +2,13 @@ package tile
 
 // This file was copied from go-spatial/geom/encoding/mvt/feature.go
 // Modifications made:
-// - Made EncodeGeometry an  exported function.
+// - Made EncodeGeometry an exported function.
 // - Made file self-contained by adding type definitions from
 //   go-spatial/geom/encoding/mvt/vector_tile/vector_tile.pb.go
 // - Made file self-contained by defining the debug variable
+// - Removed unused parameter "context" from all functions.
 
 import (
-	"context"
 	"fmt"
 	"log"
 
@@ -120,7 +120,7 @@ func NewFeatures(geo geom.Geometry, tags map[string]interface{}) (f []Feature) {
 }
 
 // VTileFeature will return a vectorTile.Feature that would represent the Feature
-func (f *Feature) VTileFeature(ctx context.Context, keys []string, vals []interface{}) (tf *Tile_Feature, err error) {
+func (f *Feature) VTileFeature(keys []string, vals []interface{}) (tf *Tile_Feature, err error) {
 	tf = new(Tile_Feature)
 	tf.Id = f.ID
 
@@ -128,7 +128,7 @@ func (f *Feature) VTileFeature(ctx context.Context, keys []string, vals []interf
 		return tf, err
 	}
 
-	geo, gtype, err := EncodeGeometry(ctx, f.Geometry)
+	geo, gtype, err := EncodeGeometry(f.Geometry)
 	if err != nil {
 		return tf, err
 	}
@@ -348,7 +348,7 @@ func (c *cursor) ClosePath() uint32 {
 
 // EncodeGeometry will take a geom.Geometry and encode it according to the
 // mapbox vector_tile spec.
-func EncodeGeometry(ctx context.Context, geometry geom.Geometry) (g []uint32, vtyp Tile_GeomType, err error) {
+func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp Tile_GeomType, err error) {
 	if geometry == nil {
 		return nil, Tile_UNKNOWN, ErrNilGeometryType
 	}
