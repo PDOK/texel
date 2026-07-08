@@ -77,8 +77,10 @@ type PointIndex struct {
 	hitMultiple map[Level]map[intgeom.Point][]int
 }
 
-type Level = uint
-type Q = int // quadrant index (0, 1, 2 or 3)
+type (
+	Level = uint
+	Q     = int // quadrant index (0, 1, 2 or 3)
+)
 
 func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) (*PointIndex, error) {
 	// assuming IsQuadTree was tested before
@@ -110,6 +112,25 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
 	return &ix, nil
+}
+
+// Temporary function: primitively marks quadrants as relevant for tiling
+func (ix *PointIndex) GetPrimitiveQBBox(l Level) [4]uint {
+	quadrants := ix.quadrants[l]
+
+	minX := ^uint(0)
+	maxX := uint(0)
+	minY := ^uint(0)
+	maxY := uint(0)
+
+	for z, _ := range quadrants {
+		x, y:= morton.FromZ(z)
+		minX = min(x, minX)
+		maxX = max(x, maxX)
+		minY = min(y, minY)
+		maxY = max(y, maxY)
+	}
+	return [4]uint{ minX, minY, maxX, maxY }
 }
 
 // InsertPolygon inserts all points from a Polygon
