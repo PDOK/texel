@@ -8,9 +8,9 @@ import (
 
 const precision = 4096
 
-func EncodePolygon(q pointindex.Quadrant, p geom.Polygon) ([]uint32, int32) {
+func MvtEncodeGeometry(q pointindex.Quadrant, g geom.Geometry) ([]uint32, int32) {
 	ext := q.Extent()
-	preparedGeo := mvt.PrepareGeo(p, &ext, float64(precision))
+	preparedGeo := mvt.PrepareGeo(g, &ext, float64(precision))
 
 	// This should not be necessary. 
 //	sg, err := convert.ToTegola(preparedGeo)
