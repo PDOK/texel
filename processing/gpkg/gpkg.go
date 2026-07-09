@@ -81,7 +81,6 @@ func (source SourceGeopackage) Close() {
 
 //nolint:funlen,cyclop
 func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) {
-
 	rows, err := source.handle.Query(source.Table.selectSQL())
 	if err != nil {
 		log.Fatalf("err during closing rows: %s", err)
@@ -174,9 +173,10 @@ func (source SourceGeopackage) GetTableInfo() []Table {
 }
 
 type TargetGeopackage struct {
-	Table    Table
-	pagesize int
-	handle   *gpkg.Handle
+	Table        Table
+	pagesize     int
+	handle       *gpkg.Handle
+	encodedTable Table
 }
 
 func (target *TargetGeopackage) Init(file string, pagesize int) {
@@ -196,6 +196,11 @@ func (target *TargetGeopackage) CreateTables(tables []Table) error {
 		}
 
 		err = buildTable(target.handle, table)
+		if err != nil {
+			return err
+		}
+
+		err = buildEncodedTable(target.handle, table)
 		if err != nil {
 			return err
 		}
@@ -349,7 +354,6 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 	var columns []column
 	query := `PRAGMA table_info('%v');`
 	rows, err := h.Query(fmt.Sprintf(query, table))
-
 	if err != nil {
 		log.Fatalf("err during closing rows: %v - %v", query, err)
 	}
@@ -389,6 +393,25 @@ func buildTable(h *gpkg.Handle, t Table) error {
 	if err != nil {
 		log.Println("error adding geometry table in target GeoPackage:", err)
 		return err
+	}
+	return nil
+}
+
+func buildEncodedTable(h *gpkg.Handle, t Table) error {
+	db := h.DB
+
+	query := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INTEGER PRIMARY KEY,
+			tile_x INTEGER NOT NULL,
+			tile_y INTEGER NOT NULL,
+			feature_id INTEGER NOT NULL,
+			data BLOB
+		)
+		`, t.Name+"_encoded")
+	_, err := db.Exec(query)
+	if err != nil {
+		log.Println("error adding encoded table in target GeoPackage:", err)
 	}
 	return nil
 }
