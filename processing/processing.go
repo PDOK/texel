@@ -18,7 +18,21 @@ func readFeaturesFromSource(source Source, features chan<- Feature) {
 	source.ReadFeatures(features)
 }
 
-func polygonsToMulti(polygons []geom.Polygon) geom.MultiPolygon {
+func PolygonSliceToGeom(polygons []geom.Polygon) geom.Geometry {
+	if len(polygons) == 0 {
+		panic("Multipolygon with zero polygons encountered")
+	}
+	if len(polygons) == 1 {
+		return polygons[0]
+	}
+	multipolygon := make(geom.MultiPolygon, len(polygons))
+	for i, p := range polygons {
+		multipolygon[i] = p
+	}
+	return multipolygon
+}
+
+func PolygonsToMulti(polygons []geom.Polygon) geom.MultiPolygon {
 	l := len(polygons)
 	multiPolygon := make(geom.MultiPolygon, l)
 	for i := range l {
@@ -27,47 +41,67 @@ func polygonsToMulti(polygons []geom.Polygon) geom.MultiPolygon {
 	return multiPolygon
 }
 
+func mergeGeometries(g, h geom.Geometry) geom.Geometry {
+	if g == nil {
+		return h
+	}
+	if h == nil {
+		return g
+	}
+
+	switch g := g.(type) {
+	case geom.Polygon:
+		switch h := h.(type) {
+		case geom.Polygon:
+			return geom.MultiPolygon{g, h}
+		case geom.MultiPolygon:
+			return append(h, g)
+		default:
+			panic("Trying to merge a non-polygon geometry.")
+
+		}
+	case geom.MultiPolygon:
+		switch h := h.(type) {
+		case geom.Polygon:
+			return append(g, h)
+		case geom.MultiPolygon:
+			return append(g, h.Polygons()...)
+		default:
+			panic("Trying to merge a non-polygon geometry.")
+		}
+
+	default:
+		panic("Trying to merge a non-polygon geometry.")
+	}
+}
+
 // processMultiPolygon will split itself into the separated polygons that will be processed before building a new MULTIPOLYGON
-func processMultiPolygon(multiPolygon geom.MultiPolygon, tileMatrixIDs []tms20.TMID, f processPolygonFunc) map[tms20.TMID]geom.MultiPolygon {
-	newMultiPolygonPerTileMatrix := make(map[tms20.TMID]geom.MultiPolygon, len(tileMatrixIDs))
+func processMultiPolygon(multiPolygon geom.MultiPolygon, tileMatrixIDs []tms20.TMID, f processPolygonFunc) map[tms20.TMID]SnapResult {
+	newMultiPolygonPerTileMatrix := make(map[tms20.TMID]SnapResult, len(tileMatrixIDs))
 	for _, polygon := range multiPolygon {
-		newPolygonsPerTileMatrix := f(polygon, tileMatrixIDs)
-		for tmID, newPolygons := range newPolygonsPerTileMatrix {
-			for _, newPolygon := range newPolygons {
-				// if the processing results in multiple polygons, they are just added to the single resulting multipoly
-				newMultiPolygonPerTileMatrix[tmID] = append(newMultiPolygonPerTileMatrix[tmID], newPolygon)
-			}
+		snapResultsPerTileMatrix := f(polygon, tileMatrixIDs)
+		for tmID, snapResult := range snapResultsPerTileMatrix {
+			currentResult := newMultiPolygonPerTileMatrix[tmID]
+			currentResult.Tiles = append(currentResult.Tiles, snapResult.Tiles...)
+			currentResult.Geometry = mergeGeometries(currentResult.Geometry, snapResult.Geometry)
+			newMultiPolygonPerTileMatrix[tmID] = currentResult
+
 		}
 	}
 	return newMultiPolygonPerTileMatrix
 }
 
-func processGeometry(geometry geom.Geometry, tmIDs []tms20.TMID, f processPolygonFunc) map[tms20.TMID]geom.Geometry {
-	newGeometriesPerTileMatrix := make(map[tms20.TMID]geom.Geometry, len(tmIDs))
+func processGeometry(geometry geom.Geometry, tmIDs []tms20.TMID, f processPolygonFunc) map[tms20.TMID]SnapResult {
+	newGeometriesPerTileMatrix := make(map[tms20.TMID]SnapResult, len(tmIDs))
 
 	switch geometry := geometry.(type) {
 	case geom.Polygon:
-		newPolygonsPerTileMatrix := f(geometry, tmIDs)
-		for tmID, newPolygons := range newPolygonsPerTileMatrix {
-			if len(newPolygons) == 0 { // should never happen
-				panic(fmt.Errorf("no new polygon for level %v", tmID))
-			}
-			if len(newPolygons) == 1 {
-				newGeometriesPerTileMatrix[tmID] = newPolygons[0]
-			} else {
-				// TODO polygons are combined into multipolygons, for now here
-				// later, processPolygonFunc could return abstract geometry(s) if also lines/points are returned
-				newGeometriesPerTileMatrix[tmID] = polygonsToMulti(newPolygons)
-			}
-		}
+		newGeometriesPerTileMatrix = f(geometry, tmIDs)
 	case geom.MultiPolygon:
-		newMultiPolygonPerTileMatrix := processMultiPolygon(geometry, tmIDs, f)
-		for tmID, newMultiPolygon := range newMultiPolygonPerTileMatrix {
-			newGeometriesPerTileMatrix[tmID] = newMultiPolygon
-		}
+		newGeometriesPerTileMatrix = processMultiPolygon(geometry, tmIDs, f)
 	default:
 		for _, tmID := range tmIDs {
-			newGeometriesPerTileMatrix[tmID] = nil
+			newGeometriesPerTileMatrix[tmID] = SnapResult{nil, nil}
 		}
 	}
 
@@ -111,8 +145,8 @@ func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTil
 		if len(newGeometriesPerTileMatrix) > 0 {
 			stats.postCount++
 		}
-		for tmID, newGeom := range newGeometriesPerTileMatrix {
-			featuresOut <- wrapFeatureForTileMatrix(feature, tmID, newGeom)
+		for tmID, snapResult := range newGeometriesPerTileMatrix {
+			featuresOut <- wrapFeatureForTileMatrix(feature, tmID, snapResult.Geometry)
 		}
 
 	}
@@ -166,7 +200,7 @@ func writeFeaturesToTargets(featuresForTileMatrices <-chan FeatureForTileMatrix,
 	wg.Wait()
 }
 
-type processPolygonFunc func(p geom.Polygon, tileMatrixIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon
+type processPolygonFunc func(p geom.Polygon, tileMatrixIDs []tms20.TMID) map[tms20.TMID]SnapResult
 
 // ProcessFeatures applies the processing function/operation to each Target.
 func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f processPolygonFunc) {
@@ -217,4 +251,3 @@ func wrapFeatureForTileMatrix(feature Feature, tileMatrixID int, newGeometry geo
 		tileMatrixID: tileMatrixID,
 	}
 }
-
