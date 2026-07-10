@@ -406,6 +406,7 @@ func buildEncodedTable(h *gpkg.Handle, t Table) error {
 			tile_x INTEGER NOT NULL,
 			tile_y INTEGER NOT NULL,
 			feature_id INTEGER NOT NULL,
+			geometry_type INTEGER NOT NULL
 			data BLOB
 		)
 		`, t.Name+"_encoded")
