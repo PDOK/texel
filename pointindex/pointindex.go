@@ -115,7 +115,7 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 }
 
 // Temporary function: primitively marks quadrants as relevant for tiling
-func (ix *PointIndex) GetPrimitiveQBBox(l Level) [4]uint {
+func (ix *PointIndex) GetPrimitiveQBBox(l Level) []Quadrant {
 	quadrants := ix.quadrants[l]
 
 	minX := ^uint(0)
@@ -123,14 +123,27 @@ func (ix *PointIndex) GetPrimitiveQBBox(l Level) [4]uint {
 	minY := ^uint(0)
 	maxY := uint(0)
 
-	for z, _ := range quadrants {
-		x, y:= morton.FromZ(z)
+	for z := range quadrants {
+		x, y := morton.FromZ(z)
 		minX = min(x, minX)
 		maxX = max(x, maxX)
 		minY = min(y, minY)
 		maxY = max(y, maxY)
 	}
-	return [4]uint{ minX, minY, maxX, maxY }
+
+	quadrantSlice := make([]Quadrant, (maxY-minY)*(maxX-minX))
+	for i := range maxX - minX {
+		for j := range maxY - minY {
+			extent, centroid := ix.getQuadrantExtentAndCentroid(l, minX+i, minY+j, ix.intExtent)
+			newQuadrant := Quadrant{
+				z:           morton.MustToZ(minX+i, minY+j),
+				intExtent:   extent,
+				intCentroid: centroid,
+			}
+			quadrantSlice = append(quadrantSlice, newQuadrant)
+		}
+	}
+	return quadrantSlice
 }
 
 // InsertPolygon inserts all points from a Polygon
