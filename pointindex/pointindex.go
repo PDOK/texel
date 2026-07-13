@@ -144,7 +144,7 @@ func (ix *PointIndex) GetPrimitiveQBBox(l Level) []Quadrant {
 				intExtent:   extent,
 				intCentroid: centroid,
 			}
-			quadrantSlice = append(quadrantSlice, newQuadrant)
+			quadrantSlice[i * (maxY - minY) + j] = newQuadrant
 		}
 	}
 	return quadrantSlice
