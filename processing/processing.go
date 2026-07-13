@@ -7,6 +7,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/pdok/texel/tile"
 	"github.com/pdok/texel/tms20"
 
 	"github.com/go-spatial/geom"
@@ -129,6 +130,17 @@ func (stats *countStats) countGeometry(g geom.Geometry) {
 	}
 }
 
+func encodeGeometry(s SnapResult) []tile.EncodedGeometry {
+	encGeoms := make([]tile.EncodedGeometry, len(s.Tiles))
+	orig := s.Geometry
+
+	for i, q := range s.Tiles {
+		encGeoms[i] = tile.MvtEncodeGeometry(q, orig)
+	}
+
+	return encGeoms
+}
+
 // processFeatures processes the geometries in the features with the given function
 func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTileMatrix, tmIDs []tms20.TMID, f processPolygonFunc) {
 	stats := initStats()
@@ -146,7 +158,8 @@ func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTil
 			stats.postCount++
 		}
 		for tmID, snapResult := range newGeometriesPerTileMatrix {
-			featuresOut <- wrapFeatureForTileMatrix(feature, tmID, snapResult.Geometry)
+			encGeoms := encodeGeometry(snapResult)
+			featuresOut <- wrapFeatureForTileMatrix(feature, tmID, snapResult.Geometry, encGeoms)
 		}
 
 	}
@@ -164,12 +177,12 @@ func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTil
 // creates a WKB binary from the geometry
 // The collected feature array, based on the pagesize, is then passed to the writeFeaturesArray
 func writeFeaturesToTargets(featuresForTileMatrices <-chan FeatureForTileMatrix, targets map[int]Target) {
-	targetChannels := make(map[int]chan<- Feature)
+	targetChannels := make(map[int]chan<- FeatureForTileMatrix)
 	wg := sync.WaitGroup{}
 
 	// create a channel and start a goroutine per tile matrix target
 	for tmID, target := range targets {
-		targetChannel := make(chan Feature)
+		targetChannel := make(chan FeatureForTileMatrix)
 		targetChannels[tmID] = targetChannel
 		wg.Add(1)
 		go func(target Target) {
@@ -226,6 +239,7 @@ func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f processPoly
 type featureForTileMatrixWrapper struct {
 	wrapped      Feature
 	newGeometry  geom.Geometry
+	encodedGeoms []tile.EncodedGeometry
 	tileMatrixID int
 }
 
@@ -244,10 +258,15 @@ func (f *featureForTileMatrixWrapper) TileMatrixID() int {
 	return f.tileMatrixID
 }
 
-func wrapFeatureForTileMatrix(feature Feature, tileMatrixID int, newGeometry geom.Geometry) FeatureForTileMatrix {
+func (f *featureForTileMatrixWrapper) EncodedGeoms() []tile.EncodedGeometry {
+	return f.encodedGeoms
+}
+
+func wrapFeatureForTileMatrix(feature Feature, tileMatrixID int, newGeometry geom.Geometry, encGeoms []tile.EncodedGeometry) FeatureForTileMatrix {
 	return &featureForTileMatrixWrapper{
 		wrapped:      feature,
 		newGeometry:  newGeometry,
 		tileMatrixID: tileMatrixID,
+		encodedGeoms: encGeoms,
 	}
 }

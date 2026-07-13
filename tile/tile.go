@@ -4,12 +4,18 @@ import (
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/mvt"
 	"github.com/pdok/texel/pointindex"
-	"github.com/pdok/texel/processing"
 )
 
 const precision = 4096
 
-func MvtEncodeGeometry(q pointindex.Quadrant, g geom.Geometry) processing.EncodedGeometry {
+type EncodedGeometry struct {
+	Encoding     []uint32
+	GeometryType int32
+	XTile        uint
+	YTile        uint
+}
+
+func MvtEncodeGeometry(q pointindex.Quadrant, g geom.Geometry) EncodedGeometry {
 	ext := q.Extent()
 	preparedGeo := mvt.PrepareGeo(g, &ext, float64(precision))
 
@@ -26,7 +32,7 @@ func MvtEncodeGeometry(q pointindex.Quadrant, g geom.Geometry) processing.Encode
 
 	xTile, yTile := q.Coords()
 
-	return processing.EncodedGeometry{
+	return EncodedGeometry{
 		Encoding: encgeom,
 		GeometryType: int32(geomtype),
 		XTile: xTile,

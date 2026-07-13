@@ -208,7 +208,7 @@ func (target *TargetGeopackage) CreateTables(tables []Table) error {
 	return nil
 }
 
-func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Feature) {
+func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.FeatureForTileMatrix) {
 	var features []processing.Feature
 
 	for {
