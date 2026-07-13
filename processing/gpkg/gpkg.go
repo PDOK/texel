@@ -173,10 +173,9 @@ func (source SourceGeopackage) GetTableInfo() []Table {
 }
 
 type TargetGeopackage struct {
-	Table        Table
-	pagesize     int
-	handle       *gpkg.Handle
-	encodedTable Table
+	Table    Table
+	pagesize int
+	handle   *gpkg.Handle
 }
 
 func (target *TargetGeopackage) Init(file string, pagesize int) {
@@ -209,24 +208,26 @@ func (target *TargetGeopackage) CreateTables(tables []Table) error {
 }
 
 func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.FeatureForTileMatrix) {
-	var features []processing.Feature
+	var features []processing.FeatureForTileMatrix
 
 	for {
 		feature, hasMore := <-inFeatures
 		if !hasMore {
 			target.writeFeatures(features)
+			target.writeEncodedFeatures(features)
 			break
 		}
 		features = append(features, feature)
 
 		if len(features)%target.pagesize == 0 {
 			target.writeFeatures(features)
+			target.writeEncodedFeatures(features)
 			features = nil
 		}
 	}
 }
 
-func (target *TargetGeopackage) writeFeatures(features []processing.Feature) {
+func (target *TargetGeopackage) writeFeatures(features []processing.FeatureForTileMatrix) {
 	tx, err := target.handle.Begin()
 	if err != nil {
 		log.Fatalf("Could not start a transaction: %s", err)
@@ -393,26 +394,6 @@ func buildTable(h *gpkg.Handle, t Table) error {
 	if err != nil {
 		log.Println("error adding geometry table in target GeoPackage:", err)
 		return err
-	}
-	return nil
-}
-
-func buildEncodedTable(h *gpkg.Handle, t Table) error {
-	db := h.DB
-
-	query := fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id INTEGER PRIMARY KEY,
-			tile_x INTEGER NOT NULL,
-			tile_y INTEGER NOT NULL,
-			feature_id INTEGER NOT NULL,
-			geometry_type INTEGER NOT NULL
-			data BLOB
-		)
-		`, t.Name+"_encoded")
-	_, err := db.Exec(query)
-	if err != nil {
-		log.Println("error adding encoded table in target GeoPackage:", err)
 	}
 	return nil
 }
