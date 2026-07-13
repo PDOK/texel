@@ -17,7 +17,19 @@ type FeatureForTileMatrix interface {
 
 type SnapResult struct {
 	Geometry geom.Geometry
-	Tiles []pointindex.Quadrant
+	Tiles    []pointindex.Quadrant
+}
+
+type EncodedGeometry struct {
+	Encoding     []uint32
+	GeometryType int32
+	XTile        uint
+	YTile        uint
+}
+
+type EncodedFeature struct {
+	Feature      Feature
+	EncodedGeoms []EncodedGeometry
 }
 
 type Source interface {

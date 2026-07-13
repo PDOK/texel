@@ -46,6 +46,10 @@ func (q *Quadrant) Extent() geom.Extent {
 	return q.intExtent.ToGeomExtent()
 }
 
+func (q *Quadrant) Coords() (uint, uint) {
+	return morton.FromZ(q.z)
+}
+
 // PointIndex is a pointcloud annex quadtree to enable snapping lines to a grid accounting for those points.
 // Quadrants:
 //
