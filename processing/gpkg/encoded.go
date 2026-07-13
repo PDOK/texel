@@ -13,8 +13,8 @@ func (t Table) EncodedName() string {
 }
 
 func (t Table) insertSQLEncoded() string {
-	return `INSERT INTO "` + t.EncodedName() +
-		`(tile_x, tile_y, feature_id, geometry_type, data)` +
+	return `INSERT INTO "` + t.EncodedName() + `"` + 
+		` (tile_x, tile_y, feature_id, geometry_type, data)` +
 		` VALUES (?, ?, ?, ?, ?)`
 }
 
