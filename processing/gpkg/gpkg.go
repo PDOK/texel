@@ -173,9 +173,10 @@ func (source SourceGeopackage) GetTableInfo() []Table {
 }
 
 type TargetGeopackage struct {
-	Table    Table
-	pagesize int
-	handle   *gpkg.Handle
+	Table       Table
+	pagesize    int
+	handle      *gpkg.Handle
+	encodeTiles bool
 }
 
 func (target *TargetGeopackage) Init(file string, pagesize int) {
@@ -199,9 +200,11 @@ func (target *TargetGeopackage) CreateTables(tables []Table) error {
 			return err
 		}
 
-		err = buildEncodedTable(target.handle, table)
-		if err != nil {
-			return err
+		if target.encodeTiles {
+			err = buildEncodedTable(target.handle, table)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -214,14 +217,18 @@ func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Featu
 		feature, hasMore := <-inFeatures
 		if !hasMore {
 			target.writeFeatures(features)
-			target.writeEncodedFeatures(features)
+			if target.encodeTiles {
+				target.writeEncodedFeatures(features)
+			}
 			break
 		}
 		features = append(features, feature)
 
 		if len(features)%target.pagesize == 0 {
 			target.writeFeatures(features)
-			target.writeEncodedFeatures(features)
+			if target.encodeTiles {
+				target.writeEncodedFeatures(features)
+			}
 			features = nil
 		}
 	}

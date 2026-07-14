@@ -34,6 +34,7 @@ type Config struct {
 	KeepPointsAndLines  bool
 	IgnoreOutsideGrid   bool
 	ReverseWindingOrder bool
+	EncodeTiles         bool
 }
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
@@ -67,7 +68,12 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 
 	newPolygonsPerTileMatrixID := make(map[tms20.TMID]processing.SnapResult, len(newPolygonsPerLevel))
 	for level, newPolygons := range newPolygonsPerLevel {
-		tilesbbox := ix.GetPrimitiveQBBox(pointindex.Level(tmIDsByLevels[level]))
+		var tilesbbox []pointindex.Quadrant
+		if config.EncodeTiles {
+			tilesbbox = ix.GetPrimitiveQBBox(pointindex.Level(tmIDsByLevels[level]))
+		} else {
+			tilesbbox = []pointindex.Quadrant{}
+		}
 		newGeometry := geomhelp.PolygonSliceToGeom(newPolygons)
 		newPolygonsPerTileMatrixID[tmIDsByLevels[level]] = processing.SnapResult{Geometry: newGeometry, Tiles: tilesbbox}
 	}

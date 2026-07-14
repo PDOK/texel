@@ -25,15 +25,18 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-const SOURCE string = `sourceGpkg`
-const TARGET string = `targetGpkg`
-const OVERWRITE string = `overwrite`
-const TILEMATRIXSET string = `tilematrixset`
-const TILEMATRICES string = `tilematrices`
-const PAGESIZE string = `pagesize`
-const KEEPPOINTSANDLINES string = `keeppointsandlines`
-const IGNOREOUTSIDEGRID string = `ignoreoutsidegrid`
-const REVERSEWINDINGORDER string = `reversewindingorder`
+const (
+	SOURCE              string = `sourceGpkg`
+	TARGET              string = `targetGpkg`
+	OVERWRITE           string = `overwrite`
+	TILEMATRIXSET       string = `tilematrixset`
+	TILEMATRICES        string = `tilematrices`
+	PAGESIZE            string = `pagesize`
+	KEEPPOINTSANDLINES  string = `keeppointsandlines`
+	IGNOREOUTSIDEGRID   string = `ignoreoutsidegrid`
+	REVERSEWINDINGORDER string = `reversewindingorder`
+	ENCODETILES         string = `encodetiles`
+)
 
 //nolint:funlen
 func main() {
@@ -111,6 +114,14 @@ func main() {
 			Required: false,
 			EnvVars:  []string{strcase.ToScreamingSnake(REVERSEWINDINGORDER)},
 		},
+		&cli.BoolFlag{
+			Name:     ENCODETILES,
+			Aliases:  []string{"enc"},
+			Usage:    "Add tables with mapbox-encoded geometries.",
+			Value:    false,
+			Required: false,
+			EnvVars:  []string{strcase.ToScreamingSnake(ENCODETILES)},
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -145,6 +156,7 @@ func main() {
 			KeepPointsAndLines:  c.Bool(KEEPPOINTSANDLINES),
 			IgnoreOutsideGrid:   c.Bool(IGNOREOUTSIDEGRID),
 			ReverseWindingOrder: c.Bool(REVERSEWINDINGORDER),
+			EncodeTiles:         c.Bool(ENCODETILES),
 		}
 		for _, tmID := range tileMatrixIDs {
 			gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize)
