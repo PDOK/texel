@@ -9,6 +9,7 @@ package tile
 // - Removed unused parameter "context" from all functions.
 
 import (
+	"errors"
 	"fmt"
 	"log"
 
@@ -19,34 +20,36 @@ import (
 
 // START copied from vector_tile.pb.go
 
-type Tile_GeomType int32
+type GSTileGeomType int32
 
 const (
-	Tile_UNKNOWN    Tile_GeomType = 0
-	Tile_POINT      Tile_GeomType = 1
-	Tile_LINESTRING Tile_GeomType = 2
-	Tile_POLYGON    Tile_GeomType = 3
+	TileUNKNOWN    GSTileGeomType = 0
+	TilePOINT      GSTileGeomType = 1
+	TileLINESTRING GSTileGeomType = 2
+	TilePOLYGON    GSTileGeomType = 3
 )
 
-var Tile_GeomType_name = map[int32]string{
+var TileGeomTypeName = map[int32]string{
 	0: "UNKNOWN",
 	1: "POINT",
 	2: "LINESTRING",
 	3: "POLYGON",
 }
-var Tile_GeomType_value = map[string]int32{
+
+var TileGeomTypeValue = map[string]int32{
 	"UNKNOWN":    0,
 	"POINT":      1,
 	"LINESTRING": 2,
 	"POLYGON":    3,
 }
+
 var (
-	ErrNilFeature          = fmt.Errorf("feature is nil")
-	ErrUnknownGeometryType = fmt.Errorf("unknown geometry type")
-	ErrNilGeometryType     = fmt.Errorf("geometry is nil")
+	ErrNilFeature          = errors.New("feature is nil")
+	ErrUnknownGeometryType = errors.New("unknown geometry type")
+	ErrNilGeometryType     = errors.New("geometry is nil")
 )
 
-type Tile_Feature struct {
+type GSTileFeature struct {
 	Id *uint64 `protobuf:"varint,1,opt,name=id,def=0" json:"id,omitempty"`
 	// Tags of this feature are encoded as repeated pairs of
 	// integers.
@@ -54,12 +57,12 @@ type Tile_Feature struct {
 	// 4.2 and 4.4 of the specification
 	Tags []uint32 `protobuf:"varint,2,rep,packed,name=tags" json:"tags,omitempty"`
 	// The type of geometry stored in this feature.
-	Type *Tile_GeomType `protobuf:"varint,3,opt,name=type,enum=vector_tile.Tile_GeomType,def=0" json:"type,omitempty"`
+	Type *GSTileGeomType `protobuf:"varint,3,opt,name=type,enum=vector_tile.Tile_GeomType,def=0" json:"type,omitempty"`
 	// Contains a stream of commands and parameters (vertices).
 	// A detailed description on geometry encoding is located in
 	// section 4.3 of the specification.
-	Geometry         []uint32 `protobuf:"varint,4,rep,packed,name=geometry" json:"geometry,omitempty"`
-	XXX_unrecognized []byte   `json:"-"`
+	Geometry        []uint32 `protobuf:"varint,4,rep,packed,name=geometry" json:"geometry,omitempty"`
+	XXXunrecognized []byte   `json:"-"`
 }
 
 // END copied from vector_tile.pb.go
@@ -69,7 +72,6 @@ const debug = false
 
 // Rest of file is copied from feature.go
 
-
 // TODO: Need to put in validation for the Geometry, as current the system
 // does not check to make sure that the geometry is following the rules as
 // laid out by the spec (i.e. polygons must not have the same start and end
@@ -78,9 +80,9 @@ const debug = false
 // Feature describes a feature of a Layer. A layer will contain multiple features
 // each of which has a geometry describing the interesting thing, and the metadata
 // associated with it.
-type Feature struct {
+type Feature struct { //nolint:recvcheck
 	ID       *uint64
-	Tags     map[string]interface{}
+	Tags     map[string]any
 	Geometry geom.Geometry
 }
 
@@ -98,7 +100,7 @@ func (f Feature) String() string {
 }
 
 // NewFeatures returns one or more features for the given Geometry
-func NewFeatures(geo geom.Geometry, tags map[string]interface{}) (f []Feature) {
+func NewFeatures(geo geom.Geometry, tags map[string]any) (f []Feature) {
 	if geo == nil {
 		return f // return empty feature set for a nil geometry
 	}
@@ -120,8 +122,8 @@ func NewFeatures(geo geom.Geometry, tags map[string]interface{}) (f []Feature) {
 }
 
 // VTileFeature will return a vectorTile.Feature that would represent the Feature
-func (f *Feature) VTileFeature(keys []string, vals []interface{}) (tf *Tile_Feature, err error) {
-	tf = new(Tile_Feature)
+func (f *Feature) VTileFeature(keys []string, vals []any) (tf *GSTileFeature, err error) {
+	tf = new(GSTileFeature)
 	tf.Id = f.ID
 
 	if tf.Tags, err = keyvalTagsMap(keys, vals, f); err != nil {
@@ -149,22 +151,22 @@ const (
 	cmdLineTo    uint32 = 2
 	cmdClosePath uint32 = 7
 
-	maxCmdCount uint32 = 0x1FFFFFFF
+	// maxCmdCount uint32 = 0x1FFFFFFF
 )
 
 type Command uint32
 
 // NewCommand return a new command encoder
 func NewCommand(cmd uint32, count int) Command {
-	return Command((cmd & 0x7) | (uint32(count) << 3))
+	return Command((cmd & 0x7) | (uint32(count) << 3)) //nolint:gosec // G115 - This is potentially an issue if we ever get huge polygons
 }
 
-//ID encodes the ID of the command
+// ID encodes the ID of the command
 func (c Command) ID() uint32 {
 	return uint32(c) & 0x7
 }
 
-//Count encode the count of elements in the command
+// Count encode the count of elements in the command
 func (c Command) Count() int {
 	return int(uint32(c) >> 3)
 }
@@ -184,7 +186,7 @@ func (c Command) String() string {
 
 // encodeZigZag does the ZigZag encoding for small ints.
 func encodeZigZag(i int64) uint32 {
-	return uint32((i << 1) ^ (i >> 31))
+	return uint32((i << 1) ^ (i >> 31)) //nolint:gosec // G115 This can go wrong with polygons with enormous edges
 }
 
 // cursor reprsents the current position, this is needed to encode the geometry.
@@ -197,7 +199,7 @@ type cursor struct {
 }
 
 // NewCursor creates a new cursor for drawing and MVT tile
-func NewCursor() *cursor {
+func NewCursor() *cursor { //nolint:revive
 	return &cursor{}
 }
 
@@ -206,6 +208,21 @@ func NewCursor() *cursor {
 func (c *cursor) GetDeltaPointAndUpdate(p geom.Point) (dx, dy int64) {
 	delta := c.moveCursorPoints([2]int64{int64(p.X()), int64(p.Y())})
 	return delta[0][0], delta[0][1]
+}
+
+// MoveTo encodes a move to command for the given points
+func (c *cursor) MoveTo(points ...[2]float64) []uint32 {
+	return c.encodeCmd(uint32(NewCommand(cmdMoveTo, len(points))), points)
+}
+
+// LineTo encodes a line to command for the given points
+func (c *cursor) LineTo(points ...[2]float64) []uint32 {
+	return c.encodeCmd(uint32(NewCommand(cmdLineTo, len(points))), points)
+}
+
+// ClosePath encodes a close path command
+func (c *cursor) ClosePath() uint32 {
+	return uint32(NewCommand(cmdClosePath, 1))
 }
 
 func (c *cursor) moveCursorPoints(pts ...[2]int64) (deltas [][2]int64) {
@@ -246,7 +263,6 @@ func (c *cursor) encodeCmd(cmd uint32, points [][2]float64) []uint32 {
 }
 
 func (c *cursor) encodeLinearRing(order winding.Order, wo winding.Winding, ring [][2]float64) []uint32 {
-
 	iring := make([][2]int64, len(ring))
 	for i := range iring {
 		// the process of truncating the float can cause the winding order to flip!
@@ -331,26 +347,11 @@ func (c *cursor) encodePolygon(geo geom.Polygon) []uint32 {
 	return g
 }
 
-// MoveTo encodes a move to command for the given points
-func (c *cursor) MoveTo(points ...[2]float64) []uint32 {
-	return c.encodeCmd(uint32(NewCommand(cmdMoveTo, len(points))), points)
-}
-
-// LineTo encodes a line to command for the given points
-func (c *cursor) LineTo(points ...[2]float64) []uint32 {
-	return c.encodeCmd(uint32(NewCommand(cmdLineTo, len(points))), points)
-}
-
-// ClosePath encodes a close path command
-func (c *cursor) ClosePath() uint32 {
-	return uint32(NewCommand(cmdClosePath, 1))
-}
-
 // EncodeGeometry will take a geom.Geometry and encode it according to the
 // mapbox vector_tile spec.
-func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp Tile_GeomType, err error) {
+func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp GSTileGeomType, err error) {
 	if geometry == nil {
-		return nil, Tile_UNKNOWN, ErrNilGeometryType
+		return nil, TileUNKNOWN, ErrNilGeometryType
 	}
 
 	c := NewCursor()
@@ -358,17 +359,17 @@ func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp Tile_GeomType, err
 	switch t := geometry.(type) {
 	case geom.Point:
 		g = append(g, c.MoveTo(t)...)
-		return g, Tile_POINT, nil
+		return g, TilePOINT, nil
 
 	case geom.MultiPoint:
 		g = append(g, c.MoveTo(t.Points()...)...)
-		return g, Tile_POINT, nil
+		return g, TilePOINT, nil
 
 	case geom.LineString:
 		points := t.Vertices()
 		g = append(g, c.MoveTo(points[0])...)
 		g = append(g, c.LineTo(points[1:]...)...)
-		return g, Tile_LINESTRING, nil
+		return g, TileLINESTRING, nil
 
 	case geom.MultiLineString:
 		lines := t.LineStrings()
@@ -377,259 +378,39 @@ func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp Tile_GeomType, err
 			g = append(g, c.MoveTo(points[0])...)
 			g = append(g, c.LineTo(points[1:]...)...)
 		}
-		return g, Tile_LINESTRING, nil
+		return g, TileLINESTRING, nil
 
 	case geom.Polygon:
 		g = append(g, c.encodePolygon(t)...)
-		return g, Tile_POLYGON, nil
+		return g, TilePOLYGON, nil
 
 	case geom.MultiPolygon:
 		polygons := t.Polygons()
 		for _, p := range polygons {
 			g = append(g, c.encodePolygon(p)...)
 		}
-		return g, Tile_POLYGON, nil
+		return g, TilePOLYGON, nil
 
 	case *geom.MultiPolygon:
 		if t == nil {
-			return g, Tile_POLYGON, nil
+			return g, TilePOLYGON, nil
 		}
 
 		polygons := t.Polygons()
 		for _, p := range polygons {
 			g = append(g, c.encodePolygon(p)...)
 		}
-		return g, Tile_POLYGON, nil
+		return g, TilePOLYGON, nil
 
 	default:
-		return nil, Tile_UNKNOWN, ErrUnknownGeometryType
+		return nil, TileUNKNOWN, ErrUnknownGeometryType
 	}
 }
 
-// keyvalMapsFromFeatures returns a key map and value map, to help with the translation
-// to mapbox tile format. In the Tile format, the Tile contains a mapping of all the unique
-// keys and values, and then each feature contains a vector map to these two. This is an
-// intermediate data structure to help with the construction of the three mappings.
-func keyvalMapsFromFeatures(features []Feature) (keyMap []string, valMap []interface{}, err error) {
-	var didFind bool
-	for _, f := range features {
-		for k, v := range f.Tags {
-			didFind = false
-			for _, mk := range keyMap {
-				if k == mk {
-					didFind = true
-					break
-				}
-			}
-			if !didFind {
-				keyMap = append(keyMap, k)
-			}
-			didFind = false
-
-			switch vt := v.(type) {
-			default:
-				if vt == nil {
-					// ignore nil types
-					continue
-				}
-				return keyMap, valMap, fmt.Errorf("unsupported type for value(%v) with key(%v) in tags for feature %v.", vt, k, f)
-
-			case string:
-				for _, mv := range valMap {
-					tmv, ok := mv.(string)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case fmt.Stringer:
-				for _, mv := range valMap {
-					tmv, ok := mv.(fmt.Stringer)
-					if !ok {
-						continue
-					}
-					if tmv.String() == vt.String() {
-						didFind = true
-						break
-					}
-				}
-
-			case int:
-				for _, mv := range valMap {
-					tmv, ok := mv.(int)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case int8:
-				for _, mv := range valMap {
-					tmv, ok := mv.(int8)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case int16:
-				for _, mv := range valMap {
-					tmv, ok := mv.(int16)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case int32:
-				for _, mv := range valMap {
-					tmv, ok := mv.(int32)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case int64:
-				for _, mv := range valMap {
-					tmv, ok := mv.(int64)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case uint:
-				for _, mv := range valMap {
-					tmv, ok := mv.(uint)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case uint8:
-				for _, mv := range valMap {
-					tmv, ok := mv.(uint8)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case uint16:
-				for _, mv := range valMap {
-					tmv, ok := mv.(uint16)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case uint32:
-				for _, mv := range valMap {
-					tmv, ok := mv.(uint32)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case uint64:
-				for _, mv := range valMap {
-					tmv, ok := mv.(uint64)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case float32:
-				for _, mv := range valMap {
-					tmv, ok := mv.(float32)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case float64:
-				for _, mv := range valMap {
-					tmv, ok := mv.(float64)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			case bool:
-				for _, mv := range valMap {
-					tmv, ok := mv.(bool)
-					if !ok {
-						continue
-					}
-					if tmv == vt {
-						didFind = true
-						break
-					}
-				}
-
-			} // value type switch
-
-			if !didFind {
-				valMap = append(valMap, v)
-			}
-
-		} // For f.Tags
-	} // for features
-	return keyMap, valMap, nil
-}
-
 // keyvalTagsMap will return the tags map as expected by the mapbox tile spec. It takes
-// a keyMap and a valueMap that list the the order of the expected keys and values. It will
+// a keyMap and a valueMap that list the order of the expected keys and values. It will
 // return a vector map that refers to these two maps.
-func keyvalTagsMap(keyMap []string, valueMap []interface{}, f *Feature) (tags []uint32, err error) {
-
+func keyvalTagsMap(keyMap []string, valueMap []any, f *Feature) (tags []uint32, err error) { //nolint: cyclop,funlen
 	if f == nil {
 		return nil, ErrNilFeature
 	}
@@ -650,7 +431,7 @@ func keyvalTagsMap(keyMap []string, valueMap []interface{}, f *Feature) (tags []
 
 		if kidx == -1 {
 			log.Printf("did not find key (%v) in keymap.", key)
-			return tags, fmt.Errorf("did not find key (%v) in keymap.", key)
+			return tags, fmt.Errorf("did not find key (%v) in keymap", key)
 		}
 
 		// if val is nil we skip it for now
@@ -662,7 +443,7 @@ func keyvalTagsMap(keyMap []string, valueMap []interface{}, f *Feature) (tags []
 		for i, v := range valueMap {
 			switch tv := val.(type) {
 			default:
-				return tags, fmt.Errorf("value (%[1]v) of type (%[1]T) for key (%[2]v) is not supported.", tv, key)
+				return tags, fmt.Errorf("value (%[1]v) of type (%[1]T) for key (%[2]v) is not supported", tv, key)
 			case string:
 				vmt, ok := v.(string) // Make sure the type of the Value map matches the type of the Tag's value
 				if !ok || vmt != tv { // and that the values match
@@ -746,9 +527,9 @@ func keyvalTagsMap(keyMap []string, valueMap []interface{}, f *Feature) (tags []
 		} // range on value
 
 		if vidx == -1 { // None of the values matched.
-			return tags, fmt.Errorf("did not find a value: %v in valuemap.", val)
+			return tags, fmt.Errorf("did not find a value: %v in valuemap", val)
 		}
-		tags = append(tags, uint32(kidx), uint32(vidx))
+		tags = append(tags, uint32(kidx), uint32(vidx)) //nolint: gosec // G115 casting sems unavoidable
 	} // Move to the next tag key and value.
 
 	return tags, nil

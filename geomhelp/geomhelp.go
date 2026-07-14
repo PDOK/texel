@@ -176,4 +176,3 @@ func PolygonSliceToGeom(polygons []geom.Polygon) geom.Geometry {
 	}
 	return multipolygon
 }
-

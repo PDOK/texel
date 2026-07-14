@@ -70,7 +70,7 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 	for level, newPolygons := range newPolygonsPerLevel {
 		var tilesbbox []pointindex.Quadrant
 		if config.EncodeTiles {
-			tilesbbox = ix.GetPrimitiveQBBox(pointindex.Level(tmIDsByLevels[level]))
+			tilesbbox = ix.GetPrimitiveQBBox(pointindex.Level(tmIDsByLevels[level])) //nolint:gosec // G115 These are numbers < 40
 		} else {
 			tilesbbox = []pointindex.Quadrant{}
 		}

@@ -19,23 +19,22 @@ func MvtEncodeGeometry(q pointindex.Quadrant, g geom.Geometry) EncodedGeometry {
 	ext := q.Extent()
 	preparedGeo := mvt.PrepareGeo(g, &ext, float64(precision))
 
-	// This should not be necessary. 
-//	sg, err := convert.ToTegola(preparedGeo)
-//	tegolaGeo, err := validate.CleanGeometry(context.TODO(), sg, &ext)
-//	validatedGeo := convert.ToGeom(tegolaGeo)
+	// This should not be necessary.
+	//	sg, err := convert.ToTegola(preparedGeo)
+	//	tegolaGeo, err := validate.CleanGeometry(context.TODO(), sg, &ext)
+	//	validatedGeo := convert.ToGeom(tegolaGeo)
 
 	encgeom, geomtype, err := EncodeGeometry(preparedGeo)
 	if err != nil {
 		panic(err)
 	}
-	
 
 	xTile, yTile := q.Coords()
 
 	return EncodedGeometry{
-		Encoding: encgeom,
+		Encoding:     encgeom,
 		GeometryType: int32(geomtype),
-		XTile: xTile,
-		YTile: yTile,
+		XTile:        xTile,
+		YTile:        yTile,
 	}
 }
