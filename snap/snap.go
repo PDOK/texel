@@ -68,7 +68,7 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 	newPolygonsPerTileMatrixID := make(map[tms20.TMID]processing.SnapResult, len(newPolygonsPerLevel))
 	for level, newPolygons := range newPolygonsPerLevel {
 		tilesbbox := ix.GetPrimitiveQBBox(pointindex.Level(tmIDsByLevels[level]))
-		newGeometry := processing.PolygonSliceToGeom(newPolygons)
+		newGeometry := geomhelp.PolygonSliceToGeom(newPolygons)
 		newPolygonsPerTileMatrixID[tmIDsByLevels[level]] = processing.SnapResult{Geometry: newGeometry, Tiles: tilesbbox}
 	}
 
