@@ -1,6 +1,7 @@
 package gpkg
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 
@@ -13,9 +14,19 @@ func (t Table) EncodedName() string {
 }
 
 func (t Table) insertSQLEncoded() string {
-	return `INSERT INTO "` + t.EncodedName() + `"` + 
+	return `INSERT INTO "` + t.EncodedName() + `"` +
 		` (tile_x, tile_y, feature_id, geometry_type, data)` +
 		` VALUES (?, ?, ?, ?, ?)`
+}
+
+func serializeToBytes(intslice []uint32) []byte {
+	bytes := make([]byte, len(intslice)*4)
+
+	for i, x := range intslice {
+		binary.LittleEndian.PutUint32(bytes[i*4:], x)
+	}
+
+	return bytes
 }
 
 func (target *TargetGeopackage) writeEncodedFeatures(encFeature []processing.FeatureForTileMatrix) {
@@ -36,7 +47,8 @@ func (target *TargetGeopackage) writeEncodedFeatures(encFeature []processing.Fea
 		}
 		fid := cols[0]
 		for _, eg := range ef.EncodedGeoms() {
-			_, err := stmt.Exec(eg.XTile, eg.YTile, fid, eg.GeometryType, eg.Encoding)
+			bytes := serializeToBytes(eg.Encoding)
+			_, err := stmt.Exec(eg.XTile, eg.YTile, fid, eg.GeometryType, bytes)
 			if err != nil {
 				log.Fatalf("Could not get a result summary from the prepared statement for fid %s: %s", fid, err)
 			}
