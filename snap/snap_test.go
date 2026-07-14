@@ -7,6 +7,7 @@ import (
 	"github.com/pdok/texel/geomhelp"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/pointindex"
+	"github.com/pdok/texel/processing"
 	"github.com/stretchr/testify/require"
 
 	"github.com/go-spatial/geom/encoding/wkt"
@@ -790,9 +791,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}
 			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs, tt.config)
 			for tmID, wantPoly := range tt.want {
-				if !assert.Equal(t, wantPoly, got[tmID]) {
+				wantGeom := processing.PolygonSliceToGeom(wantPoly)
+				if !assert.Equal(t, wantGeom, got[tmID].Geometry) {
 					t.Errorf("snapPolygon(%v, _, %v)\n=     %v\nwant: %v",
-						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncodeSlice(got[tmID], 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
+						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncode(got[tmID].Geometry, 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
 				}
 			}
 		})
