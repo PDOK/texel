@@ -19,15 +19,6 @@ func readFeaturesFromSource(source Source, features chan<- Feature) {
 	source.ReadFeatures(features)
 }
 
-func PolygonsToMulti(polygons []geom.Polygon) geom.MultiPolygon {
-	l := len(polygons)
-	multiPolygon := make(geom.MultiPolygon, l)
-	for i := range l {
-		multiPolygon[i] = polygons[i]
-	}
-	return multiPolygon
-}
-
 func mergeGeometries(g, h geom.Geometry) geom.Geometry {
 	if g == nil {
 		return h
