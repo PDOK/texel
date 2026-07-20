@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/wkt"
@@ -405,6 +406,219 @@ func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp GSTileGeomType, er
 	default:
 		return nil, TileUNKNOWN, ErrUnknownGeometryType
 	}
+}
+
+// keyvalMapsFromFeatures returns a key map and value map, to help with the translation
+// to mapbox tile format. In the Tile format, the Tile contains a mapping of all the unique
+// keys and values, and then each feature contains a vector map to these two. This is an
+// intermediate data structure to help with the construction of the three mappings.
+func keyvalMapsFromFeatures(features []Feature) (keyMap []string, valMap []any, err error) {
+	var didFind bool
+	for _, f := range features {
+		for k, v := range f.Tags {
+			didFind = slices.Contains(keyMap, k)
+			if !didFind {
+				keyMap = append(keyMap, k)
+			}
+			didFind = false
+
+			switch vt := v.(type) {
+			default:
+				if vt == nil {
+					// ignore nil types
+					continue
+				}
+				return keyMap, valMap, fmt.Errorf("unsupported type for value(%v) with key(%v) in tags for feature %v", vt, k, f)
+
+			case string:
+				for _, mv := range valMap {
+					tmv, ok := mv.(string)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case fmt.Stringer:
+				for _, mv := range valMap {
+					tmv, ok := mv.(fmt.Stringer)
+					if !ok {
+						continue
+					}
+					if tmv.String() == vt.String() {
+						didFind = true
+						break
+					}
+				}
+
+			case int:
+				for _, mv := range valMap {
+					tmv, ok := mv.(int)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case int8:
+				for _, mv := range valMap {
+					tmv, ok := mv.(int8)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case int16:
+				for _, mv := range valMap {
+					tmv, ok := mv.(int16)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case int32:
+				for _, mv := range valMap {
+					tmv, ok := mv.(int32)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case int64:
+				for _, mv := range valMap {
+					tmv, ok := mv.(int64)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case uint:
+				for _, mv := range valMap {
+					tmv, ok := mv.(uint)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case uint8:
+				for _, mv := range valMap {
+					tmv, ok := mv.(uint8)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case uint16:
+				for _, mv := range valMap {
+					tmv, ok := mv.(uint16)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case uint32:
+				for _, mv := range valMap {
+					tmv, ok := mv.(uint32)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case uint64:
+				for _, mv := range valMap {
+					tmv, ok := mv.(uint64)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case float32:
+				for _, mv := range valMap {
+					tmv, ok := mv.(float32)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case float64:
+				for _, mv := range valMap {
+					tmv, ok := mv.(float64)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			case bool:
+				for _, mv := range valMap {
+					tmv, ok := mv.(bool)
+					if !ok {
+						continue
+					}
+					if tmv == vt {
+						didFind = true
+						break
+					}
+				}
+
+			} // value type switch
+
+			if !didFind {
+				valMap = append(valMap, v)
+			}
+
+		} // For f.Tags
+	} // for features
+	return keyMap, valMap, nil
 }
 
 // keyvalTagsMap will return the tags map as expected by the mapbox tile spec. It takes
