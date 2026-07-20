@@ -9,6 +9,10 @@ import (
 // Batch value for reading features from the geopackage table
 const maxSQLiteBatchParams = 500
 
+// Data structure to store attribute info before processing.
+// This could perhaps also be map[int64][]any for performance
+type InternalAttributeTable map[int64]map[string]any
+
 // selectByFIDsSQL builds a SELECT of all the table's columns for a batch of feature IDs.
 // The fid is assumed to be the table's first column.
 func (t Table) selectByFIDsSQL(batchSize int) string {
@@ -22,7 +26,7 @@ func (t Table) selectByFIDsSQL(batchSize int) string {
 }
 
 // Extract features from the map construct.
-func AttributesForFeature(attributes map[int64]map[string]any, featureID int64) map[string]any {
+func AttributesForFeature(attributes InternalAttributeTable, featureID int64) map[string]any {
 	if attrs, ok := attributes[featureID]; ok {
 		return attrs
 	}
@@ -32,8 +36,8 @@ func AttributesForFeature(attributes map[int64]map[string]any, featureID int64) 
 // GetAttributesForFeatures fetches the attributes (i.e. all non-geometry, non-fid columns)
 // for the given feature IDs, batching the query to respect SQLite's parameter limits.
 // The fid is assumed to be the table's first column.
-func (source SourceGeopackage) GetAttributesForFeatures(featureIDs []int64) (map[int64]map[string]any, error) {
-	attributes := make(map[int64]map[string]any, len(featureIDs))
+func (source SourceGeopackage) GetAttributesForFeatures(featureIDs []int64) (InternalAttributeTable, error) {
+	attributes := make(InternalAttributeTable, len(featureIDs))
 	fidColumn := source.Table.columns[0].name
 
 	for start := 0; start < len(featureIDs); start += maxSQLiteBatchParams {
@@ -62,7 +66,7 @@ func (source SourceGeopackage) getColNames() []string {
 }
 
 // Read from source.Table, store rows as attributes[fid][columnName] = value for all fids
-func (source SourceGeopackage) queryAttributesBatch(fidColumn string, fids []any, attributes map[int64]map[string]any) error {
+func (source SourceGeopackage) queryAttributesBatch(fidColumn string, fids []any, attributes InternalAttributeTable) error {
 	// Read relevant rows
 	rows, err := source.handle.Query(source.Table.selectByFIDsSQL(len(fids)), fids...)
 	if err != nil {
