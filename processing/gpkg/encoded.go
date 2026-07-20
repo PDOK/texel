@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-spatial/geom/encoding/gpkg"
 	"github.com/pdok/texel/processing"
+	"github.com/pdok/texel/tile"
 )
 
 func (t Table) EncodedName() string {
@@ -19,6 +20,11 @@ func (t Table) insertSQLEncoded() string {
 		` VALUES (?, ?, ?, ?, ?)`
 }
 
+// selectEncodedSQL builds the SELECT for fetching the encoded features of a single tile
+func (t Table) selectEncodedSQL() string {
+	return `SELECT feature_id, geometry_type, data FROM "` + t.EncodedName() + `" WHERE tile_x = ? AND tile_y = ?`
+}
+
 func serializeToBytes(intslice []uint32) []byte {
 	bytes := make([]byte, len(intslice)*4)
 
@@ -27,6 +33,56 @@ func serializeToBytes(intslice []uint32) []byte {
 	}
 
 	return bytes
+}
+
+// deserializeFromBytes is the inverse of serializeToBytes: it turns a BLOB of
+// little-endian uint32s back into the encoded geometry command/coordinate stream.
+func deserializeFromBytes(data []byte) []uint32 {
+	intslice := make([]uint32, len(data)/4)
+	for i := range intslice {
+		intslice[i] = binary.LittleEndian.Uint32(data[i*4:])
+	}
+	return intslice
+}
+
+// EncodedFeatureRow pairs a feature's identifier with its encoded, tile-relative geometry
+// as read back from the "<table>_encoded" table.
+type EncodedFeatureRow struct {
+	FeatureID int64
+	Geom      tile.EncodedGeometry
+}
+
+// GetFeaturesForTile returns every encoded feature stored for the given tile,
+// i.e. the equivalent of the tile-features table's rows for (tileX, tileY).
+func (source SourceGeopackage) GetFeaturesForTile(tileX, tileY uint) ([]EncodedFeatureRow, error) {
+	rows, err := source.handle.Query(source.Table.selectEncodedSQL(), tileX, tileY)
+	if err != nil {
+		return nil, fmt.Errorf("querying encoded features for tile (%d,%d): %w", tileX, tileY, err)
+	}
+	defer rows.Close()
+
+	var features []EncodedFeatureRow
+	for rows.Next() {
+		var featureID int64
+		var geometryType int32
+		var data []byte
+		if err := rows.Scan(&featureID, &geometryType, &data); err != nil {
+			return nil, fmt.Errorf("scanning encoded feature row for tile (%d,%d): %w", tileX, tileY, err)
+		}
+		features = append(features, EncodedFeatureRow{
+			FeatureID: featureID,
+			Geom: tile.EncodedGeometry{
+				Encoding:     deserializeFromBytes(data),
+				GeometryType: geometryType,
+				XTile:        tileX,
+				YTile:        tileY,
+			},
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating encoded feature rows for tile (%d,%d): %w", tileX, tileY, err)
+	}
+	return features, nil
 }
 
 func (target *TargetGeopackage) writeEncodedFeatures(encFeature []processing.FeatureForTileMatrix) {
