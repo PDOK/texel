@@ -14,6 +14,19 @@ func (t Table) EncodedName() string {
 	return t.Name + "_encoded"
 }
 
+// List all columns except fid and geometry column
+// Assumptions: fid column has index 0
+func (t Table) AttributeColumnNames() []string {
+	names := make([]string, 0, len(t.columns))
+	for i, c := range t.columns {
+		if i == 0 || c.name == t.gcolumn {
+			continue // skip the fid and geometry columns, they are not attributes
+		}
+		names = append(names, c.name)
+	}
+	return names
+}
+
 func (t Table) insertSQLEncoded() string {
 	return `INSERT INTO "` + t.EncodedName() + `"` +
 		` (tile_x, tile_y, feature_id, geometry_type, data)` +
