@@ -21,6 +21,14 @@ func (t Table) selectByFIDsSQL(batchSize int) string {
 	return `SELECT ` + strings.Join(csql, `,`) + ` FROM "` + t.Name + `" WHERE ` + fidColumn + ` IN (` + placeholders + `)`
 }
 
+// Extract features from the map construct.
+func AttributesForFeature(attributes map[int64]map[string]any, featureID int64) map[string]any {
+	if attrs, ok := attributes[featureID]; ok {
+		return attrs
+	}
+	return map[string]any{}
+}
+
 // GetAttributesForFeatures fetches the attributes (i.e. all non-geometry, non-fid columns)
 // for the given feature IDs, batching the query to respect SQLite's parameter limits.
 // The fid is assumed to be the table's first column.
