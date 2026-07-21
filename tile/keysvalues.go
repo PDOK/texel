@@ -31,7 +31,11 @@ func BuildValueDictionary(attributes InternalAttributeTable) map[any]uint32 {
 			if _, ok := index[v]; ok {
 				continue
 			}
-			index[v] = uint32(len(index)) //nolint:gosec // G115 a tile cannot realistically hold more than 2^32 distinct values
+			l := len(index)
+			if l > int(^uint32(0)) {
+				panic("Number of values does not fit in uint32")
+			}
+			index[v] = uint32(l)
 		}
 	}
 	return index
