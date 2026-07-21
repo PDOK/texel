@@ -34,7 +34,7 @@ func (source SourceGeopackage) ListTiles() ([]TileCoord, error) {
 		if err := rows.Scan(&x, &y); err != nil {
 			return nil, fmt.Errorf("scanning tile row: %w", err)
 		}
-		tiles = append(tiles, TileCoord{X: uint(x), Y: uint(y)})
+		tiles = append(tiles, TileCoord{X: uint(x), Y: uint(y)}) //nolint:gosec // G115 Tile coords fit within uint
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating tile rows: %w", err)

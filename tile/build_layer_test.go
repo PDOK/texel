@@ -50,10 +50,10 @@ func TestBuildLayerIsWireCompatibleWithVectorTile(t *testing.T) {
 		t.Fatalf("unmarshaling with the real vectorTile.Tile: %v", err)
 	}
 
-	if len(vt.Layers) != 1 {
-		t.Fatalf("expected 1 layer, got %d", len(vt.Layers))
+	if len(vt.GetLayers()) != 1 {
+		t.Fatalf("expected 1 layer, got %d", len(vt.GetLayers()))
 	}
-	l := vt.Layers[0]
+	l := vt.GetLayers()[0]
 
 	if got := l.GetName(); got != "mytable" {
 		t.Errorf("layer name = %q, want %q", got, "mytable")
@@ -64,26 +64,26 @@ func TestBuildLayerIsWireCompatibleWithVectorTile(t *testing.T) {
 	if got := l.GetExtent(); got != 4096 {
 		t.Errorf("layer extent = %d, want 4096", got)
 	}
-	if want := []string{"name", "count"}; !equalStrings(l.Keys, want) {
-		t.Errorf("layer keys = %v, want %v", l.Keys, want)
+	if want := []string{"name", "count"}; !equalStrings(l.GetKeys(), want) {
+		t.Errorf("layer keys = %v, want %v", l.GetKeys(), want)
 	}
 	// "foo", "bar" and the shared int64(3) => 3 distinct values.
-	if len(l.Values) != 3 {
-		t.Fatalf("expected 3 distinct values, got %d: %+v", len(l.Values), l.Values)
+	if len(l.GetValues()) != 3 {
+		t.Fatalf("expected 3 distinct values, got %d: %+v", len(l.GetValues()), l.GetValues())
 	}
-	if len(l.Features) != 2 {
-		t.Fatalf("expected 2 features, got %d", len(l.Features))
+	if len(l.GetFeatures()) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(l.GetFeatures()))
 	}
 
-	for i, feat := range l.Features {
+	for i, feat := range l.GetFeatures() {
 		if feat.GetType() != vectorTile.Tile_POINT {
 			t.Errorf("feature %d type = %v, want POINT", i, feat.GetType())
 		}
-		if len(feat.Tags)%2 != 0 {
-			t.Errorf("feature %d tags = %v, expected an even number of (key,value) indices", i, feat.Tags)
+		if len(feat.GetTags())%2 != 0 {
+			t.Errorf("feature %d tags = %v, expected an even number of (key,value) indices", i, feat.GetTags())
 		}
 	}
-	if feat0Geo, feat1Geo := l.Features[0].Geometry, l.Features[1].Geometry; len(feat0Geo) == 0 || len(feat1Geo) == 0 {
+	if feat0Geo, feat1Geo := l.GetFeatures()[0].GetGeometry(), l.GetFeatures()[1].GetGeometry(); len(feat0Geo) == 0 || len(feat1Geo) == 0 {
 		t.Errorf("expected both features to keep their encoded geometry, got %v and %v", feat0Geo, feat1Geo)
 	}
 }

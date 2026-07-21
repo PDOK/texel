@@ -19,55 +19,6 @@ import (
 	"github.com/go-spatial/geom/winding"
 )
 
-// START copied from vector_tile.pb.go
-
-type GSTileGeomType int32
-
-const (
-	TileUNKNOWN    GSTileGeomType = 0
-	TilePOINT      GSTileGeomType = 1
-	TileLINESTRING GSTileGeomType = 2
-	TilePOLYGON    GSTileGeomType = 3
-)
-
-var TileGeomTypeName = map[int32]string{
-	0: "UNKNOWN",
-	1: "POINT",
-	2: "LINESTRING",
-	3: "POLYGON",
-}
-
-var TileGeomTypeValue = map[string]int32{
-	"UNKNOWN":    0,
-	"POINT":      1,
-	"LINESTRING": 2,
-	"POLYGON":    3,
-}
-
-var (
-	ErrNilFeature          = errors.New("feature is nil")
-	ErrUnknownGeometryType = errors.New("unknown geometry type")
-	ErrNilGeometryType     = errors.New("geometry is nil")
-)
-
-type GSTileFeature struct {
-	Id *uint64 `protobuf:"varint,1,opt,name=id,def=0" json:"id,omitempty"`
-	// Tags of this feature are encoded as repeated pairs of
-	// integers.
-	// A detailed description of tags is located in sections
-	// 4.2 and 4.4 of the specification
-	Tags []uint32 `protobuf:"varint,2,rep,packed,name=tags" json:"tags,omitempty"`
-	// The type of geometry stored in this feature.
-	Type *GSTileGeomType `protobuf:"varint,3,opt,name=type,enum=vector_tile.Tile_GeomType,def=0" json:"type,omitempty"`
-	// Contains a stream of commands and parameters (vertices).
-	// A detailed description on geometry encoding is located in
-	// section 4.3 of the specification.
-	Geometry        []uint32 `protobuf:"varint,4,rep,packed,name=geometry" json:"geometry,omitempty"`
-	XXXunrecognized []byte   `json:"-"`
-}
-
-// END copied from vector_tile.pb.go
-
 // Definition needed for compilation
 const debug = false
 
@@ -81,6 +32,13 @@ const debug = false
 // Feature describes a feature of a Layer. A layer will contain multiple features
 // each of which has a geometry describing the interesting thing, and the metadata
 // associated with it.
+
+var (
+	ErrNilFeature          = errors.New("feature is nil")
+	ErrUnknownGeometryType = errors.New("unknown geometry type")
+	ErrNilGeometryType     = errors.New("geometry is nil")
+)
+
 type Feature struct { //nolint:recvcheck
 	ID       *uint64
 	Tags     map[string]any

@@ -2,14 +2,11 @@ package tile
 
 import "fmt"
 
-// mvtVersion is the MVT spec version this codebase produces (matches go-spatial/geom's
-// mvt.Version).
 const mvtVersion = 2
 
-// orderedByIndex inverts a dictionary (as built by BuildKeyDictionary/BuildValueDictionary)
-// back into a slice, ordered by index. Position i in the result is dictionary index i,
-// which is exactly what the Layer.Keys/Layer.Values fields require: a feature's Tags
-// reference keys/values by that same position.
+// Convert tag map to slice. Assumes all indices 0, 1, ..., len(index)-1 are
+// exactly used once. Necessary since iteration over maps is in arbitrary order.
+// This is a generic function since we need it with K = string and K = any.
 func orderedByIndex[K comparable](index map[K]uint32) []K {
 	ordered := make([]K, len(index))
 	for k, i := range index {
@@ -18,11 +15,8 @@ func orderedByIndex[K comparable](index map[K]uint32) []K {
 	return ordered
 }
 
-// toGSTileValue converts a Go attribute value into the MVT Value oneof, mirroring
-// go-spatial/geom/encoding/mvt's vectorTileValue: the exact numeric type determines which
-// oneof field is set (e.g. a Go int32 becomes a zigzag-encoded "sint" value, matching the
-// original library, even though our attribute values are currently only ever string,
-// int64 or float64).
+// Convert value to GSTileValue. We do not support XXX_unrecognized and panic
+// if an unknown type is encountered. This should never happen.
 func toGSTileValue(v any) *GSTileValue {
 	tv := new(GSTileValue)
 	switch t := v.(type) {
@@ -59,14 +53,14 @@ func toGSTileValue(v any) *GSTileValue {
 		tv.FloatValue = &t
 	case float64:
 		tv.DoubleValue = &t
+	default:
+		// We should never encounter this.
+		panic("Unknown type for GSTypeValue.")
 	}
 	return tv
 }
 
-// BuildLayer assembles a GSTileLayer for one tile: the layer name (assumed to be the
-// source table name), the already-built features (see BuildFeature), and the key/value
-// dictionaries used to build those features' Tags. The dictionaries are inverted back
-// into the ordered Keys/Values arrays the features' Tags indices refer to.
+// Assemble layer struct
 func BuildLayer(name string, features []*GSTileFeature, keyIndex map[string]uint32, valueIndex map[any]uint32) *GSTileLayer {
 	keys := orderedByIndex(keyIndex)
 
@@ -90,8 +84,7 @@ func BuildLayer(name string, features []*GSTileFeature, keyIndex map[string]uint
 	}
 }
 
-// BuildTile wraps one or more layers into the final GSTile, ready to be serialized with
-// (github.com/golang/protobuf/proto).Marshal.
+// Assemble layers into GSTile. This struct can be marshalled by protobuf.
 func BuildTile(layers ...*GSTileLayer) *GSTile {
 	return &GSTile{Layers: layers}
 }
