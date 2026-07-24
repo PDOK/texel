@@ -13,6 +13,7 @@ import (
 	"log"
 
 	"github.com/go-spatial/geom"
+	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
 	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/go-spatial/geom/winding"
 )
@@ -241,9 +242,9 @@ func (c *cursor) encodePolygon(geo geom.Polygon) []uint32 {
 
 // EncodeGeometry will take a geom.Geometry and encode it according to the
 // mapbox vector_tile spec.
-func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp GSTileGeomType, err error) {
+func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp vectorTile.Tile_GeomType, err error) {
 	if geometry == nil {
-		return nil, TileUNKNOWN, ErrNilGeometryType
+		return nil, vectorTile.Tile_UNKNOWN, ErrNilGeometryType
 	}
 
 	c := NewCursor()
@@ -251,17 +252,17 @@ func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp GSTileGeomType, er
 	switch t := geometry.(type) {
 	case geom.Point:
 		g = append(g, c.MoveTo(t)...)
-		return g, TilePOINT, nil
+		return g, vectorTile.Tile_POINT, nil
 
 	case geom.MultiPoint:
 		g = append(g, c.MoveTo(t.Points()...)...)
-		return g, TilePOINT, nil
+		return g, vectorTile.Tile_POINT, nil
 
 	case geom.LineString:
 		points := t.Vertices()
 		g = append(g, c.MoveTo(points[0])...)
 		g = append(g, c.LineTo(points[1:]...)...)
-		return g, TileLINESTRING, nil
+		return g, vectorTile.Tile_LINESTRING, nil
 
 	case geom.MultiLineString:
 		lines := t.LineStrings()
@@ -270,31 +271,31 @@ func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp GSTileGeomType, er
 			g = append(g, c.MoveTo(points[0])...)
 			g = append(g, c.LineTo(points[1:]...)...)
 		}
-		return g, TileLINESTRING, nil
+		return g, vectorTile.Tile_LINESTRING, nil
 
 	case geom.Polygon:
 		g = append(g, c.encodePolygon(t)...)
-		return g, TilePOLYGON, nil
+		return g, vectorTile.Tile_POLYGON, nil
 
 	case geom.MultiPolygon:
 		polygons := t.Polygons()
 		for _, p := range polygons {
 			g = append(g, c.encodePolygon(p)...)
 		}
-		return g, TilePOLYGON, nil
+		return g, vectorTile.Tile_POLYGON, nil
 
 	case *geom.MultiPolygon:
 		if t == nil {
-			return g, TilePOLYGON, nil
+			return g, vectorTile.Tile_POLYGON, nil
 		}
 
 		polygons := t.Polygons()
 		for _, p := range polygons {
 			g = append(g, c.encodePolygon(p)...)
 		}
-		return g, TilePOLYGON, nil
+		return g, vectorTile.Tile_POLYGON, nil
 
 	default:
-		return nil, TileUNKNOWN, ErrUnknownGeometryType
+		return nil, vectorTile.Tile_UNKNOWN, ErrUnknownGeometryType
 	}
 }

@@ -1,10 +1,13 @@
 package tile
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/mvt"
+	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
 	oldproto "github.com/golang/protobuf/proto" //nolint:staticcheck // needed: matches the reflection-based marshaling vector_tile.pb.go relies on
 	"github.com/pdok/texel/pointindex"
 )
@@ -56,7 +59,7 @@ func MvtEncodeGeometry(q pointindex.Quadrant, g geom.Geometry) EncodedGeometry {
 }
 
 // Serialze tile into protobuf format
-func MarshalTile(t *GSTile) ([]byte, error) {
+func MarshalTile(t *vectorTile.Tile) ([]byte, error) {
 	return oldproto.Marshal(t)
 }
 
@@ -135,7 +138,7 @@ func buildTags(attributes map[string]any, keyIndex map[string]uint32, valueIndex
 }
 
 // Construct feature according to protobuf format.
-func BuildFeature(featureID int64, geom EncodedGeometry, attributes map[string]any, keyIndex map[string]uint32, valueIndex map[any]uint32) (*GSTileFeature, error) {
+func BuildFeature(featureID int64, geom EncodedGeometry, attributes map[string]any, keyIndex map[string]uint32, valueIndex map[any]uint32) (*vectorTile.Tile_Feature, error) {
 	tags, err := buildTags(attributes, keyIndex, valueIndex)
 	if err != nil {
 		return nil, fmt.Errorf("feature %d: %w", featureID, err)
@@ -143,9 +146,9 @@ func BuildFeature(featureID int64, geom EncodedGeometry, attributes map[string]a
 
 	//nolint:gosec // G115 feature ids are expected to be non-negative
 	id := uint64(featureID)
-	gtype := GSTileGeomType(geom.GeometryType)
+	gtype := vectorTile.Tile_GeomType(geom.GeometryType)
 
-	return &GSTileFeature{
+	return &vectorTile.Tile_Feature{
 		Id:       &id,
 		Tags:     tags,
 		Type:     &gtype,
@@ -154,20 +157,20 @@ func BuildFeature(featureID int64, geom EncodedGeometry, attributes map[string]a
 }
 
 // Construct layer according to protobuf format
-func BuildLayer(name string, features []*GSTileFeature, keyIndex map[string]uint32, valueIndex map[any]uint32) *GSTileLayer {
+func BuildLayer(name string, features []*vectorTile.Tile_Feature, keyIndex map[string]uint32, valueIndex map[any]uint32) *vectorTile.Tile_Layer {
 	keys := orderedByIndex(keyIndex)
 
 	rawValues := orderedByIndex(valueIndex)
-	values := make([]*GSTileValue, len(rawValues))
+	values := make([]*vectorTile.Tile_Value, len(rawValues))
 	for i, v := range rawValues {
-		values[i] = toGSTileValue(v)
+		values[i] = vectorTileValue(v)
 	}
 
 	version := uint32(mvtVersion)
 	extent := uint32(precision)
 	layerName := name
 
-	return &GSTileLayer{
+	return &vectorTile.Tile_Layer{
 		Version:  &version,
 		Name:     &layerName,
 		Features: features,
@@ -178,8 +181,8 @@ func BuildLayer(name string, features []*GSTileFeature, keyIndex map[string]uint
 }
 
 // Construct tile according to protobuf format
-func BuildTile(layers ...*GSTileLayer) *GSTile {
-	return &GSTile{Layers: layers}
+func BuildTile(layers ...*vectorTile.Tile_Layer) *vectorTile.Tile {
+	return &vectorTile.Tile{Layers: layers}
 }
 
 // Main exported function that encodes a tile of a single layer. Assumes
@@ -188,7 +191,7 @@ func BuildTile(layers ...*GSTileLayer) *GSTile {
 func BuildMVTTile(layerName string, keyIndex map[string]uint32, encFeatRows []EncodedFeatureRow, attributes InternalAttributeTable) ([]byte, error) {
 	valueIndex := BuildValueDictionary(attributes)
 
-	features := make([]*GSTileFeature, 0, len(encFeatRows))
+	features := make([]*vectorTile.Tile_Feature, 0, len(encFeatRows))
 	for _, encodedFeature := range encFeatRows {
 		featureID := encodedFeature.FeatureID
 		attrs := attributesForFeature(attributes, featureID)
@@ -216,47 +219,64 @@ func attributesForFeature(attributes InternalAttributeTable, featureID int64) ma
 	return map[string]any{}
 }
 
-// Convert value to GSTileValue. We do not support XXX_unrecognized and panic
-// if an unknown type is encountered. This should never happen.
-func toGSTileValue(v any) *GSTileValue {
-	tv := new(GSTileValue)
-	switch t := v.(type) {
+// Convert value to Tile_Value. Copied from go-spatial/encoding/mvt/layer.go
+func vectorTileValue(i any) *vectorTile.Tile_Value { //nolint:cyclop, funlen
+	tv := new(vectorTile.Tile_Value)
+	switch t := i.(type) {
+	default:
+		buff := new(bytes.Buffer)
+		err := binary.Write(buff, binary.BigEndian, t)
+		// We are going to ignore the value and return an empty TileValue
+		if err == nil {
+			tv.XXX_unrecognized = buff.Bytes()
+		}
+
 	case string:
 		tv.StringValue = &t
+
 	case fmt.Stringer:
 		str := t.String()
 		tv.StringValue = &str
+
 	case bool:
 		tv.BoolValue = &t
+
 	case int8:
-		iv := int64(t)
-		tv.SintValue = &iv
+		intv := int64(t)
+		tv.SintValue = &intv
+
 	case int16:
-		iv := int64(t)
-		tv.SintValue = &iv
+		intv := int64(t)
+		tv.SintValue = &intv
+
 	case int32:
-		iv := int64(t)
-		tv.SintValue = &iv
+		intv := int64(t)
+		tv.SintValue = &intv
+
 	case int64:
 		tv.IntValue = &t
+
 	case uint8:
-		iv := int64(t)
-		tv.SintValue = &iv
+		intv := int64(t)
+		tv.SintValue = &intv
+
 	case uint16:
-		iv := int64(t)
-		tv.SintValue = &iv
+		intv := int64(t)
+		tv.SintValue = &intv
+
 	case uint32:
-		iv := int64(t)
-		tv.SintValue = &iv
+		intv := int64(t)
+		tv.SintValue = &intv
+
 	case uint64:
 		tv.UintValue = &t
+
 	case float32:
 		tv.FloatValue = &t
+
 	case float64:
 		tv.DoubleValue = &t
-	default:
-		// We should never encounter this.
-		panic("Unknown type for GSTypeValue.")
-	}
+
+	} // switch
 	return tv
 }

@@ -58,7 +58,6 @@ func deserializeFromBytes(data []byte) []uint32 {
 	return intslice
 }
 
-
 // GetFeaturesForTile returns every encoded feature stored for the given tile,
 // i.e. the equivalent of the tile-features table's rows for (tileX, tileY).
 func (source SourceGeopackage) GetFeaturesForTile(tileX, tileY uint) ([]tile.EncodedFeatureRow, error) {
