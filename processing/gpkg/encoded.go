@@ -58,23 +58,17 @@ func deserializeFromBytes(data []byte) []uint32 {
 	return intslice
 }
 
-// EncodedFeatureRow pairs a feature's identifier with its encoded, tile-relative geometry
-// as read back from the "<table>_encoded" table.
-type EncodedFeatureRow struct {
-	FeatureID int64
-	Geom      tile.EncodedGeometry
-}
 
 // GetFeaturesForTile returns every encoded feature stored for the given tile,
 // i.e. the equivalent of the tile-features table's rows for (tileX, tileY).
-func (source SourceGeopackage) GetFeaturesForTile(tileX, tileY uint) ([]EncodedFeatureRow, error) {
+func (source SourceGeopackage) GetFeaturesForTile(tileX, tileY uint) ([]tile.EncodedFeatureRow, error) {
 	rows, err := source.handle.Query(source.Table.selectEncodedSQL(), tileX, tileY)
 	if err != nil {
 		return nil, fmt.Errorf("querying encoded features for tile (%d,%d): %w", tileX, tileY, err)
 	}
 	defer rows.Close()
 
-	var features []EncodedFeatureRow
+	var features []tile.EncodedFeatureRow
 	for rows.Next() {
 		var featureID int64
 		var geometryType int32
@@ -82,7 +76,7 @@ func (source SourceGeopackage) GetFeaturesForTile(tileX, tileY uint) ([]EncodedF
 		if err := rows.Scan(&featureID, &geometryType, &data); err != nil {
 			return nil, fmt.Errorf("scanning encoded feature row for tile (%d,%d): %w", tileX, tileY, err)
 		}
-		features = append(features, EncodedFeatureRow{
+		features = append(features, tile.EncodedFeatureRow{
 			FeatureID: featureID,
 			Geom: tile.EncodedGeometry{
 				Encoding:     deserializeFromBytes(data),

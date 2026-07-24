@@ -21,6 +21,13 @@ type EncodedGeometry struct {
 	YTile        uint
 }
 
+// EncodedFeatureRow pairs a feature's identifier with its encoded, tile-relative geometry
+// as read back from the "<table>_encoded" table.
+type EncodedFeatureRow struct {
+	FeatureID int64
+	Geom      EncodedGeometry
+}
+
 // Transform geometry to tile extent, then encode. We assume the geometry is
 // snapped to the proposed grid, in which case makevalid operations should not
 // be necessary.
@@ -173,6 +180,40 @@ func BuildLayer(name string, features []*GSTileFeature, keyIndex map[string]uint
 // Construct tile according to protobuf format
 func BuildTile(layers ...*GSTileLayer) *GSTile {
 	return &GSTile{Layers: layers}
+}
+
+// Main exported function that encodes a tile of a single layer. Assumes
+// geometry and keyIndex have already been encoded. Returns marshalled byte
+// string.
+func BuildMVTTile(layerName string, keyIndex map[string]uint32, encFeatRows []EncodedFeatureRow, attributes InternalAttributeTable) ([]byte, error) {
+	valueIndex := BuildValueDictionary(attributes)
+
+	features := make([]*GSTileFeature, 0, len(encFeatRows))
+	for _, encodedFeature := range encFeatRows {
+		featureID := encodedFeature.FeatureID
+		attrs := attributesForFeature(attributes, featureID)
+		feature, err := BuildFeature(featureID, encodedFeature.Geom, attrs, keyIndex, valueIndex)
+		if err != nil {
+			return nil, err
+		}
+		features = append(features, feature)
+	}
+
+	layer := BuildLayer(layerName, features, keyIndex, valueIndex)
+
+	data, err := MarshalTile(BuildTile(layer))
+	if err != nil {
+		return nil, fmt.Errorf("marshaling tile: %w", err)
+	}
+	return data, nil
+}
+
+// attributesForFeature extracts a single feature's attributes from the map construct.
+func attributesForFeature(attributes InternalAttributeTable, featureID int64) map[string]any {
+	if attrs, ok := attributes[featureID]; ok {
+		return attrs
+	}
+	return map[string]any{}
 }
 
 // Convert value to GSTileValue. We do not support XXX_unrecognized and panic

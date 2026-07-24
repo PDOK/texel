@@ -42,43 +42,26 @@ func (source SourceGeopackage) ListTiles() ([]TileCoord, error) {
 	return tiles, nil
 }
 
-// BuildMVTTile builds and serializes the MVT tile for (tileX, tileY): it fetches the
-// tile's encoded features and their attributes, builds the per-tile value dictionary,
-// assembles a single layer named layerName using the given (already built once,
-// fixed-schema) key dictionary, and marshals the result to MVT protobuf bytes. A tile
-// with no encoded features still yields a valid, empty layer rather than an error.
+// Build tile for specific coordinates. Fetches all info from database except
+// columnnames, which are passed via keyIndex. Returns marshalled vectortile.
 func (source SourceGeopackage) BuildMVTTile(layerName string, keyIndex map[string]uint32, tileX, tileY uint) ([]byte, error) {
-	rows, err := source.GetFeaturesForTile(tileX, tileY)
+	encFeatRows, err := source.GetFeaturesForTile(tileX, tileY)
 	if err != nil {
 		return nil, fmt.Errorf("getting features for tile (%d,%d): %w", tileX, tileY, err)
 	}
-
-	featureIDs := make([]int64, len(rows))
-	for i, row := range rows {
-		featureIDs[i] = row.FeatureID
+	featIDs := make([]int64, len(encFeatRows))
+	for i, encFeatRow := range encFeatRows {
+		featIDs[i] = encFeatRow.FeatureID
 	}
 
-	attributes, err := source.GetAttributesForFeatures(featureIDs)
+	attributes, err := source.GetAttributesForFeatures(featIDs)
 	if err != nil {
 		return nil, fmt.Errorf("getting attributes for tile (%d,%d): %w", tileX, tileY, err)
 	}
-	valueIndex := tile.BuildValueDictionary(attributes)
 
-	features := make([]*tile.GSTileFeature, 0, len(rows))
-	for _, row := range rows {
-		attrs := AttributesForFeature(attributes, row.FeatureID)
-		feature, err := tile.BuildFeature(row.FeatureID, row.Geom, attrs, keyIndex, valueIndex)
-		if err != nil {
-			return nil, fmt.Errorf("building tile (%d,%d): %w", tileX, tileY, err)
-		}
-		features = append(features, feature)
-	}
-
-	layer := tile.BuildLayer(layerName, features, keyIndex, valueIndex)
-
-	data, err := tile.MarshalTile(tile.BuildTile(layer))
+	data, err := tile.BuildMVTTile(layerName, keyIndex, encFeatRows, attributes)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling tile (%d,%d): %w", tileX, tileY, err)
+		return nil, fmt.Errorf("building tile (%d,%d): %w", tileX, tileY, err)
 	}
 	return data, nil
 }
@@ -98,11 +81,11 @@ func WriteTileFile(baseDir string, tileX, tileY uint, data []byte) error {
 	return nil
 }
 
-// ProcessTilesToMVT enumerates every tile with encoded features for source.Table,
-// builds each tile's MVT bytes (see BuildMVTTile) and writes it to outDir via
-// WriteTileFile. The key dictionary is built once, up front, since the attribute
-// schema is fixed for the whole table (see tile.BuildKeyDictionary).
+// For all tiles, create the corresponding vectortile and write it to file. In
+// this context `all tiles` means all tiles for which encoded geometries exist
+// in the source geopackage.
 func (source SourceGeopackage) ProcessTilesToMVT(outDir string) error {
+	// Build key index (columns) just once.
 	keyIndex := tile.BuildKeyDictionary(source.Table.AttributeColumnNames())
 
 	tiles, err := source.ListTiles()
