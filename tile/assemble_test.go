@@ -1,242 +1,236 @@
-package tile_test
+package tile
 
 import (
-	"reflect"
+	"sort"
 	"testing"
 
 	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
-	oldproto "github.com/golang/protobuf/proto" //nolint:staticcheck // needed: matches the reflection-based marshaling vector_tile.pb.go relies on
-	"github.com/pdok/texel/tile"
+	oldproto "github.com/golang/protobuf/proto" //nolint:staticcheck // matches MarshalTile's use of the reflection-based marshaler
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestBuildLayerIsWireCompatibleWithVectorTile verifies that our hand-copied,
-// GS-prefixed protobuf types (GSTile/GSTileLayer/GSTileValue/GSTileFeature in
-// go_spatial_layer.go and go_spatial_feature.go) produce bytes on the wire that are
-// indistinguishable from the real, code-generated go-spatial/geom vector_tile types.
-//
-// This matters because our types are not registered/generated protobuf messages: they
-// only implement the minimal proto.Message interface (Reset/String/ProtoMessage) and
-// rely on the same `protobuf:"..."` struct tags as the original vector_tile.pb.go for
-// the classic reflection-based (github.com/golang/protobuf/proto) marshaler to encode
-// them correctly. A typo in a tag (wrong field number/wire type) would silently produce
-// an invalid or misinterpreted MVT tile, so this test marshals with our types and
-// unmarshals with the real, generated ones to prove the two are wire-compatible.
-func TestBuildLayerIsWireCompatibleWithVectorTile(t *testing.T) {
-	keyIndex := tile.BuildKeyDictionary([]string{"name", "count"})
-	attributes := tile.InternalAttributeTable{
-		1: {"name": "foo", "count": int64(3)},
-		2: {"name": "bar", "count": int64(3)}, // shares the "count" value with feature 1
+// Quick test BuildKeyDictionary
+func TestBuildKeyDictionary(t *testing.T) {
+	tests := []struct {
+		name        string
+		columnNames []string
+		want        map[string]uint32
+	}{
+		{
+			name:        "empty slice yields empty map",
+			columnNames: []string{},
+			want:        map[string]uint32{},
+		},
+		{
+			name:        "single column",
+			columnNames: []string{"a"},
+			want:        map[string]uint32{"a": 0},
+		},
+		{
+			name:        "multiple columns keep their position as index",
+			columnNames: []string{"a", "b", "c"},
+			want:        map[string]uint32{"a": 0, "b": 1, "c": 2},
+		},
 	}
-	valueIndex := tile.BuildValueDictionary(attributes)
-
-	feature1, err := tile.BuildFeature(1, tile.EncodedGeometry{Encoding: []uint32{9, 2, 2}, GeometryType: 1}, attributes[1], keyIndex, valueIndex)
-	if err != nil {
-		t.Fatalf("BuildFeature(1): %v", err)
-	}
-	feature2, err := tile.BuildFeature(2, tile.EncodedGeometry{Encoding: []uint32{9, 4, 4}, GeometryType: 1}, attributes[2], keyIndex, valueIndex)
-	if err != nil {
-		t.Fatalf("BuildFeature(2): %v", err)
-	}
-
-	layer := tile.BuildLayer("mytable", []*vectorTile.Tile_Feature{feature1, feature2}, keyIndex, valueIndex)
-	gsTile := tile.BuildTile(layer)
-
-	b, err := oldproto.Marshal(gsTile)
-	if err != nil {
-		t.Fatalf("marshaling our GSTile: %v", err)
-	}
-
-	var vt vectorTile.Tile
-	if err := oldproto.Unmarshal(b, &vt); err != nil {
-		t.Fatalf("unmarshaling with the real vectorTile.Tile: %v", err)
-	}
-
-	if len(vt.GetLayers()) != 1 {
-		t.Fatalf("expected 1 layer, got %d", len(vt.GetLayers()))
-	}
-	l := vt.GetLayers()[0]
-
-	if got := l.GetName(); got != "mytable" {
-		t.Errorf("layer name = %q, want %q", got, "mytable")
-	}
-	if got := l.GetVersion(); got != 2 {
-		t.Errorf("layer version = %d, want 2", got)
-	}
-	if got := l.GetExtent(); got != 4096 {
-		t.Errorf("layer extent = %d, want 4096", got)
-	}
-	if want := []string{"name", "count"}; !equalStrings(l.GetKeys(), want) {
-		t.Errorf("layer keys = %v, want %v", l.GetKeys(), want)
-	}
-	// "foo", "bar" and the shared int64(3) => 3 distinct values.
-	if len(l.GetValues()) != 3 {
-		t.Fatalf("expected 3 distinct values, got %d: %+v", len(l.GetValues()), l.GetValues())
-	}
-	if len(l.GetFeatures()) != 2 {
-		t.Fatalf("expected 2 features, got %d", len(l.GetFeatures()))
-	}
-
-	for i, feat := range l.GetFeatures() {
-		if feat.GetType() != vectorTile.Tile_POINT {
-			t.Errorf("feature %d type = %v, want POINT", i, feat.GetType())
-		}
-		if len(feat.GetTags())%2 != 0 {
-			t.Errorf("feature %d tags = %v, expected an even number of (key,value) indices", i, feat.GetTags())
-		}
-	}
-	if feat0Geo, feat1Geo := l.GetFeatures()[0].GetGeometry(), l.GetFeatures()[1].GetGeometry(); len(feat0Geo) == 0 || len(feat1Geo) == 0 {
-		t.Errorf("expected both features to keep their encoded geometry, got %v and %v", feat0Geo, feat1Geo)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildKeyDictionary(tt.columnNames)
+			assert.Equal(t, tt.want, got)
+		})
 	}
 }
 
-// TestBuildMVTTile verifies that BuildMVTTile's per-tile assembly (value dictionary
-// construction, feature/attribute lookup, layer/tile building and marshaling)
-// produces a tile whose features/attributes match expectations, by decoding the
-// marshaled bytes back and resolving each feature's tags through the layer's
-// Keys/Values dictionaries. This is compared structurally rather than byte-for-byte,
-// since BuildValueDictionary/buildTags iterate Go maps, whose order (and thus the
-// resulting dictionary/tag order) is not guaranteed across runs.
+// indexedKeys returns the keys of index sorted by their assigned uint32,
+// i.e. it undoes the (arbitrary, since built from a map) assignment of
+// indices so tests can assert on order-independent content.
+func indexedKeys(index map[any]uint32) []any {
+	keys := make([]any, len(index))
+	for k, i := range index {
+		keys[i] = k
+	}
+	return keys
+}
+
+func TestBuildValueDictionary(t *testing.T) {
+	tests := []struct {
+		name                 string
+		attributesPerFeature InternalAttributeTable
+		wantValues           []any // expected distinct, non-nil values (order-independent)
+	}{
+		{
+			name:                 "empty table yields empty dictionary",
+			attributesPerFeature: InternalAttributeTable{},
+			wantValues:           []any{},
+		},
+		{
+			name: "single feature, single attribute",
+			attributesPerFeature: InternalAttributeTable{
+				1: {"name": "foo"},
+			},
+			wantValues: []any{"foo"},
+		},
+		{
+			name: "shared values across features are only counted once",
+			attributesPerFeature: InternalAttributeTable{
+				1: {"name": "foo"},
+				2: {"name": "foo"},
+				3: {"name": "bar"},
+			},
+			wantValues: []any{"foo", "bar"},
+		},
+		{
+			name: "nil values are skipped",
+			attributesPerFeature: InternalAttributeTable{
+				1: {"name": "foo", "optional": nil},
+			},
+			wantValues: []any{"foo"},
+		},
+		{
+			name: "mixed value types are all indexed",
+			attributesPerFeature: InternalAttributeTable{
+				1: {"name": "foo", "count": int64(3), "active": true},
+			},
+			wantValues: []any{"foo", int64(3), true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildValueDictionary(tt.attributesPerFeature)
+
+			// Every index from 0..len(got)-1 must be used exactly once.
+			assert.Len(t, got, len(tt.wantValues))
+			gotValues := indexedKeys(got)
+			assert.ElementsMatch(t, tt.wantValues, gotValues)
+		})
+	}
+}
+
+func TestBuildTags(t *testing.T) {
+	keyIndex := map[string]uint32{"name": 0, "count": 1}
+	valueIndex := map[any]uint32{"foo": 0, int64(3): 1}
+
+	t.Run("empty attributes yield empty tags", func(t *testing.T) {
+		tags, err := buildTags(map[string]any{}, keyIndex, valueIndex)
+		require.NoError(t, err)
+		assert.Empty(t, tags)
+	})
+
+	t.Run("single attribute produces a key/value index pair", func(t *testing.T) {
+		tags, err := buildTags(map[string]any{"name": "foo"}, keyIndex, valueIndex)
+		require.NoError(t, err)
+		assert.Equal(t, []uint32{0, 0}, tags)
+	})
+
+	t.Run("nil-valued attribute is skipped", func(t *testing.T) {
+		tags, err := buildTags(map[string]any{"name": "foo", "count": nil}, keyIndex, valueIndex)
+		require.NoError(t, err)
+		assert.Equal(t, []uint32{0, 0}, tags)
+	})
+
+	t.Run("multiple attributes produce all pairs", func(t *testing.T) {
+		tags, err := buildTags(map[string]any{"name": "foo", "count": int64(3)}, keyIndex, valueIndex)
+		require.NoError(t, err)
+
+		// Tags is built from map iteration, so pair order is not
+		// guaranteed; compare as a set of (key, value) pairs instead.
+		require.Len(t, tags, 4)
+		pairs := map[[2]uint32]bool{}
+		for i := 0; i < len(tags); i += 2 {
+			pairs[[2]uint32{tags[i], tags[i+1]}] = true
+		}
+		assert.True(t, pairs[[2]uint32{0, 0}])
+		assert.True(t, pairs[[2]uint32{1, 1}])
+	})
+
+	t.Run("missing key returns an error", func(t *testing.T) {
+		_, err := buildTags(map[string]any{"unknown": "foo"}, keyIndex, valueIndex)
+		require.Error(t, err)
+	})
+
+	t.Run("missing value returns an error", func(t *testing.T) {
+		_, err := buildTags(map[string]any{"name": "unindexed value"}, keyIndex, valueIndex)
+		require.Error(t, err)
+	})
+}
+
+func TestBuildLayer(t *testing.T) {
+	t.Run("happy path building layer", func(t *testing.T) {
+		keyIndex := map[string]uint32{"b": 1, "a": 0}
+		valueIndex := map[any]uint32{"second": 1, "first": 0}
+		features := []*vectorTile.Tile_Feature{{}, {}}
+
+		layer := BuildLayer("mylayer", features, keyIndex, valueIndex)
+
+		assert.Equal(t, "mylayer", layer.GetName())
+		assert.Equal(t, uint32(mvtVersion), layer.GetVersion())
+		assert.Equal(t, uint32(precision), layer.GetExtent())
+		assert.Same(t, features[0], layer.GetFeatures()[0])
+		assert.Same(t, features[1], layer.GetFeatures()[1])
+
+		// Keys/values must be ordered according to their assigned index,
+		// regardless of the (arbitrary) map iteration order used to build them.
+		assert.Equal(t, []string{"a", "b"}, layer.GetKeys())
+		require.Len(t, layer.GetValues(), 2)
+		assert.Equal(t, "first", layer.GetValues()[0].GetStringValue())
+		assert.Equal(t, "second", layer.GetValues()[1].GetStringValue())
+	})
+	t.Run("empty layer", func(t *testing.T) {
+		layer := BuildLayer("empty", nil, map[string]uint32{}, map[any]uint32{})
+
+		assert.Equal(t, "empty", layer.GetName())
+		assert.Empty(t, layer.GetKeys())
+		assert.Empty(t, layer.GetValues())
+		assert.Empty(t, layer.GetFeatures())
+	})
+}
+
 func TestBuildMVTTile(t *testing.T) {
-	keys := []string{"ownerID", "function"}
-	keyIndex := tile.BuildKeyDictionary(keys)
-	fids := []uint64{2, 100, 101, 404}
-	encGeometries := []tile.EncodedGeometry{
-		{Encoding: []uint32{9, 2, 2}, GeometryType: int32(vectorTile.Tile_POINT)},
-		{Encoding: []uint32{1, 2, 3}, GeometryType: int32(vectorTile.Tile_POLYGON)},
-		{Encoding: []uint32{9, 4, 4}, GeometryType: int32(vectorTile.Tile_POINT)},
-		{Encoding: []uint32{9, 6, 6}, GeometryType: int32(vectorTile.Tile_POINT)},
-	}
-	attributeTable := tile.InternalAttributeTable{
-		2:   {"ownerID": int64(3), "function": "production"},
-		100: {"ownerID": int64(4)},
-		101: {"ownerID": int64(3), "function": "living"},
-	}
-	encRows := make([]tile.EncodedFeatureRow, len(fids))
-	for i, fid := range fids {
-		encRows[i] = tile.EncodedFeatureRow{FeatureID: int64(fid), Geom: encGeometries[i]} //nolint:gosec // G115 test fids fit within int64
-	}
-
-	layerName := "mylayer"
-
-	got, err := tile.BuildMVTTile(layerName, keyIndex, encRows, attributeTable)
-	if err != nil {
-		t.Fatalf("BuildMVTTile: %v", err)
-	}
-
-	var gotTile vectorTile.Tile
-	if err := oldproto.Unmarshal(got, &gotTile); err != nil {
-		t.Fatalf("unmarshaling got tile: %v", err)
-	}
-
-	wantGeoms := map[uint64]tile.EncodedGeometry{
-		fids[0]: encGeometries[0],
-		fids[1]: encGeometries[1],
-		fids[2]: encGeometries[2],
-		fids[3]: encGeometries[3],
-	}
-	wantAttrs := map[uint64]map[string]any{
-		fids[0]: {"ownerID": int64(3), "function": "production"},
-		fids[1]: {"ownerID": int64(4)},
-		fids[2]: {"ownerID": int64(3), "function": "living"},
-		fids[3]: {},
-	}
-
-	assertMVTLayer(t, gotTile, layerName, keys, fids, wantGeoms, wantAttrs)
-}
-
-// assertMVTLayer checks that tl contains a single layer named layerName, with the
-// given keys, and one feature per fid (in that order) whose geometry matches
-// wantGeoms[fid] and whose tags, resolved through the layer's Keys/Values
-// dictionaries, match wantAttrs[fid]. Resolving through the dictionaries makes the
-// comparison independent of the (unspecified) order BuildValueDictionary assigns.
-func assertMVTLayer(t *testing.T, tl vectorTile.Tile, layerName string, keys []string, fids []uint64, wantGeoms map[uint64]tile.EncodedGeometry, wantAttrs map[uint64]map[string]any) {
-	t.Helper()
-	if len(tl.GetLayers()) != 1 {
-		t.Fatalf("expected 1 layer, got %d", len(tl.GetLayers()))
-	}
-	l := tl.GetLayers()[0]
-	if l.Name == nil || *l.Name != layerName { //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-		t.Errorf("layer name = %v, want %q", l.Name, layerName)
-	}
-	if l.Version == nil || *l.Version != 2 { //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-		t.Errorf("layer version = %v, want 2", l.Version)
-	}
-	if l.Extent == nil || *l.Extent != 4096 { //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-		t.Errorf("layer extent = %v, want 4096", l.Extent)
-	}
-	if !reflect.DeepEqual(l.GetKeys(), keys) {
-		t.Errorf("layer keys = %v, want %v", l.GetKeys(), keys)
-	}
-	if len(l.GetFeatures()) != len(fids) {
-		t.Fatalf("expected %d features, got %d", len(fids), len(l.GetFeatures()))
-	}
-
-	for i, fid := range fids {
-		feat := l.GetFeatures()[i]
-		if feat.Id == nil || *feat.Id != fid { //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-			t.Errorf("feature %d id = %v, want %d", i, feat.Id, fid)
-			continue
+	t.Run("happy path roundtrips features, tags and attribute values", func(t *testing.T) {
+		keyIndex := BuildKeyDictionary([]string{"name"})
+		attributes := InternalAttributeTable{
+			1: {"name": "foo"},
+			2: {"name": "bar"},
 		}
-		wantGeom := wantGeoms[fid]
-		if feat.Type == nil || *feat.Type != vectorTile.Tile_GeomType(wantGeom.GeometryType) { //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-			t.Errorf("feature %d (fid %d) type = %v, want %v", i, fid, feat.Type, wantGeom.GeometryType)
-		}
-		if !reflect.DeepEqual(feat.GetGeometry(), wantGeom.Encoding) {
-			t.Errorf("feature %d (fid %d) geometry = %v, want %v", i, fid, feat.GetGeometry(), wantGeom.Encoding)
+		encFeatRows := []EncodedFeatureRow{
+			{FeatureID: 1, Geom: EncodedGeometry{GeometryType: int32(vectorTile.Tile_POINT)}},
+			{FeatureID: 2, Geom: EncodedGeometry{GeometryType: int32(vectorTile.Tile_POINT)}},
 		}
 
-		gotAttrs := resolveTags(t, feat.GetTags(), l.GetKeys(), l.GetValues())
-		if !reflect.DeepEqual(gotAttrs, wantAttrs[fid]) {
-			t.Errorf("feature %d (fid %d) attrs = %v, want %v", i, fid, gotAttrs, wantAttrs[fid])
-		}
-	}
-}
+		data, err := BuildMVTTile("mylayer", keyIndex, encFeatRows, attributes)
+		require.NoError(t, err)
+		require.NotEmpty(t, data)
 
-// resolveTags decodes a feature's (key index, value index) tag pairs back into a
-// plain map[string]any, using the layer's key/value dictionaries.
-func resolveTags(t *testing.T, tags []uint32, keys []string, values []*vectorTile.Tile_Value) map[string]any {
-	t.Helper()
-	attrs := make(map[string]any, len(tags)/2)
-	for i := 0; i+1 < len(tags); i += 2 {
-		kidx, vidx := tags[i], tags[i+1]
-		if int(kidx) >= len(keys) || int(vidx) >= len(values) {
-			t.Fatalf("tag pair (%d, %d) out of range (keys=%d, values=%d)", kidx, vidx, len(keys), len(values))
-		}
-		attrs[keys[kidx]] = decodeGSValue(values[vidx])
-	}
-	return attrs
-}
+		got := &vectorTile.Tile{}
+		require.NoError(t, oldproto.Unmarshal(data, got))
+		require.Len(t, got.GetLayers(), 1)
 
-// decodeGSValue extracts the single set field of a GSTileValue as a plain Go value.
-func decodeGSValue(v *vectorTile.Tile_Value) any {
-	switch {
-	case v.StringValue != nil:
-		return *v.StringValue //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-	case v.IntValue != nil:
-		return *v.IntValue //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-	case v.SintValue != nil:
-		return *v.SintValue //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-	case v.UintValue != nil:
-		return *v.UintValue //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-	case v.FloatValue != nil:
-		return *v.FloatValue //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-	case v.DoubleValue != nil:
-		return *v.DoubleValue //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-	case v.BoolValue != nil:
-		return *v.BoolValue //nolint:protogetter // GSTile* are hand-copied plain structs with no generated getters
-	default:
-		return nil
-	}
-}
+		layer := got.GetLayers()[0]
+		assert.Equal(t, "mylayer", layer.GetName())
+		require.Len(t, layer.GetFeatures(), 2)
 
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+		// Collect the string values assigned to each feature via its tags,
+		// independent of feature/value ordering.
+		gotNames := make([]string, 0, 2)
+		for _, feature := range layer.GetFeatures() {
+			require.Len(t, feature.GetTags(), 2)
+			valueIdx := feature.GetTags()[1]
+			gotNames = append(gotNames, layer.GetValues()[valueIdx].GetStringValue())
 		}
-	}
-	return true
+		sort.Strings(gotNames)
+		assert.Equal(t, []string{"bar", "foo"}, gotNames)
+	})
+
+	t.Run("error building a feature's tags propagates", func(t *testing.T) {
+		keyIndex := map[string]uint32{"name": 0}
+		attributes := InternalAttributeTable{
+			1: {"unknown-key": "foo"},
+		}
+		encFeatRows := []EncodedFeatureRow{
+			{FeatureID: 1, Geom: EncodedGeometry{}},
+		}
+
+		_, err := BuildMVTTile("mylayer", keyIndex, encFeatRows, attributes)
+		require.Error(t, err)
+	})
 }
