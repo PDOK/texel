@@ -135,16 +135,16 @@ func (ix *PointIndex) GetPrimitiveQBBox(l Level) []Quadrant {
 		maxY = max(y, maxY)
 	}
 
-	quadrantSlice := make([]Quadrant, (maxY-minY)*(maxX-minX))
-	for i := range maxX - minX {
-		for j := range maxY - minY {
+	quadrantSlice := make([]Quadrant, (maxY-minY+1)*(maxX-minX+1))
+	for i := range maxX - minX + 1 {
+		for j := range maxY - minY + 1 {
 			extent, centroid := ix.getQuadrantExtentAndCentroid(l, minX+i, minY+j, ix.intExtent)
 			newQuadrant := Quadrant{
 				z:           morton.MustToZ(minX+i, minY+j),
 				intExtent:   extent,
 				intCentroid: centroid,
 			}
-			quadrantSlice[i*(maxY-minY)+j] = newQuadrant
+			quadrantSlice[i*(maxY-minY+1)+j] = newQuadrant
 		}
 	}
 	return quadrantSlice

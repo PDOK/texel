@@ -200,9 +200,6 @@ func main() {
 				}
 
 				log.Println("=== done snapping ===")
-				if(c.Bool(ENCODETILES)) {
-					log.Println("Generated encoded tables.")
-				}
 				return nil
 			},
 		},
