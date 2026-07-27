@@ -169,7 +169,7 @@ func main() {
 					EncodeTiles:         c.Bool(ENCODETILES),
 				}
 				for _, tmID := range tileMatrixIDs {
-					gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize)
+					gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize, c.Bool(ENCODETILES))
 					defer gpkgTargets[tmID].Close() // yes, supposed to go here, want to close all at end of func
 				}
 
@@ -200,6 +200,9 @@ func main() {
 				}
 
 				log.Println("=== done snapping ===")
+				if(c.Bool(ENCODETILES)) {
+					log.Println("Generated encoded tables.")
+				}
 				return nil
 			},
 		},
@@ -247,7 +250,7 @@ func validateTileMatrixSet(tms tms20.TileMatrixSet, tileMatrixIDs []tms20.TMID) 
 	return pointindex.IsQuadTree(tms)
 }
 
-func initGPKGTarget(targetPathFmt string, tmID int, overwrite bool, pagesize int) *gpkg.TargetGeopackage {
+func initGPKGTarget(targetPathFmt string, tmID int, overwrite bool, pagesize int, encodeTiles bool) *gpkg.TargetGeopackage {
 	targetPath := fmt.Sprintf(targetPathFmt, tmID)
 	if overwrite {
 		err := os.Remove(targetPath)
@@ -259,6 +262,7 @@ func initGPKGTarget(targetPathFmt string, tmID int, overwrite bool, pagesize int
 	}
 	target := gpkg.TargetGeopackage{}
 	target.Init(targetPath, pagesize)
+	target.EncodeTiles = encodeTiles
 	return &target
 }
 

@@ -176,7 +176,7 @@ type TargetGeopackage struct {
 	Table       Table
 	pagesize    int
 	handle      *gpkg.Handle
-	encodeTiles bool
+	EncodeTiles bool
 }
 
 func (target *TargetGeopackage) Init(file string, pagesize int) {
@@ -200,7 +200,7 @@ func (target *TargetGeopackage) CreateTables(tables []Table) error {
 			return err
 		}
 
-		if target.encodeTiles {
+		if target.EncodeTiles {
 			err = buildEncodedTable(target.handle, table)
 			if err != nil {
 				return err
@@ -217,7 +217,7 @@ func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Featu
 		feature, hasMore := <-inFeatures
 		if !hasMore {
 			target.writeFeatures(features)
-			if target.encodeTiles {
+			if target.EncodeTiles {
 				target.writeEncodedFeatures(features)
 			}
 			break
@@ -226,7 +226,7 @@ func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Featu
 
 		if len(features)%target.pagesize == 0 {
 			target.writeFeatures(features)
-			if target.encodeTiles {
+			if target.EncodeTiles {
 				target.writeEncodedFeatures(features)
 			}
 			features = nil
