@@ -273,26 +273,28 @@ func injectSuffixIntoPath(p string) string {
 func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, snapConfig snap.Config) {
 	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]processing.SnapResult {
 		return snap.SnapPolygon(p, tileMatrixSet, tmIDs, snapConfig)
-	})
+	}, snapConfig.EncodeTiles)
 }
 
 // runBuildMVTTiles builds and writes MVT tiles for every table in the given source
 // GeoPackage (a GeoPackage previously produced with --encodetiles), using
-// gpkg.SourceGeopackage.ProcessTilesToMVT for each table.
+// processing.BuildAndWriteMVTTiles for each table.
 func runBuildMVTTiles(sourcePath, outDir string) error {
 	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
 		return fmt.Errorf("source GeoPackage does not exist: %s", sourcePath)
 	}
 
-	source := gpkg.SourceGeopackage{}
+	source := gpkg.MVTSourceGeopackage{}
 	source.Init(sourcePath)
 	defer source.Close()
+
+	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
 
 	tables := source.GetTableInfo()
 	for _, table := range tables {
 		source.Table = table
 		log.Printf("  building MVT tiles for %s", table.Name)
-		if err := source.ProcessTilesToMVT(outDir); err != nil {
+		if err := processing.BuildAndWriteMVTTiles(&source, &mvtTarget, table.Name); err != nil {
 			return fmt.Errorf("building MVT tiles for %s: %w", table.Name, err)
 		}
 	}
