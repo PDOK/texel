@@ -9,7 +9,7 @@ import (
 	"github.com/pdok/texel/tms20"
 )
 
-// TestProcessGeometry covers processGeometry and processMultiPolygon 
+// TestProcessGeometry covers processGeometry and processMultiPolygon
 // Uses a stub processPolygonFunc
 func TestProcessGeometry(t *testing.T) {
 	polyA := geom.Polygon{{{0, 0}, {1, 0}, {1, 1}, {0, 0}}}
