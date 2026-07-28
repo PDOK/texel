@@ -9,8 +9,8 @@ import (
 	"github.com/pdok/texel/tms20"
 )
 
-// TestProcessGeometry covers processGeometry and, transitively,
-// processMultiPolygon (which it delegates to for geom.MultiPolygon input).
+// TestProcessGeometry covers processGeometry and processMultiPolygon 
+// Uses a stub processPolygonFunc
 func TestProcessGeometry(t *testing.T) {
 	polyA := geom.Polygon{{{0, 0}, {1, 0}, {1, 1}, {0, 0}}}
 	polyB := geom.Polygon{{{2, 2}, {3, 2}, {3, 3}, {2, 2}}}
@@ -22,8 +22,8 @@ func TestProcessGeometry(t *testing.T) {
 		// geometry passed to processGeometry
 		geometry geom.Geometry
 		tmIDs    []tms20.TMID
-		// callResults is the sequence of results the stub processPolygonFunc
-		// returns, one entry per expected invocation, in call order.
+		// callResults is a list of return values of the stub function in
+		// call order.
 		callResults []map[tms20.TMID]SnapResult
 		want        map[tms20.TMID]SnapResult
 	}{

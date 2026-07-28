@@ -48,10 +48,10 @@ func main() {
 	app.Usage = "A Golang Polygon Snapping application"
 	app.Version = versioninfo.Short()
 
-	// bare invocation (no subcommand) is routed to "snap", so its Required flags
-	// are still enforced as before.
+	// `texel` without command defaults to `snap`.
 	app.DefaultCommand = "snap"
 
+	// Define two commands: `texel snap` and `texel mvt`.
 	app.Commands = []*cli.Command{
 		{
 			Name:  "snap",
@@ -276,9 +276,7 @@ func processBySnapping(source processing.Source, targets map[tms20.TMID]processi
 	}, snapConfig.EncodeTiles)
 }
 
-// runBuildMVTTiles builds and writes MVT tiles for every table in the given source
-// GeoPackage (a GeoPackage previously produced with --encodetiles), using
-// processing.BuildAndWriteMVTTiles for each table.
+// Initialize resources for creating vecotrtiles and delegate to processing.
 func runBuildMVTTiles(sourcePath, outDir string) error {
 	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
 		return fmt.Errorf("source GeoPackage does not exist: %s", sourcePath)

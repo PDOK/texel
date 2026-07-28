@@ -1,6 +1,6 @@
-// Package processing takes care of the logistics around reading and writing to a Target.
-// Not the processing operation(s) itself.
 package processing
+
+// Orchestrating logic around processing the snap command.
 
 import (
 	"fmt"
