@@ -132,6 +132,73 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 	}
 }
 
+func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
+	type tileCoord struct{ x, y uint }
+	tests := []struct {
+		name         string
+		deepestLevel Level
+		points       [][2]int // Points to be inserted at deepestlevel
+		tileLevel    Level
+		bufferSize   uint
+		wantTiles    []tileCoord
+	}{
+		{
+			// deepestLevel 4 -> 16x16 pixel grid, level 2 -> 4x4 tiles of 4x4 pixels each.
+			name:         "points all within one tile, no buffer",
+			deepestLevel: 4,
+			points:       [][2]int{{5, 5}, {6, 6}},
+			tileLevel:    2,
+			bufferSize:   0,
+			wantTiles:    []tileCoord{{1, 1}},
+		},
+		{
+			name:         "point in one tile, buffer expands to multiple tiles",
+			deepestLevel: 4,
+			points:       [][2]int{{0, 0}},
+			tileLevel:    2,
+			bufferSize:   6,
+			wantTiles:    []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
+		},
+		{
+			name:         "non-square rectangle of tiles",
+			deepestLevel: 4,
+			points:       [][2]int{{4, 4}, {11, 5}},
+			tileLevel:    2,
+			bufferSize:   0,
+			wantTiles:    []tileCoord{{1, 1}, {2, 1}},
+		},
+		{
+			name:         "points in diagonal tiles, expands to rectangle",
+			deepestLevel: 4,
+			points:       [][2]int{{3, 3}, {4, 4}},
+			tileLevel:    2,
+			bufferSize:   0,
+			wantTiles:    []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ix := newSimplePointIndex(tt.deepestLevel, 1.0)
+			for _, p := range tt.points {
+				require.NoError(t, ix.InsertCoord(p[0], p[1]))
+			}
+
+			want := make([]Quadrant, 0, len(tt.wantTiles))
+			for _, tc := range tt.wantTiles {
+				extent, centroid := ix.getQuadrantExtentAndCentroid(tt.tileLevel, tc.x, tc.y, ix.intExtent)
+				want = append(want, Quadrant{
+					z:           morton.MustToZ(tc.x, tc.y),
+					intExtent:   extent,
+					intCentroid: centroid,
+				})
+			}
+
+			got := ix.GetQBBoxWithBuffer(tt.tileLevel, tt.bufferSize)
+			assert.ElementsMatch(t, want, got)
+		})
+	}
+}
+
 func TestPointIndex_InsertPoint(t *testing.T) {
 	tests := []struct {
 		name  string

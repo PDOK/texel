@@ -150,6 +150,58 @@ func (ix *PointIndex) GetPrimitiveQBBox(l Level) []Quadrant {
 	return quadrantSlice
 }
 
+// Loop over all points to find the extent. Return slice of tiles whose
+// buffer intersects extent. Buufer size given in deepstlevel (internal pixels).
+func (ix *PointIndex) GetQBBoxWithBuffer(l Level, bufferSize uint) []Quadrant {
+	quadrants := ix.quadrants[ix.deepestLevel]
+
+	minX := ^uint(0)
+	maxX := uint(0)
+	minY := ^uint(0)
+	maxY := uint(0)
+
+	for z := range quadrants {
+		x, y := morton.FromZ(z)
+		minX = min(x, minX)
+		maxX = max(x, maxX)
+		minY = min(y, minY)
+		maxY = max(y, maxY)
+	}
+
+	var tileMinX, tileMinY uint
+	if minX < bufferSize {
+		tileMinX = 0
+	} else {
+		tileMinX = (minX - bufferSize) >> (ix.deepestLevel - l)
+	}
+	if minY < bufferSize {
+		tileMinY = 0
+	} else {
+		tileMinY = (minY - bufferSize) >> (ix.deepestLevel - l)
+	}
+
+	maxTileCoord := mathhelp.Pow2(l) - 1
+	tileMaxX := min((maxX+bufferSize)>>(ix.deepestLevel-l), maxTileCoord)
+	tileMaxY := min((maxY+bufferSize)>>(ix.deepestLevel-l), maxTileCoord)
+
+	tiles := make([]Quadrant, 0, (tileMaxX-tileMinX+1)*(tileMaxY-tileMinY+1))
+	for i := range tileMaxX - tileMinX + 1 {
+		for j := range tileMaxY - tileMinY + 1 {
+			tileX := tileMinX + i
+			tileY := tileMinY + j
+			extent, centroid := ix.getQuadrantExtentAndCentroid(
+				l, tileX, tileY, ix.intExtent)
+
+			tiles = append(tiles, Quadrant{
+				z:           morton.MustToZ(tileX, tileY),
+				intExtent:   extent,
+				intCentroid: centroid,
+			})
+		}
+	}
+	return tiles
+}
+
 // InsertPolygon inserts all points from a Polygon
 func (ix *PointIndex) InsertPolygon(polygon geom.Polygon) error {
 	// initialize the quadrants map
