@@ -3,6 +3,7 @@ package pointindex
 import (
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
+	"github.com/pdok/texel/mathhelp"
 )
 
 type SegmentIdx struct {
@@ -14,7 +15,7 @@ type SegmentIdx struct {
 // level l) as touched by the segment identified by segmentIdx.
 type RegisterFunc func(xCoord, yCoord uint, l Level, segmentIdx SegmentIdx)
 
-func (ix *PointIndex) lineTrace(line geom.Line, l Level, ringIdx int, pointIdx int, buffer intgeom.M, register RegisterFunc) {
+func (ix *PointIndex) lineTrace(line geom.Line, l Level, ringIdx int, pointIdx int, buffer uint, register RegisterFunc) {
 	intLine := intgeom.FromGeomLine(line)
 	idx := SegmentIdx{
 		ringIdx: ringIdx,
@@ -33,8 +34,9 @@ func (ix *PointIndex) lineTrace(line geom.Line, l Level, ringIdx int, pointIdx i
 		dy = -1
 	}
 
-	startX, startY := ix.findTile(intLine.Point1(), l)
-	
+	startTileX, startTileY := ix.findTile(intLine.Point1(), l)
+	startX, startY := int(startTileX), int(startTileY)
+
 	// Register tiles otherwise missed
 	ix.tryRegisterTile(intLine, startX-dx, startY+dy, l, buffer, register, idx)
 	ix.tryRegisterTile(intLine, startX-dx, startY, l, buffer, register, idx)
@@ -43,24 +45,59 @@ func (ix *PointIndex) lineTrace(line geom.Line, l Level, ringIdx int, pointIdx i
 	ix.tryRegisterTile(intLine, startX+dx, startY-dy, l, buffer, register, idx)
 
 	// Register tiles by only walking in direction dx and dy.
-	for true {
-		// Register tile until no more can be found.
+	type coord struct{ x, y int }
+
+	frontier := []coord{{startX, startY}}
+	ix.tryRegisterTile(intLine, startX, startY, l, buffer, register, idx)
+
+	for len(frontier) > 0 {
+		nextSet := make(map[coord]bool, len(frontier)*2)
+		for _, cur := range frontier {
+			nextSet[coord{cur.x + dx, cur.y}] = true
+			nextSet[coord{cur.x, cur.y + dy}] = true
+		}
+
+		next := make([]coord, 0, len(nextSet))
+		for c := range nextSet {
+			if ix.tryRegisterTile(intLine, c.x, c.y, l, buffer, register, idx) {
+				next = append(next, c)
+			}
+		}
+		frontier = next
 	}
 
 	return
 }
 
-func (ix *PointIndex) tryRegisterTile(line intgeom.Line, x, y uint, l Level, buffer intgeom.M, register RegisterFunc, idx SegmentIdx){
-	extent, _ := ix.getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
-	if tileIntersectsLine(line, extent, buffer){
-		register(x, y, l, idx)
+// tryRegisterTile checks whether the (buffered) tile at (x, y) at level l
+// intersects line, and if so registers it. Returns whether it was
+// registered, so callers can use it to decide whether to keep expanding a
+// walk in that direction. x, y may be out of the valid tile coordinate
+// range (e.g. when called with a neighbor one step outside the grid); such
+// out-of-bounds candidates are simply reported as not registered.
+func (ix *PointIndex) tryRegisterTile(line intgeom.Line, x, y int, l Level, buffer uint, register RegisterFunc, idx SegmentIdx) bool {
+	maxCoord := int(mathhelp.Pow2(l)) - 1
+	if x < 0 || y < 0 || x > maxCoord || y > maxCoord {
+		return false // out of bounds: no tile there, nothing to register
 	}
+	ux, uy := uint(x), uint(y)
+	extent, _ := ix.getQuadrantExtentAndCentroid(l, ux, uy, ix.intExtent)
+	bufferSize := ix.deepestRes * intgeom.M(buffer)
+	if tileIntersectsLine(line, extent, bufferSize) {
+		register(ux, uy, l, idx)
+		return true
+	}
+	return false
 }
 
 func (ix *PointIndex) findTile(p *intgeom.Point, l Level) (tileX, tileY uint) {
 	levelDiff := ix.deepestLevel - l
-	tileX = uint(p.X()) >> levelDiff
-	tileY = uint(p.Y()) >> levelDiff
+	//nolint:gosec // G115
+	deepestTileX := uint(p.X()-ix.intExtent.MinX()) / uint(ix.deepestRes)
+	//nolint:gosec // G115
+	deepestTileY := uint(p.Y()-ix.intExtent.MinY()) / uint(ix.deepestRes)
+	tileX = deepestTileX >> levelDiff
+	tileY = deepestTileY >> levelDiff
 	return
 }
 
@@ -72,7 +109,7 @@ func tileIntersectsLine(line intgeom.Line, extent intgeom.Extent, buffer intgeom
 		extent.MaxY() + buffer,
 	}
 
-	return extentIntersectsLine(line, bufferedExtent)
+	return lineIntersects(line, bufferedExtent)
 }
 
 func extentIntersectsLine(line intgeom.Line, extent intgeom.Extent) bool {
@@ -81,5 +118,5 @@ func extentIntersectsLine(line intgeom.Line, extent intgeom.Extent) bool {
 	lMinY := min(line.Point1().Y(), line.Point2().Y())
 	lMaxY := max(line.Point1().Y(), line.Point2().Y())
 
-	return extent.MaxX() >= lMaxX && extent.MinX() <= lMinX && extent.MaxY() >= lMaxY && extent.MinY() <= lMinY
+	return extent.MaxX() >= lMinX && extent.MinX() <= lMaxX && extent.MaxY() >= lMinY && extent.MinY() <= lMaxY
 }

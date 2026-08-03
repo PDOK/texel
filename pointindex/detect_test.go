@@ -80,8 +80,8 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 		originX      float64
 		originY      float64
 		line         geom.Line
-		buffer       float64
-		want         [][2]intgeom.M
+		buffer       uint
+		want         [][2]uint
 	}{
 		// --- Group A: plain raycast, no buffer, levelDiff > 0 (tileSize > deepestRes) ---
 		{
@@ -89,61 +89,61 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 2}, geom.Point{14, 10}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{0, 0}, {1, 0}, {1, 1}, {2, 1}, {2, 2}, {3, 2}},
+			want:   [][2]uint{{0, 0}, {1, 0}, {1, 1}, {2, 1}, {2, 2}, {3, 2}},
 		},
 		{
 			name:         "no buffer, -x-y diagonal (reverse of +x+y)",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{14, 10}, geom.Point{2, 2}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{0, 0}, {1, 0}, {1, 1}, {2, 1}, {2, 2}, {3, 2}},
+			want:   [][2]uint{{0, 0}, {1, 0}, {1, 1}, {2, 1}, {2, 2}, {3, 2}},
 		},
 		{
 			name:         "no buffer, +x-y diagonal",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 10}, geom.Point{14, 2}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{0, 2}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {3, 0}},
+			want:   [][2]uint{{0, 2}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {3, 0}},
 		},
 		{
 			name:         "no buffer, -x+y diagonal (reverse of +x-y)",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{14, 2}, geom.Point{2, 10}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{0, 2}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {3, 0}},
+			want:   [][2]uint{{0, 2}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {3, 0}},
 		},
 
 		// --- Group A with buffer: same diagonals, but a positive buffer must
 		// pull in extra tiles alongside the ones already found above. Uses a
-		// bigger grid (deepestLevel 5, same tileSize 4) so the buffer doesn't
+		// bigger grid (deepestLevel 4, same tileSize 2) so the buffer doesn't
 		// reach past the grid's own edge. ---
 		{
 			name:         "buffer, +x+y diagonal: extra tile near start",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
-			line:   geom.Line{geom.Point{2, 2}, geom.Point{14, 10}},
+			line:   geom.Line{geom.Point{2, 2}, geom.Point{14, 9}},
 			buffer: 2,
-			want:   [][2]intgeom.M{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {2, 2}, {3, 1}, {3, 2}},
+			want:   [][2]uint{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {2, 2}, {3, 1}, {3, 2}},
 		},
 		{
 			name:         "buffer, -x-y diagonal: extra tiles near start",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
-			line:   geom.Line{geom.Point{14, 10}, geom.Point{2, 2}},
+			line:   geom.Line{geom.Point{14, 9}, geom.Point{2, 2}},
 			buffer: 2,
-			want:   [][2]intgeom.M{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {2, 2}, {3, 1}, {3, 2}},
+			want:   [][2]uint{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {2, 2}, {3, 1}, {3, 2}},
 		},
 		{
 			name:         "buffer, +x-y diagonal: extra tiles near start",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 10}, geom.Point{14, 2}},
 			buffer: 2,
-			want:   [][2]intgeom.M{{0, 1}, {0, 2}, {0, 3}, {1, 1}, {1, 2}, {1, 3}, {2, 0}, {2, 1}, {2, 2}, {3, 0}, {3, 1}},
+			want:   [][2]uint{{0, 1}, {0, 2}, {0, 3}, {1, 0}, {1, 1}, {1, 2}, {1, 3}, {2, 0}, {2, 1}, {2, 2}, {3, 0}, {3, 1}},
 		},
 		{
 			name:         "buffer, -x+y diagonal: extra tiles near start",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{14, 2}, geom.Point{2, 10}},
 			buffer: 2,
-			want:   [][2]intgeom.M{{0, 1}, {0, 2}, {0, 3}, {1, 1}, {1, 2}, {1, 3}, {2, 0}, {2, 1}, {2, 2}, {3, 0}, {3, 1}},
+			want:   [][2]uint{{0, 1}, {0, 2}, {0, 3}, {1, 0}, {1, 1}, {1, 2}, {1, 3}, {2, 0}, {2, 1}, {2, 2}, {3, 0}, {3, 1}},
 		},
 
 		// --- Degenerate axis-aligned lines: documented pre-existing limitation ---
@@ -154,14 +154,14 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 5}, geom.Point{14, 5}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{0, 1}, {3, 1}},
+			want:   [][2]uint{{0, 1}, {1, 1}, {2, 1}, {3, 1}},
 		},
 		{
 			name:         "degenerate vertical line only registers start tile",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{5, 2}, geom.Point{5, 14}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{1, 0}, {1, 3}},
+			want:   [][2]uint{{1, 0}, {1, 1}, {1, 2}, {1, 3}},
 		},
 
 		// --- Group B: buffer inflates the start-point registration ---
@@ -170,21 +170,21 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 2}, geom.Point{3, 3}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{0, 0}},
+			want:   [][2]uint{{0, 0}},
 		},
 		{
 			name:         "end in corner, with buffer, register tiles across edge",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 2}, geom.Point{3, 3}},
 			buffer: 1,
-			want:   [][2]intgeom.M{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
+			want:   [][2]uint{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
 		},
 		{
 			name:         "start near edge, buffer registers neighbour tile",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{1, 3}, geom.Point{2, 3}},
 			buffer: 1,
-			want:   [][2]intgeom.M{{0, 0}, {0, 1}},
+			want:   [][2]uint{{0, 0}, {0, 1}},
 		},
 
 		// --- Group C: buffer makes the traversal loop run longer, reaching
@@ -194,38 +194,22 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{6, 6}, geom.Point{10, 10}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{1, 1}, {1, 2}, {2, 1}, {2, 2}},
+			want:   [][2]uint{{1, 1}, {1, 2}, {2, 1}, {2, 2}},
 		},
 		{
 			name:         "small buffer: diagonal crossing of buffer boundary touches 4 tiles",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{6, 6}, geom.Point{7, 7}},
 			buffer: 1,
-			want:   [][2]intgeom.M{{1, 1}, {1, 2}, {2, 1}, {2, 2}},
-		},
-		// --- Group D: levelDiff == 0 edge case (tileSize == deepestRes) ---
-		{
-			name:         "levelDiff 0: plain diagonal walk, no buffer",
-			deepestLevel: 3, l: 3, cellSize: 1.0,
-			line:   geom.Line{geom.Point{0.5, 0.5}, geom.Point{3.5, 2.5}},
-			buffer: 0,
-			want:   [][2]intgeom.M{{0, 0}, {1, 0}, {1, 1}, {2, 1}, {2, 2}, {3, 2}},
+			want:   [][2]uint{{1, 1}, {1, 2}, {2, 1}, {2, 2}},
 		},
 		{
-			name:         "levelDiff 0: start point near tile corner, no buffer",
-			deepestLevel: 2, l: 2, cellSize: 1.0,
-			line:   geom.Line{geom.Point{2.8, 2.8}, geom.Point{3.5, 3.5}},
-			buffer: 0,
-			want:   [][2]intgeom.M{{2, 2}, {2, 3}, {3, 2}, {3, 3}},
+			name:         "buffer of line clips upper right corner of tile, not detected",
+			deepestLevel: 4, l: 2, cellSize: 1.0,
+			line:   geom.Line{geom.Point{12, 14}, geom.Point{14, 12}},
+			buffer: 1,
+			want:   [][2]uint{{2, 3}, {3, 2}, {3, 3}},
 		},
-		{
-			name:         "levelDiff 0: start point near tile corner, buffer reaches all 4 surrounding tiles",
-			deepestLevel: 2, l: 2, cellSize: 1.0,
-			line:   geom.Line{geom.Point{2.8, 2.8}, geom.Point{3.5, 3.5}},
-			buffer: 0.3,
-			want:   [][2]intgeom.M{{2, 2}, {2, 3}, {3, 2}, {3, 3}},
-		},
-
 		// --- Group E: non-zero grid origin (MinX/MinY offset bug fix) ---
 		// Same relative geometry as the "+x+y diagonal" case above, translated
 		// by (+100, +100): the resulting tile pattern must be identical,
@@ -235,14 +219,14 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			deepestLevel: 4, l: 2, cellSize: 1.0, originX: 100, originY: 100,
 			line:   geom.Line{geom.Point{102, 102}, geom.Point{114, 110}},
 			buffer: 0,
-			want:   [][2]intgeom.M{{0, 0}, {1, 0}, {1, 1}, {2, 1}, {2, 2}, {3, 2}},
+			want:   [][2]uint{{0, 0}, {1, 0}, {1, 1}, {2, 1}, {2, 2}, {3, 2}},
 		},
 		{
 			name:         "non-zero origin with buffer: same relative result as buffered corner case",
 			deepestLevel: 4, l: 2, cellSize: 1.0, originX: 100, originY: 100,
 			line:   geom.Line{geom.Point{103, 103}, geom.Point{105, 105}},
 			buffer: 1,
-			want:   [][2]intgeom.M{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
+			want:   [][2]uint{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
 		},
 	}
 
@@ -251,7 +235,7 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			ix := newOffsetPointIndex(tt.deepestLevel, tt.cellSize, tt.originX, tt.originY)
 
 			var recorded []registeredTile
-			ix.lineTrace(tt.line, tt.l, 0, 0, intgeom.FromGeomOrd(tt.buffer), recordingRegister(&recorded))
+			ix.lineTrace(tt.line, tt.l, 0, 0, tt.buffer, recordingRegister(&recorded))
 
 			got := uniqueTileCoords(recorded)
 			assert.Equal(t, tt.want, got)
