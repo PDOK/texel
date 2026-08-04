@@ -1,9 +1,6 @@
 package gpkg
 
-// Functionality regarding geopackages for `texel snap`. Exported are:
-// SourceGeopackage.ReadFeatures
-// TargetGeopackage.CreateTables
-// TargetGeopackage.WriteFeatures
+// Specializes the gpkg.go functionality for the `texel snap` command.
 
 import (
 	"encoding/binary"

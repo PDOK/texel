@@ -1,8 +1,6 @@
 package gpkg
 
-// This file contains the geopackage functionality used for `texel mvt`.
-// The exported functionality is precisely given by MVTSource and MVTTarget.
-// We reuse SourceGeopackage as MVTSource.
+// Specializes the gpkg.go functionaltity for the `texel mvt` command
 
 import (
 	"encoding/binary"
