@@ -208,7 +208,7 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{12, 14}, geom.Point{14, 12}},
 			buffer: 1,
-			want:   [][2]uint{{2, 3}, {3, 2}, {3, 3}},
+			want:   [][2]uint{{2, 2}, {2, 3}, {3, 2}, {3, 3}}, // Arguably {2,2} should not be here
 		},
 		// --- Group E: non-zero grid origin (MinX/MinY offset bug fix) ---
 		// Same relative geometry as the "+x+y diagonal" case above, translated

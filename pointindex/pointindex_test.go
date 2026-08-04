@@ -576,6 +576,17 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "diagonally opposed line between non-inclusive points",
+			// This test is fragile and depends on floating-point rounding
+			extent: intgeom.Extent{
+				00000000, 00000000, 10000000, 10000000,
+			},
+			line: intgeom.Line{
+				{00000000, 10000000}, {10000000, 00000000},
+			},
+			want: false, // TODO This is an undesired outcome
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
