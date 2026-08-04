@@ -9,6 +9,7 @@ import (
 	"github.com/go-spatial/geom/encoding/mvt"
 	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
 	oldproto "github.com/golang/protobuf/proto" //nolint:staticcheck // needed: matches the reflection-based marshaling vector_tile.pb.go relies on
+	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/pointindex"
 )
 
@@ -100,17 +101,6 @@ func BuildValueDictionary(attributesPerFeature InternalAttributeTable) map[any]u
 	return index
 }
 
-// Convert index map to slice. Assumes all indices 0, 1, ..., len(index)-1 are
-// used exactly once. Necessary since iteration over maps is in arbitrary order.
-// This is a generic function since we need it with K = string and K = any.
-func orderedByIndex[K comparable](index map[K]uint32) []K {
-	ordered := make([]K, len(index))
-	for k, i := range index {
-		ordered[i] = k
-	}
-	return ordered
-}
-
 // Construct tags for a single feature. `keyIndex` and `valueIndex` are built
 // by above functions by considering all features. `attributes` are the
 // attributes of the current feature. Absent values are skipped. Panics if a
@@ -158,9 +148,9 @@ func BuildFeature(featureID int64, geom EncodedGeometry, attributes map[string]a
 
 // Construct layer according to protobuf format
 func BuildLayer(name string, features []*vectorTile.Tile_Feature, keyIndex map[string]uint32, valueIndex map[any]uint32) *vectorTile.Tile_Layer {
-	keys := orderedByIndex(keyIndex)
+	keys := mapslicehelp.OrderedByIndex(keyIndex)
 
-	rawValues := orderedByIndex(valueIndex)
+	rawValues := mapslicehelp.OrderedByIndex(valueIndex)
 	values := make([]*vectorTile.Tile_Value, len(rawValues))
 	for i, v := range rawValues {
 		values[i] = vectorTileValue(v)
