@@ -74,11 +74,13 @@ type PointIndex struct {
 	Quadrant
 	deepestLevel Level
 	// Number of quadrants (in one direction) on the deepest level (= 2 ^ deepestLevel)
-	deepestSize uint
-	deepestRes  intgeom.M
-	quadrants   map[Level]map[morton.Z]Quadrant
-	hitOnce     map[Level]map[intgeom.Point][]int
-	hitMultiple map[Level]map[intgeom.Point][]int
+	deepestSize    uint
+	deepestRes     intgeom.M
+	quadrants      map[Level]map[morton.Z]Quadrant
+	hitOnce        map[Level]map[intgeom.Point][]int
+	hitMultiple    map[Level]map[intgeom.Point][]int
+	tilePixels     uint
+	internalPixels uint
 }
 
 type (
@@ -89,7 +91,8 @@ type (
 func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) (*PointIndex, error) {
 	// assuming IsQuadTree was tested before
 	rootTM := tileMatrixSet.TileMatrices[0]
-	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
+	tilePixels := rootTM.TileWidth
+	levelDiff := uint(math.Log2(float64(tilePixels))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
 	//nolint:gosec // G115
 	deepestLevel := uint(deepestTMID) + levelDiff
 	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
@@ -105,8 +108,10 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 			intExtent: intExtent,
 			z:         0,
 		},
-		deepestLevel: deepestLevel,
-		deepestSize:  deepestSize,
+		tilePixels:     tilePixels,
+		internalPixels: VectorTileInternalPixelResolution,
+		deepestLevel:   deepestLevel,
+		deepestSize:    deepestSize,
 		//nolint:gosec // G115
 		deepestRes:  intExtent.XSpan() / int64(deepestSize),
 		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),

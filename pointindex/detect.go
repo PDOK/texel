@@ -1,9 +1,13 @@
 package pointindex
 
 import (
+	"math"
+
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/mathhelp"
+	"github.com/pdok/texel/morton"
+	"github.com/pdok/texel/tms20"
 )
 
 type SegmentIdx struct {
@@ -18,7 +22,7 @@ type RegisterFunc func(xCoord, yCoord uint, l Level, segmentIdx SegmentIdx)
 func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ringIdx int, pointIdx int, buffer uint, register RegisterFunc) {
 	intLine := intgeom.FromGeomLine(line)
 	idx := SegmentIdx{
-		ringIdx: ringIdx,
+		ringIdx:  ringIdx,
 		pointIdx: pointIdx,
 	}
 
@@ -38,7 +42,7 @@ func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ri
 	startX, startY := int(startTileX), int(startTileY)
 	bufferSize := ix.getResolution(intPixLevel) * intgeom.M(buffer)
 
-	// Register tiles otherwise missed
+	// Register tiles at start otherwise missed
 	ix.tryRegisterTile(intLine, startX-dx, startY+dy, tileLevel, bufferSize, register, idx)
 	ix.tryRegisterTile(intLine, startX-dx, startY, tileLevel, bufferSize, register, idx)
 	ix.tryRegisterTile(intLine, startX-dx, startY-dy, tileLevel, bufferSize, register, idx)
@@ -72,6 +76,11 @@ func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ri
 
 func (ix *PointIndex) getResolution(level Level) intgeom.M {
 	return ix.intExtent.XSpan() / int64(mathhelp.Pow2(level))
+}
+
+func (ix *PointIndex) getInternalPixelLevel(deepestTIMID tms20.TMID) Level {
+	levelDiff := uint(math.Log2(float64(ix.tilePixels))) + uint(math.Log2(float64(ix.internalPixels)))
+	return uint(deepestTIMID) + levelDiff
 }
 
 // tryRegisterTile checks whether the (buffered) tile at (x, y) at level l
@@ -123,4 +132,165 @@ func extentIntersectsLine(line intgeom.Line, extent intgeom.Extent) bool {
 	lMaxY := max(line.Point1().Y(), line.Point2().Y())
 
 	return extent.MaxX() >= lMinX && extent.MinX() <= lMaxX && extent.MaxY() >= lMinY && extent.MinY() <= lMaxY
+}
+
+type TileClassification int
+
+const (
+	ClassificationUnknown TileClassification = iota
+	ClassificationIntersect
+	ClassificationInside
+	ClassificationOutside
+)
+
+func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, tmsID tms20.TMID, buffer uint) (segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification) {
+	segments = make(map[morton.Z][]SegmentIdx)
+	tileLevel := Level(tmsID)
+	intPixLevel := ix.getInternalPixelLevel(tmsID)
+	classification = make(map[Level]map[morton.Z]TileClassification, tileLevel+1)
+	for l := range tileLevel + 1 {
+		classification[l] = make(map[morton.Z]TileClassification)
+	}
+
+	var markIntersected func(l Level, z morton.Z)
+	markIntersected = func(l Level, z morton.Z) {
+		if classification[l][z] == ClassificationIntersect {
+			return
+		}
+		classification[l][z] = ClassificationIntersect
+		if l == 0 {
+			return
+		}
+		markIntersected(l-1, z>>2)
+	}
+
+	register := func(x, y uint, l Level, segmentIdx SegmentIdx) {
+		z := morton.MustToZ(x, y)
+		segments[z] = append(segments[z], segmentIdx)
+		markIntersected(l, z)
+	}
+
+	for ringIdx, ring := range polygon.LinearRings() {
+		for pointIdx := range ring {
+			line := geom.Line{ring[pointIdx], ring[(pointIdx+1)%len(ring)]}
+			ix.lineTrace(line, tileLevel, intPixLevel, ringIdx, pointIdx, buffer, register)
+		}
+	}
+	return segments, classification
+}
+
+func (ix *PointIndex) findIntersectingTilesLeft(x, y, targetLevel Level, classification map[Level]map[morton.Z]TileClassification) []morton.Z {
+	intersectingCurrentLevel := []morton.Z{0}
+	var intersectingNextLevel []morton.Z
+	var leftChild, rightChild morton.Z
+	for currentLevel := range targetLevel {
+		intersectingNextLevel = make([]morton.Z, 0)
+
+		xAtNextLevel := x >> (targetLevel - currentLevel - 1)
+		yAtNextLevel := y >> (targetLevel - currentLevel - 1)
+
+		nextLevelDown := yAtNextLevel%2 == 0
+		for _, z := range intersectingCurrentLevel {
+			if nextLevelDown {
+				leftChild = z << 2
+				rightChild = (z << 2) + 1
+			} else {
+				leftChild = (z << 2) + 2
+				rightChild = (z << 2) + 3
+			}
+
+			if _, present := classification[currentLevel+1][leftChild]; present {
+				intersectingNextLevel = append(intersectingNextLevel, leftChild)
+			}
+			rightX, _ := morton.FromZ(rightChild)
+			if _, present := classification[currentLevel+1][rightChild]; present && rightX <= xAtNextLevel {
+				intersectingNextLevel = append(intersectingNextLevel, rightChild)
+			}
+		}
+		intersectingCurrentLevel = intersectingNextLevel
+	}
+	return intersectingCurrentLevel
+}
+
+
+func (ix *PointIndex) classifyNonIntersectingTile(z morton.Z, targetLevel Level, segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification, polygon geom.Polygon) TileClassification {
+	x, y := morton.FromZ(z)
+	intersectingTilesLeft := ix.findIntersectingTilesLeft(x, y, targetLevel, classification)
+
+	tileHeightCoord := ix.getResolution(targetLevel) * intgeom.M(y) + ix.intExtent.MinY()
+
+	seen := make(map[SegmentIdx]bool)
+	numIntersections := 0
+
+	for _, z := range intersectingTilesLeft {
+		for _, segment := range segments[z] {
+			if seen[segment] {
+				continue
+			}
+			seen[segment] = true
+			ring := polygon.LinearRings()[segment.ringIdx]
+			
+			y1 := intgeom.FromGeomOrd(ring[segment.pointIdx][1])
+			y2 := intgeom.FromGeomOrd(ring[(segment.pointIdx + 1)%len(ring)][1])
+
+			minY := min(y1, y2)
+			maxY := max(y1, y2)
+
+			switch {
+			case minY == maxY:
+			case maxY < tileHeightCoord:
+			case minY >= tileHeightCoord:
+			default:
+				numIntersections++
+			}
+		}
+	}
+	if numIntersections % 2 == 0 {
+		return ClassificationOutside
+	} else {
+		return ClassificationInside
+	}
+}
+
+func getChildren(z morton.Z) [4]morton.Z {
+	shift := z << 2
+	return [4]morton.Z{shift, shift + 1, shift + 2, shift + 3}
+}
+
+func (ix *PointIndex) classifyNonIntersectingTiles(targetLevel, currentLevel Level, currentZ morton.Z, containsAll bool, segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification, polygon geom.Polygon) {
+	if targetLevel == currentLevel {
+		return
+	}
+
+	children := getChildren(currentZ)
+	countPresent := 0
+
+	// Process unknown children
+	for _, child := range children {
+		if _, present := classification[currentLevel][child]; present {
+			countPresent++
+			continue
+		}
+		if containsAll {
+			classification[currentLevel][child] = ClassificationOutside
+		} else {
+			ix.classifyNonIntersectingTile(child, currentLevel, segments, classification, polygon)
+		}
+	}
+
+	containsAll = containsAll && countPresent < 2
+
+	// Recurse for intersecting children
+	for _, child := range children {
+		if _, present := classification[currentLevel][child]; present {
+			ix.classifyNonIntersectingTiles(targetLevel, currentLevel+1, child, containsAll, segments, classification, polygon)
+		}
+	}
+}
+
+func (ix *PointIndex) classifyTiles(polygon geom.Polygon, tmsID tms20.TMID, buffer uint) map[Level]map[morton.Z]TileClassification {
+	targetLevel := Level(tmsID)
+	segments, classification := ix.registerPolygonEdges(polygon, tmsID, buffer)
+	ix.classifyNonIntersectingTiles(targetLevel, 0, 0, true, segments, classification, polygon)
+	return classification
 }

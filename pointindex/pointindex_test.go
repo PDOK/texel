@@ -215,8 +215,10 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				deepestLevel: 0,
-				deepestSize:  mathhelp.Pow2(0),
+				deepestLevel:   0,
+				deepestSize:    mathhelp.Pow2(0),
+				tilePixels:     0,
+				internalPixels: 1,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
 				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
@@ -236,6 +238,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 1,
 				deepestSize:  mathhelp.Pow2(1),
+				tilePixels: 1,
+				internalPixels: 1,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -262,6 +266,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 3,
 				deepestSize:  mathhelp.Pow2(3),
+				tilePixels: 3,
+				internalPixels: 1,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -299,6 +305,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel: 5,
 				deepestSize:  mathhelp.Pow2(5),
+				tilePixels: 5,
+				internalPixels: 1,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -580,10 +588,10 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 			name: "diagonally opposed line between non-inclusive points",
 			// This test is fragile and depends on floating-point rounding
 			extent: intgeom.Extent{
-				00000000, 00000000, 10000000, 10000000,
+				0o0000000, 0o0000000, 10000000, 10000000,
 			},
 			line: intgeom.Line{
-				{00000000, 10000000}, {10000000, 00000000},
+				{0o0000000, 10000000}, {10000000, 0o0000000},
 			},
 			want: false, // TODO This is an undesired outcome
 		},
@@ -610,10 +618,12 @@ func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 		deepestLevel: deepestLevel,
 		deepestSize:  deepestSize,
 		//nolint:gosec // G115
-		deepestRes:  intExtent.XSpan() / int64(deepestSize),
-		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
-		hitOnce:     make(map[morton.Z]map[intgeom.Point][]int, 0),
-		hitMultiple: make(map[morton.Z]map[intgeom.Point][]int, 0),
+		deepestRes:     intExtent.XSpan() / int64(deepestSize),
+		quadrants:      make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:        make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple:    make(map[morton.Z]map[intgeom.Point][]int, 0),
+		tilePixels:     deepestLevel,
+		internalPixels: 1,
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
 	return &ix
