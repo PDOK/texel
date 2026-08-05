@@ -20,7 +20,7 @@ type registeredTile struct {
 // Register function for testing
 func recordingRegister(dst *[]registeredTile) RegisterFunc {
 	return func(tileX, tileY uint, l Level, segmentIdx SegmentIdx) {
-		maxCoord := mathhelp.Pow2(l) - 1 //nolint:gosec // level should fit max coords
+		maxCoord := mathhelp.Pow2(l) - 1
 		if tileX > maxCoord || tileY > maxCoord {
 			return
 		}
