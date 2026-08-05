@@ -235,7 +235,7 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			ix := newOffsetPointIndex(tt.deepestLevel, tt.cellSize, tt.originX, tt.originY)
 
 			var recorded []registeredTile
-			ix.lineTrace(tt.line, tt.l, 0, 0, tt.buffer, recordingRegister(&recorded))
+			ix.lineTrace(tt.line, tt.l, tt.deepestLevel, 0, 0, tt.buffer, recordingRegister(&recorded))
 
 			got := uniqueTileCoords(recorded)
 			assert.Equal(t, tt.want, got)

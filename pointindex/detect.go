@@ -15,7 +15,7 @@ type SegmentIdx struct {
 // level l) as touched by the segment identified by segmentIdx.
 type RegisterFunc func(xCoord, yCoord uint, l Level, segmentIdx SegmentIdx)
 
-func (ix *PointIndex) lineTrace(line geom.Line, l Level, ringIdx int, pointIdx int, buffer uint, register RegisterFunc) {
+func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ringIdx int, pointIdx int, buffer uint, register RegisterFunc) {
 	intLine := intgeom.FromGeomLine(line)
 	idx := SegmentIdx{
 		ringIdx: ringIdx,
@@ -34,21 +34,22 @@ func (ix *PointIndex) lineTrace(line geom.Line, l Level, ringIdx int, pointIdx i
 		dy = -1
 	}
 
-	startTileX, startTileY := ix.findTile(intLine.Point1(), l)
+	startTileX, startTileY := ix.findTile(intLine.Point1(), tileLevel)
 	startX, startY := int(startTileX), int(startTileY)
+	bufferSize := ix.getResolution(intPixLevel) * intgeom.M(buffer)
 
 	// Register tiles otherwise missed
-	ix.tryRegisterTile(intLine, startX-dx, startY+dy, l, buffer, register, idx)
-	ix.tryRegisterTile(intLine, startX-dx, startY, l, buffer, register, idx)
-	ix.tryRegisterTile(intLine, startX-dx, startY-dy, l, buffer, register, idx)
-	ix.tryRegisterTile(intLine, startX, startY-dy, l, buffer, register, idx)
-	ix.tryRegisterTile(intLine, startX+dx, startY-dy, l, buffer, register, idx)
+	ix.tryRegisterTile(intLine, startX-dx, startY+dy, tileLevel, bufferSize, register, idx)
+	ix.tryRegisterTile(intLine, startX-dx, startY, tileLevel, bufferSize, register, idx)
+	ix.tryRegisterTile(intLine, startX-dx, startY-dy, tileLevel, bufferSize, register, idx)
+	ix.tryRegisterTile(intLine, startX, startY-dy, tileLevel, bufferSize, register, idx)
+	ix.tryRegisterTile(intLine, startX+dx, startY-dy, tileLevel, bufferSize, register, idx)
 
 	// Register tiles by only walking in direction dx and dy.
 	type coord struct{ x, y int }
 
 	frontier := []coord{{startX, startY}}
-	ix.tryRegisterTile(intLine, startX, startY, l, buffer, register, idx)
+	ix.tryRegisterTile(intLine, startX, startY, tileLevel, bufferSize, register, idx)
 
 	for len(frontier) > 0 {
 		nextSet := make(map[coord]bool, len(frontier)*2)
@@ -59,7 +60,7 @@ func (ix *PointIndex) lineTrace(line geom.Line, l Level, ringIdx int, pointIdx i
 
 		next := make([]coord, 0, len(nextSet))
 		for c := range nextSet {
-			if ix.tryRegisterTile(intLine, c.x, c.y, l, buffer, register, idx) {
+			if ix.tryRegisterTile(intLine, c.x, c.y, tileLevel, bufferSize, register, idx) {
 				next = append(next, c)
 			}
 		}
@@ -69,20 +70,23 @@ func (ix *PointIndex) lineTrace(line geom.Line, l Level, ringIdx int, pointIdx i
 	return
 }
 
+func (ix *PointIndex) getResolution(level Level) intgeom.M {
+	return ix.intExtent.XSpan() / int64(mathhelp.Pow2(level))
+}
+
 // tryRegisterTile checks whether the (buffered) tile at (x, y) at level l
 // intersects line, and if so registers it. Returns whether it was
 // registered, so callers can use it to decide whether to keep expanding a
 // walk in that direction. x, y may be out of the valid tile coordinate
 // range (e.g. when called with a neighbor one step outside the grid); such
 // out-of-bounds candidates are simply reported as not registered.
-func (ix *PointIndex) tryRegisterTile(line intgeom.Line, x, y int, l Level, buffer uint, register RegisterFunc, idx SegmentIdx) bool {
+func (ix *PointIndex) tryRegisterTile(line intgeom.Line, x, y int, l Level, bufferSize intgeom.M, register RegisterFunc, idx SegmentIdx) bool {
 	maxCoord := int(mathhelp.Pow2(l)) - 1
 	if x < 0 || y < 0 || x > maxCoord || y > maxCoord {
 		return false // out of bounds: no tile there, nothing to register
 	}
 	ux, uy := uint(x), uint(y)
 	extent, _ := ix.getQuadrantExtentAndCentroid(l, ux, uy, ix.intExtent)
-	bufferSize := ix.deepestRes * intgeom.M(buffer)
 	if tileIntersectsLine(line, extent, bufferSize) {
 		register(ux, uy, l, idx)
 		return true
