@@ -1,6 +1,6 @@
-// Package processing takes care of the logistics around reading and writing to a Target.
-// Not the processing operation(s) itself.
 package processing
+
+// Orchestrating logic around processing the snap command.
 
 import (
 	"fmt"
@@ -119,7 +119,7 @@ func encodeGeometry(s SnapResult) []tile.EncodedGeometry {
 }
 
 // processFeatures processes the geometries in the features with the given function
-func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTileMatrix, tmIDs []tms20.TMID, f processPolygonFunc) {
+func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTileMatrix, tmIDs []tms20.TMID, f processPolygonFunc, encodeTiles bool) {
 	stats := initStats()
 	for {
 		feature, hasMore := <-featuresIn
@@ -135,7 +135,10 @@ func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTil
 			stats.postCount++
 		}
 		for tmID, snapResult := range newGeometriesPerTileMatrix {
-			encGeoms := encodeGeometry(snapResult)
+			var encGeoms []tile.EncodedGeometry
+			if encodeTiles {
+				encGeoms = encodeGeometry(snapResult)
+			}
 			featuresOut <- wrapFeatureForTileMatrix(feature, tmID, snapResult.Geometry, encGeoms)
 		}
 
@@ -193,7 +196,7 @@ func writeFeaturesToTargets(featuresForTileMatrices <-chan FeatureForTileMatrix,
 type processPolygonFunc func(p geom.Polygon, tileMatrixIDs []tms20.TMID) map[tms20.TMID]SnapResult
 
 // ProcessFeatures applies the processing function/operation to each Target.
-func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f processPolygonFunc) {
+func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f processPolygonFunc, encodeTiles bool) {
 	featuresBefore := make(chan Feature)
 	featuresAfter := make(chan FeatureForTileMatrix)
 	tileMatrixIDs := make([]tms20.TMID, 0, len(targets))
@@ -207,7 +210,7 @@ func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f processPoly
 		defer wg.Done()
 		writeFeaturesToTargets(featuresAfter, targets)
 	}()
-	go processFeatures(featuresBefore, featuresAfter, tileMatrixIDs, f)
+	go processFeatures(featuresBefore, featuresAfter, tileMatrixIDs, f, encodeTiles)
 	go readFeaturesFromSource(source, featuresBefore)
 
 	wg.Wait()

@@ -1,12 +1,11 @@
 package tile
 
-// This file was copied from go-spatial/geom/encoding/mvt/feature.go
-// Modifications made:
-// - Made EncodeGeometry an exported function.
-// - Made file self-contained by adding type definitions from
-//   go-spatial/geom/encoding/mvt/vector_tile/vector_tile.pb.go
-// - Made file self-contained by defining the debug variable
-// - Removed unused parameter "context" from all functions.
+// This is the geometry encoding logic copied from go-spatial/geom/encoding/mvt
+// It was necessary to take this step, since usually EncodeGeometry is not an
+// exported function. Modifications made:
+// - Added `const debug = false` which is usually present in another file.
+// - Addressed linter issues
+// - Removed `context` parameter.
 
 import (
 	"errors"
@@ -14,58 +13,10 @@ import (
 	"log"
 
 	"github.com/go-spatial/geom"
+	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
 	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/go-spatial/geom/winding"
 )
-
-// START copied from vector_tile.pb.go
-
-type GSTileGeomType int32
-
-const (
-	TileUNKNOWN    GSTileGeomType = 0
-	TilePOINT      GSTileGeomType = 1
-	TileLINESTRING GSTileGeomType = 2
-	TilePOLYGON    GSTileGeomType = 3
-)
-
-var TileGeomTypeName = map[int32]string{
-	0: "UNKNOWN",
-	1: "POINT",
-	2: "LINESTRING",
-	3: "POLYGON",
-}
-
-var TileGeomTypeValue = map[string]int32{
-	"UNKNOWN":    0,
-	"POINT":      1,
-	"LINESTRING": 2,
-	"POLYGON":    3,
-}
-
-var (
-	ErrNilFeature          = errors.New("feature is nil")
-	ErrUnknownGeometryType = errors.New("unknown geometry type")
-	ErrNilGeometryType     = errors.New("geometry is nil")
-)
-
-type GSTileFeature struct {
-	Id *uint64 `protobuf:"varint,1,opt,name=id,def=0" json:"id,omitempty"`
-	// Tags of this feature are encoded as repeated pairs of
-	// integers.
-	// A detailed description of tags is located in sections
-	// 4.2 and 4.4 of the specification
-	Tags []uint32 `protobuf:"varint,2,rep,packed,name=tags" json:"tags,omitempty"`
-	// The type of geometry stored in this feature.
-	Type *GSTileGeomType `protobuf:"varint,3,opt,name=type,enum=vector_tile.Tile_GeomType,def=0" json:"type,omitempty"`
-	// Contains a stream of commands and parameters (vertices).
-	// A detailed description on geometry encoding is located in
-	// section 4.3 of the specification.
-	Geometry        []uint32 `protobuf:"varint,4,rep,packed,name=geometry" json:"geometry,omitempty"`
-	XXXunrecognized []byte   `json:"-"`
-}
-
-// END copied from vector_tile.pb.go
 
 // Definition needed for compilation
 const debug = false
@@ -80,70 +31,12 @@ const debug = false
 // Feature describes a feature of a Layer. A layer will contain multiple features
 // each of which has a geometry describing the interesting thing, and the metadata
 // associated with it.
-type Feature struct { //nolint:recvcheck
-	ID       *uint64
-	Tags     map[string]any
-	Geometry geom.Geometry
-}
 
-func (f Feature) String() string {
-	g, err := wkt.EncodeString(f.Geometry)
-	if err != nil {
-		return fmt.Sprintf("encoding error for geom geom, %v", err)
-	}
-
-	if f.ID != nil {
-		return fmt.Sprintf("{Feature: %v, GEO: %v, Tags: %+v}", *f.ID, g, f.Tags)
-	}
-
-	return fmt.Sprintf("{Feature: GEO: %v, Tags: %+v}", g, f.Tags)
-}
-
-// NewFeatures returns one or more features for the given Geometry
-func NewFeatures(geo geom.Geometry, tags map[string]any) (f []Feature) {
-	if geo == nil {
-		return f // return empty feature set for a nil geometry
-	}
-
-	if g, ok := geo.(geom.Collection); ok {
-		geos := g.Geometries()
-		for i := range geos {
-			f = append(f, NewFeatures(geos[i], tags)...)
-		}
-		return f
-	}
-
-	f = append(f, Feature{
-		Tags:     tags,
-		Geometry: geo,
-	})
-
-	return f
-}
-
-// VTileFeature will return a vectorTile.Feature that would represent the Feature
-func (f *Feature) VTileFeature(keys []string, vals []any) (tf *GSTileFeature, err error) {
-	tf = new(GSTileFeature)
-	tf.Id = f.ID
-
-	if tf.Tags, err = keyvalTagsMap(keys, vals, f); err != nil {
-		return tf, err
-	}
-
-	geo, gtype, err := EncodeGeometry(f.Geometry)
-	if err != nil {
-		return tf, err
-	}
-
-	if len(geo) == 0 {
-		return nil, nil
-	}
-
-	tf.Geometry = geo
-	tf.Type = &gtype
-
-	return tf, nil
-}
+var (
+	ErrNilFeature          = errors.New("feature is nil")
+	ErrUnknownGeometryType = errors.New("unknown geometry type")
+	ErrNilGeometryType     = errors.New("geometry is nil")
+)
 
 // These values came from: https://github.com/mapbox/vector-tile-spec/tree/master/2.1
 const (
@@ -349,9 +242,9 @@ func (c *cursor) encodePolygon(geo geom.Polygon) []uint32 {
 
 // EncodeGeometry will take a geom.Geometry and encode it according to the
 // mapbox vector_tile spec.
-func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp GSTileGeomType, err error) {
+func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp vectorTile.Tile_GeomType, err error) {
 	if geometry == nil {
-		return nil, TileUNKNOWN, ErrNilGeometryType
+		return nil, vectorTile.Tile_UNKNOWN, ErrNilGeometryType
 	}
 
 	c := NewCursor()
@@ -359,17 +252,17 @@ func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp GSTileGeomType, er
 	switch t := geometry.(type) {
 	case geom.Point:
 		g = append(g, c.MoveTo(t)...)
-		return g, TilePOINT, nil
+		return g, vectorTile.Tile_POINT, nil
 
 	case geom.MultiPoint:
 		g = append(g, c.MoveTo(t.Points()...)...)
-		return g, TilePOINT, nil
+		return g, vectorTile.Tile_POINT, nil
 
 	case geom.LineString:
 		points := t.Vertices()
 		g = append(g, c.MoveTo(points[0])...)
 		g = append(g, c.LineTo(points[1:]...)...)
-		return g, TileLINESTRING, nil
+		return g, vectorTile.Tile_LINESTRING, nil
 
 	case geom.MultiLineString:
 		lines := t.LineStrings()
@@ -378,159 +271,31 @@ func EncodeGeometry(geometry geom.Geometry) (g []uint32, vtyp GSTileGeomType, er
 			g = append(g, c.MoveTo(points[0])...)
 			g = append(g, c.LineTo(points[1:]...)...)
 		}
-		return g, TileLINESTRING, nil
+		return g, vectorTile.Tile_LINESTRING, nil
 
 	case geom.Polygon:
 		g = append(g, c.encodePolygon(t)...)
-		return g, TilePOLYGON, nil
+		return g, vectorTile.Tile_POLYGON, nil
 
 	case geom.MultiPolygon:
 		polygons := t.Polygons()
 		for _, p := range polygons {
 			g = append(g, c.encodePolygon(p)...)
 		}
-		return g, TilePOLYGON, nil
+		return g, vectorTile.Tile_POLYGON, nil
 
 	case *geom.MultiPolygon:
 		if t == nil {
-			return g, TilePOLYGON, nil
+			return g, vectorTile.Tile_POLYGON, nil
 		}
 
 		polygons := t.Polygons()
 		for _, p := range polygons {
 			g = append(g, c.encodePolygon(p)...)
 		}
-		return g, TilePOLYGON, nil
+		return g, vectorTile.Tile_POLYGON, nil
 
 	default:
-		return nil, TileUNKNOWN, ErrUnknownGeometryType
+		return nil, vectorTile.Tile_UNKNOWN, ErrUnknownGeometryType
 	}
-}
-
-// keyvalTagsMap will return the tags map as expected by the mapbox tile spec. It takes
-// a keyMap and a valueMap that list the order of the expected keys and values. It will
-// return a vector map that refers to these two maps.
-func keyvalTagsMap(keyMap []string, valueMap []any, f *Feature) (tags []uint32, err error) { //nolint: cyclop,funlen
-	if f == nil {
-		return nil, ErrNilFeature
-	}
-
-	var kidx, vidx int64
-
-	for key, val := range f.Tags {
-
-		kidx, vidx = -1, -1 // Set to known not found value.
-
-		for i, k := range keyMap {
-			if k != key {
-				continue // move to the next key
-			}
-			kidx = int64(i)
-			break // we found a match
-		}
-
-		if kidx == -1 {
-			log.Printf("did not find key (%v) in keymap.", key)
-			return tags, fmt.Errorf("did not find key (%v) in keymap", key)
-		}
-
-		// if val is nil we skip it for now
-		// https://github.com/mapbox/vector-tile-spec/issues/62
-		if val == nil {
-			continue
-		}
-
-		for i, v := range valueMap {
-			switch tv := val.(type) {
-			default:
-				return tags, fmt.Errorf("value (%[1]v) of type (%[1]T) for key (%[2]v) is not supported", tv, key)
-			case string:
-				vmt, ok := v.(string) // Make sure the type of the Value map matches the type of the Tag's value
-				if !ok || vmt != tv { // and that the values match
-					continue // if they don't match move to the next value.
-				}
-			case fmt.Stringer:
-				vmt, ok := v.(fmt.Stringer)
-				if !ok || vmt.String() != tv.String() {
-					continue
-				}
-			case int:
-				vmt, ok := v.(int)
-				if !ok || vmt != tv {
-					continue
-				}
-			case int8:
-				vmt, ok := v.(int8)
-				if !ok || vmt != tv {
-					continue
-				}
-			case int16:
-				vmt, ok := v.(int16)
-				if !ok || vmt != tv {
-					continue
-				}
-			case int32:
-				vmt, ok := v.(int32)
-				if !ok || vmt != tv {
-					continue
-				}
-			case int64:
-				vmt, ok := v.(int64)
-				if !ok || vmt != tv {
-					continue
-				}
-			case uint:
-				vmt, ok := v.(uint)
-				if !ok || vmt != tv {
-					continue
-				}
-			case uint8:
-				vmt, ok := v.(uint8)
-				if !ok || vmt != tv {
-					continue
-				}
-			case uint16:
-				vmt, ok := v.(uint16)
-				if !ok || vmt != tv {
-					continue
-				}
-			case uint32:
-				vmt, ok := v.(uint32)
-				if !ok || vmt != tv {
-					continue
-				}
-			case uint64:
-				vmt, ok := v.(uint64)
-				if !ok || vmt != tv {
-					continue
-				}
-
-			case float32:
-				vmt, ok := v.(float32)
-				if !ok || vmt != tv {
-					continue
-				}
-			case float64:
-				vmt, ok := v.(float64)
-				if !ok || vmt != tv {
-					continue
-				}
-			case bool:
-				vmt, ok := v.(bool)
-				if !ok || vmt != tv {
-					continue
-				}
-			} // Values Switch Statement
-			// if the values match let's record the index.
-			vidx = int64(i)
-			break // we found our value no need to continue on.
-		} // range on value
-
-		if vidx == -1 { // None of the values matched.
-			return tags, fmt.Errorf("did not find a value: %v in valuemap", val)
-		}
-		tags = append(tags, uint32(kidx), uint32(vidx)) //nolint: gosec // G115 casting sems unavoidable
-	} // Move to the next tag key and value.
-
-	return tags, nil
 }

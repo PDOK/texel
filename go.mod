@@ -7,6 +7,7 @@ require (
 	github.com/creasty/defaults v1.8.0
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/go-spatial/geom v0.1.0
+	github.com/golang/protobuf v1.5.3
 	github.com/iancoleman/strcase v0.3.0
 	github.com/muesli/reflow v0.3.0
 	github.com/perimeterx/marshmallow v1.1.5
@@ -29,7 +30,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-spatial/proj v0.3.0 // indirect
 	github.com/go-test/deep v1.1.1 // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
