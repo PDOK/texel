@@ -53,13 +53,17 @@ func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ri
 	type coord struct{ x, y int }
 
 	frontier := []coord{{startX, startY}}
+	prevFrontier := make([]coord, 0)
 	ix.tryRegisterTile(intLine, startX, startY, tileLevel, bufferSize, register, idx)
 
-	for len(frontier) > 0 {
-		nextSet := make(map[coord]bool, len(frontier)*2)
+	for len(prevFrontier)+len(frontier) > 0 {
+		nextSet := make(map[coord]bool, len(frontier)*2+len(prevFrontier))
 		for _, cur := range frontier {
 			nextSet[coord{cur.x + dx, cur.y}] = true
 			nextSet[coord{cur.x, cur.y + dy}] = true
+		}
+		for _, prev := range prevFrontier {
+			nextSet[coord{prev.x + dx, prev.y + dy}] = true
 		}
 
 		next := make([]coord, 0, len(nextSet))
@@ -68,6 +72,7 @@ func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ri
 				next = append(next, c)
 			}
 		}
+		prevFrontier = frontier
 		frontier = next
 	}
 }
@@ -201,11 +206,11 @@ func (ix *PointIndex) findIntersectingTilesLeft(x, y, targetLevel Level, classif
 	return intersectingCurrentLevel
 }
 
-func (ix *PointIndex) classifyNonIntersectingTile(z morton.Z, targetLevel Level, segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification, polygon geom.Polygon) TileClassification {
+func (ix *PointIndex) classifyNonIntersectingTile(z morton.Z, tileLevel Level, segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification, polygon geom.Polygon) TileClassification {
 	x, y := morton.FromZ(z)
-	intersectingTilesLeft := ix.findIntersectingTilesLeft(x, y, targetLevel, classification)
+	intersectingTilesLeft := ix.findIntersectingTilesLeft(x, y, tileLevel, classification)
 
-	tileHeightCoord := ix.getResolution(targetLevel)*intgeom.M(y) + ix.intExtent.MinY() //nolint:gosec // G115
+	tileHeightCoord := ix.getResolution(tileLevel)*intgeom.M(y) + ix.intExtent.MinY() //nolint:gosec // G115
 
 	seen := make(map[SegmentIdx]bool)
 	numIntersections := 0
@@ -250,27 +255,28 @@ func (ix *PointIndex) classifyNonIntersectingTiles(targetLevel, currentLevel Lev
 	}
 
 	children := getChildren(currentZ)
-	countPresent := 0
+	intersectingChildren := make([]morton.Z, 0, 4)
+	nextLevel := currentLevel + 1
 
 	// Process unknown children
 	for _, child := range children {
-		if _, present := classification[currentLevel][child]; present {
-			countPresent++
+		if _, present := classification[nextLevel][child]; present {
+			intersectingChildren = append(intersectingChildren, child)
 			continue
 		}
 		if containsAll {
-			classification[currentLevel][child] = ClassificationOutside
+			classification[nextLevel][child] = ClassificationOutside
 		} else {
-			ix.classifyNonIntersectingTile(child, currentLevel, segments, classification, polygon)
+			classification[nextLevel][child] = ix.classifyNonIntersectingTile(child, nextLevel, segments, classification, polygon)
 		}
 	}
 
-	containsAll = containsAll && countPresent < 2
+	containsAll = containsAll && len(intersectingChildren) < 2
 
 	// Recurse for intersecting children
-	for _, child := range children {
-		if _, present := classification[currentLevel][child]; present {
-			ix.classifyNonIntersectingTiles(targetLevel, currentLevel+1, child, containsAll, segments, classification, polygon)
+	for _, child := range intersectingChildren {
+		if _, present := classification[nextLevel][child]; present {
+			ix.classifyNonIntersectingTiles(targetLevel, nextLevel, child, containsAll, segments, classification, polygon)
 		}
 	}
 }

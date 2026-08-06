@@ -9,6 +9,8 @@ import (
 
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/mathhelp"
+	"github.com/pdok/texel/morton"
+	"github.com/pdok/texel/tms20"
 )
 
 // registeredTile records a single call to a RegisterFunc during a test.
@@ -28,10 +30,7 @@ func recordingRegister(dst *[]registeredTile) RegisterFunc {
 	}
 }
 
-// uniqueTileCoords reduces recorded tiles to the (deduplicated, sorted) set
-// of (x, y) tile coordinates touched. registerQuadrant/register is expected
-// to be idempotent, so functionally only the set of touched tiles matters,
-// not how many times or in what order each one was registered.
+// order and deduplicate slice of registeredTile (for testing)
 func uniqueTileCoords(records []registeredTile) [][2]uint {
 	seen := map[[2]uint]bool{}
 	var out [][2]uint
@@ -51,10 +50,7 @@ func uniqueTileCoords(records []registeredTile) [][2]uint {
 	return out
 }
 
-// newOffsetPointIndex builds a minimal PointIndex covering a
-// cellSize*2^deepestLevel square, with its bottom-left corner at
-// (originX, originY) instead of (0, 0). For testing the lineTrace
-// function
+// Pointindex with centre not at (0,0)
 func newOffsetPointIndex(deepestLevel Level, cellSize, originX, originY float64) *PointIndex {
 	deepestSize := mathhelp.Pow2(deepestLevel)
 	span := cellSize * float64(deepestSize)
@@ -83,7 +79,6 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 		buffer       uint
 		want         [][2]uint
 	}{
-		// --- Group A: plain raycast, no buffer, levelDiff > 0 (tileSize > deepestRes) ---
 		{
 			name:         "no buffer, +x+y diagonal",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
@@ -112,108 +107,90 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			buffer: 0,
 			want:   [][2]uint{{0, 2}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {3, 0}},
 		},
-
-		// --- Group A with buffer: same diagonals, but a positive buffer must
-		// pull in extra tiles alongside the ones already found above. Uses a
-		// bigger grid (deepestLevel 4, same tileSize 2) so the buffer doesn't
-		// reach past the grid's own edge. ---
 		{
-			name:         "buffer, +x+y diagonal: extra tile near start",
+			name:         "buffer, +x+y diagonal (reaches beyond index limit)",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 2}, geom.Point{14, 9}},
 			buffer: 2,
 			want:   [][2]uint{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {2, 2}, {3, 1}, {3, 2}},
 		},
 		{
-			name:         "buffer, -x-y diagonal: extra tiles near start",
+			name:         "buffer, -x-y diagonal (ververse of +x+y)",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{14, 9}, geom.Point{2, 2}},
 			buffer: 2,
 			want:   [][2]uint{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {1, 2}, {2, 0}, {2, 1}, {2, 2}, {3, 1}, {3, 2}},
 		},
 		{
-			name:         "buffer, +x-y diagonal: extra tiles near start",
+			name:         "buffer, +x-y diagonal",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 10}, geom.Point{14, 2}},
 			buffer: 2,
 			want:   [][2]uint{{0, 1}, {0, 2}, {0, 3}, {1, 0}, {1, 1}, {1, 2}, {1, 3}, {2, 0}, {2, 1}, {2, 2}, {3, 0}, {3, 1}},
 		},
 		{
-			name:         "buffer, -x+y diagonal: extra tiles near start",
+			name:         "buffer, -x+y diagonal: (reverse of +x-y)",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{14, 2}, geom.Point{2, 10}},
 			buffer: 2,
 			want:   [][2]uint{{0, 1}, {0, 2}, {0, 3}, {1, 0}, {1, 1}, {1, 2}, {1, 3}, {2, 0}, {2, 1}, {2, 2}, {3, 0}, {3, 1}},
 		},
-
-		// --- Degenerate axis-aligned lines: documented pre-existing limitation ---
-		// (dx=0 or dy=0 makes D == 0, so the traversal loop never advances;
-		// only the start tile - and its buffered neighbors - are registered.)
 		{
-			name:         "degenerate horizontal line only registers start tile",
+			name:         "horizontal line",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 5}, geom.Point{14, 5}},
 			buffer: 0,
 			want:   [][2]uint{{0, 1}, {1, 1}, {2, 1}, {3, 1}},
 		},
 		{
-			name:         "degenerate vertical line only registers start tile",
+			name:         "vertical line",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{5, 2}, geom.Point{5, 14}},
 			buffer: 0,
 			want:   [][2]uint{{1, 0}, {1, 1}, {1, 2}, {1, 3}},
 		},
-
-		// --- Group B: buffer inflates the start-point registration ---
 		{
-			name:         "end in corner, no buffer, no registering of other tiles",
+			name:         "end in upper right corner",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 2}, geom.Point{3, 3}},
 			buffer: 0,
 			want:   [][2]uint{{0, 0}},
 		},
 		{
-			name:         "end in corner, with buffer, register tiles across edge",
+			name:         "alongside upper edge",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{2, 2}, geom.Point{3, 3}},
 			buffer: 1,
 			want:   [][2]uint{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
 		},
 		{
-			name:         "start near edge, buffer registers neighbour tile",
+			name:         "start in corner, register tiles behind you",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
-			line:   geom.Line{geom.Point{1, 3}, geom.Point{2, 3}},
+			line:   geom.Line{geom.Point{3, 3}, geom.Point{2, 2}},
 			buffer: 1,
-			want:   [][2]uint{{0, 0}, {0, 1}},
+			want:   [][2]uint{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
 		},
-
-		// --- Group C: buffer makes the traversal loop run longer, reaching
-		// extra tiles it wouldn't otherwise touch near the segment's end ---
 		{
-			name:         "no buffer: diagonal crossing a shared corner touches 4 tiles",
+			name:         "no buffer: walk across tile corner",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{6, 6}, geom.Point{10, 10}},
 			buffer: 0,
 			want:   [][2]uint{{1, 1}, {1, 2}, {2, 1}, {2, 2}},
 		},
 		{
-			name:         "small buffer: diagonal crossing of buffer boundary touches 4 tiles",
+			name:         "buffer: walk across tile corner",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{6, 6}, geom.Point{7, 7}},
 			buffer: 1,
 			want:   [][2]uint{{1, 1}, {1, 2}, {2, 1}, {2, 2}},
 		},
 		{
-			name:         "buffer of line clips upper right corner of tile, not detected",
+			name:         "buffer clips upper right corner of tile",
 			deepestLevel: 4, l: 2, cellSize: 1.0,
 			line:   geom.Line{geom.Point{12, 14}, geom.Point{14, 12}},
 			buffer: 1,
 			want:   [][2]uint{{2, 2}, {2, 3}, {3, 2}, {3, 3}}, // Arguably {2,2} should not be here
 		},
-		// --- Group E: non-zero grid origin (MinX/MinY offset bug fix) ---
-		// Same relative geometry as the "+x+y diagonal" case above, translated
-		// by (+100, +100): the resulting tile pattern must be identical,
-		// proving intExtent.MinX()/MinY() are correctly taken into account.
 		{
 			name:         "non-zero origin: same relative result as +x+y diagonal",
 			deepestLevel: 4, l: 2, cellSize: 1.0, originX: 100, originY: 100,
@@ -238,6 +215,497 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			ix.lineTrace(tt.line, tt.l, tt.deepestLevel, 0, 0, tt.buffer, recordingRegister(&recorded))
 
 			got := uniqueTileCoords(recorded)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// helper for building classification data
+func buildClassification(tuples ...[3]uint) map[Level]map[morton.Z]TileClassification {
+	classification := make(map[Level]map[morton.Z]TileClassification)
+	for _, tuple := range tuples {
+		level, x, y := tuple[0], tuple[1], tuple[2]
+		if classification[level] == nil {
+			classification[level] = make(map[morton.Z]TileClassification)
+		}
+		classification[level][morton.MustToZ(x, y)] = ClassificationIntersect
+	}
+	return classification
+}
+
+func TestPointIndex_findIntersectingTilesLeft(t *testing.T) {
+	tests := []struct {
+		name           string
+		x, y           uint
+		targetLevel    Level
+		classification map[Level]map[morton.Z]TileClassification
+		want           []morton.Z
+	}{
+		{
+			name:           "trivial example at level 0",
+			x:              0,
+			y:              0,
+			targetLevel:    0,
+			classification: buildClassification(),
+			want:           []morton.Z{0},
+		},
+		{
+			name:           "no tiles",
+			x:              3,
+			y:              3,
+			targetLevel:    2,
+			classification: buildClassification(),
+			want:           []morton.Z{},
+		},
+		{
+			name:        "single tile registered, check left from this tile.",
+			x:           0,
+			y:           0,
+			targetLevel: 3,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 0, 0},
+				[3]uint{2, 0, 0},
+				[3]uint{3, 0, 0},
+			),
+			want: []morton.Z{0},
+		},
+		{
+			name:        "single tile registered, check this tile, requires rightChild",
+			x:           1,
+			y:           0,
+			targetLevel: 1,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 1, 0},
+			),
+			want: []morton.Z{1},
+		},
+		{
+			name:        "tile registered right of target",
+			x:           0,
+			y:           0,
+			targetLevel: 1,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 1, 0},
+			),
+			want: []morton.Z{},
+		},
+		{
+			name:        "use odd y coordinate",
+			x:           0,
+			y:           1,
+			targetLevel: 1,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 0, 1},
+			),
+			want: []morton.Z{2},
+		},
+		{
+			name:        "use odd y and rightChild",
+			x:           0,
+			y:           1,
+			targetLevel: 1,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 1, 1},
+			),
+			want: []morton.Z{},
+		},
+		{
+			name:        "ordd y and rightChild, want to find it",
+			x:           1,
+			y:           1,
+			targetLevel: 1,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 1, 1},
+			),
+			want: []morton.Z{3},
+		},
+		{
+			name:        "register entire row",
+			x:           3,
+			y:           0,
+			targetLevel: 2,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 0, 0},
+				[3]uint{1, 1, 0},
+				[3]uint{2, 0, 0},
+				[3]uint{2, 1, 0},
+				[3]uint{2, 2, 0},
+				[3]uint{2, 3, 0},
+			),
+			want: []morton.Z{0, 1, 4, 5},
+		},
+		{
+			name:        "corners of grid populated",
+			x:           7,
+			y:           7,
+			targetLevel: 3,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 0, 0}, [3]uint{1, 0, 1}, [3]uint{1, 1, 0}, [3]uint{1, 1, 1},
+				[3]uint{2, 0, 0}, [3]uint{2, 0, 3}, [3]uint{2, 3, 0}, [3]uint{2, 3, 3},
+				[3]uint{3, 0, 0}, [3]uint{3, 7, 0}, [3]uint{3, 0, 7}, [3]uint{3, 7, 7},
+			),
+			want: []morton.Z{42, 63},
+		},
+		{
+			name:        "general test with two disjoint tiles to pick up",
+			x:           6,
+			y:           7,
+			targetLevel: 3,
+			classification: buildClassification(
+				[3]uint{0, 0, 0},
+				[3]uint{1, 0, 1}, [3]uint{1, 1, 1},
+				[3]uint{2, 0, 3}, [3]uint{2, 2, 3}, [3]uint{2, 3, 3},
+				[3]uint{3, 0, 7}, [3]uint{2, 6, 1}, [3]uint{3, 5, 7}, [3]uint{3, 7, 7},
+			),
+			want: []morton.Z{42, 59},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ix := newSimplePointIndex(tt.targetLevel, 1.0)
+			got := ix.findIntersectingTilesLeft(tt.x, tt.y, tt.targetLevel, tt.classification)
+			t.Logf("findIntersectingTilesLeft(%d, %d, %d) = %v", tt.x, tt.y, tt.targetLevel, got)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func squarePolygon(minX, minY, maxX, maxY float64) geom.Polygon {
+	return geom.Polygon{
+		{{minX, minY}, {maxX, minY}, {maxX, maxY}, {minX, maxY}},
+	}
+}
+
+func squareWithHolePolygon(minX, minY, maxX, maxY, holeMinX, holeMinY, holeMaxX, holeMaxY float64) geom.Polygon {
+	return geom.Polygon{
+		{{minX, minY}, {maxX, minY}, {maxX, maxY}, {minX, maxY}},
+		{{holeMinX, holeMinY}, {holeMinX, holeMaxY}, {holeMaxX, holeMaxY}, {holeMaxX, holeMinY}},
+	}
+}
+
+func trianglePolygon(x1, y1, x2, y2, x3, y3 float64) geom.Polygon {
+	return geom.Polygon{
+		{{x1, y1}, {x2, y2}, {x3, y3}},
+	}
+}
+
+func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
+	tests := []struct {
+		name         string
+		ix           *PointIndex
+		polygon      geom.Polygon
+		tmsID        tms20.TMID
+		buffer       uint
+		tileLevel    Level
+		tileX, tileY uint
+		want         TileClassification
+	}{
+		{
+			name:      "tile outside a centered square",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   squarePolygon(2, 2, 6, 6),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     0,
+			tileY:     0,
+			want:      ClassificationOutside,
+		},
+		{
+			name:      "tile inside a centered square",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   squarePolygon(2, 2, 6, 6),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     3,
+			tileY:     3,
+			want:      ClassificationInside,
+		},
+		{
+			name:      "higher-level tile inside a centered square",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   squarePolygon(1, 1, 6, 6),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 2,
+			tileX:     1,
+			tileY:     1,
+			want:      ClassificationInside,
+		},
+		{
+			name:      "tile clearly outside, opposite corner",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   squarePolygon(2, 2, 6, 6),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     7,
+			tileY:     7,
+			want:      ClassificationOutside,
+		},
+		{
+			name: "tile inside the hole of a donut polygon",
+			ix:   newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			// This should work with hole 3,3,5,5 but lineIntesects is buggy
+			polygon:   squareWithHolePolygon(0, 0, 7, 7, 3, 3, 6, 6),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     4,
+			tileY:     4,
+			want:      ClassificationOutside,
+		},
+		{
+			name:      "tile in the solid part of a donut polygon",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   squareWithHolePolygon(0, 0, 8, 8, 3, 3, 5, 5),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     1,
+			tileY:     1,
+			want:      ClassificationInside,
+		},
+		{
+			name:      "tile in the solid part of a donut polygon, far corner",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   squareWithHolePolygon(0, 0, 8, 8, 3, 3, 6, 6),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     7,
+			tileY:     7,
+			want:      ClassificationOutside,
+		},
+		{
+			name:      "tile below a diagonal triangle (raycast hits intersection)",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   trianglePolygon(0, 0, 0, 7, 7, 7),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     1,
+			tileY:     0,
+			want:      ClassificationOutside,
+		},
+		{
+			name:      "tile above a diagonal triangle (raycast hits intersection)",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   trianglePolygon(0, 0, 7, 0, 0, 7),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     1,
+			tileY:     7,
+			want:      ClassificationOutside,
+		},
+		{
+			name:      "nonzero buffer around a centered square",
+			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon:   squarePolygon(2, 2, 6, 6),
+			tmsID:     3,
+			buffer:    4,
+			tileLevel: 3,
+			tileX:     0,
+			tileY:     0,
+			want:      ClassificationOutside,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			segments, classification := tt.ix.registerPolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
+			z := morton.MustToZ(tt.tileX, tt.tileY)
+			got := tt.ix.classifyNonIntersectingTile(z, tt.tileLevel, segments, classification, tt.polygon)
+			t.Logf("classifyNonIntersectingTile(tile=(%d,%d)) = %v", tt.tileX, tt.tileY, got)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// convert classification data to visual test data
+func classificationGrid(classification map[Level]map[morton.Z]TileClassification, targetLevel Level) map[Level][][]TileClassification {
+	grid := make(map[Level][][]TileClassification, targetLevel+1)
+	for l := Level(0); l <= targetLevel; l++ {
+		levelClassification := classification[l]
+		size := uint(1) << l
+		rows := make([][]TileClassification, size)
+		for y := range size {
+			row := make([]TileClassification, size)
+			for x := range size {
+				z := morton.MustToZ(x, y)
+				if c, ok := levelClassification[z]; ok {
+					row[x] = c
+				} else {
+					row[x] = ClassificationUnknown
+				}
+			}
+			rows[y] = row
+		}
+		grid[l] = rows
+	}
+	return grid
+}
+
+func TestPointIndex_classifyNonIntersectingTiles(t *testing.T) {
+	const (
+		u = ClassificationUnknown
+		x = ClassificationIntersect
+		i = ClassificationInside
+		o = ClassificationOutside
+	)
+	tests := []struct {
+		name    string
+		ix      *PointIndex
+		polygon geom.Polygon
+		tmsID   tms20.TMID
+		buffer  uint
+		want    map[Level][][]TileClassification
+	}{
+		{
+			name:    "centered square",
+			ix:      newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon: squarePolygon(2, 2, 6, 6),
+			tmsID:   3,
+			buffer:  0,
+			want: map[Level][][]TileClassification{
+				0: {{x}},
+				1: {{x, x}, {x, x}},
+				2: {
+					{o, x, x, o},
+					{x, x, x, x},
+					{x, x, x, x},
+					{o, x, x, x},
+				},
+				3: {
+					{u, u, o, o, o, o, u, u},
+					{u, u, x, x, x, x, u, u},
+					{o, x, x, x, x, x, x, o},
+					{o, x, x, i, i, x, x, o},
+					{o, x, x, i, i, x, x, o},
+					{o, x, x, x, x, x, x, o},
+					{u, u, x, x, x, x, x, o},
+					{u, u, o, o, o, o, o, o},
+				},
+			},
+		},
+		{
+			name:    "donut polygon (square with a square hole)",
+			ix:      newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon: squareWithHolePolygon(0, 0, 7, 7, 3, 3, 5, 5),
+			tmsID:   3,
+			buffer:  0,
+			want: map[Level][][]TileClassification{
+				0: {{x}},
+				1: {{x, x}, {x, x}},
+				2: {
+					{x, x, x, x},
+					{x, x, x, x},
+					{x, x, x, x},
+					{x, x, x, x},
+				},
+				3: {
+					{x, x, x, x, x, x, x, x},
+					{x, i, i, i, i, i, x, x},
+					{x, i, i, x, x, i, x, x},
+					{x, i, x, x, x, x, x, x},
+					{x, i, x, x, x, x, x, x},
+					{x, i, i, x, x, x, x, x},
+					{x, x, x, x, x, x, x, x},
+					{x, x, x, x, x, x, x, x},
+				},
+			},
+		},
+		{
+			name:    "diagonal triangle",
+			ix:      newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon: trianglePolygon(0, 0, 7, 0, 7, 7),
+			tmsID:   3,
+			buffer:  0,
+			want: map[Level][][]TileClassification{
+				0: {{x}},
+				1: {{x, x}, {x, x}},
+				2: {
+					{x, x, x, x},
+					{x, x, x, x},
+					{o, x, x, x},
+					{o, o, x, x},
+				},
+				3: {
+					{x, x, x, x, x, x, x, x},
+					{x, x, x, i, i, i, x, x},
+					{o, x, x, x, i, i, x, x},
+					{o, o, x, x, x, i, x, x},
+					{u, u, o, x, x, x, x, x},
+					{u, u, o, o, x, x, x, x},
+					{u, u, u, u, o, x, x, x},
+					{u, u, u, u, o, o, o, x},
+				},
+			},
+		},
+		{
+			name:    "polygon covering the whole extent",
+			ix:      newSimplePointIndexWithPixels(2, 1.0, 256, 16),
+			polygon: squarePolygon(0, 0, 4, 4),
+			tmsID:   2,
+			buffer:  0,
+			want: map[Level][][]TileClassification{
+				0: {{x}},
+				1: {{x, x}, {x, x}},
+				2: {
+					{x, x, x, x},
+					{x, i, i, x},
+					{x, i, i, x},
+					{x, x, x, x},
+				},
+			},
+		},
+		{
+			name:    "tiny polygon in a single corner tile",
+			ix:      newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			polygon: squarePolygon(0.25, 0.25, 0.75, 0.75),
+			tmsID:   3,
+			buffer:  0,
+			want: map[Level][][]TileClassification{
+				0: {{x}},
+				1: {{x, o}, {o, o}},
+				2: {
+					{x, o, u, u},
+					{o, o, u, u},
+					{u, u, u, u},
+					{u, u, u, u},
+				},
+				3: {
+					{x, o, u, u, u, u, u, u},
+					{o, o, u, u, u, u, u, u},
+					{u, u, u, u, u, u, u, u},
+					{u, u, u, u, u, u, u, u},
+					{u, u, u, u, u, u, u, u},
+					{u, u, u, u, u, u, u, u},
+					{u, u, u, u, u, u, u, u},
+					{u, u, u, u, u, u, u, u},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			targetLevel := Level(tt.tmsID) //nolint:gosec // G115
+			segments, classification := tt.ix.registerPolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
+			tt.ix.classifyNonIntersectingTiles(targetLevel, 0, 0, true, segments, classification, tt.polygon)
+
+			got := classificationGrid(classification, targetLevel)
+			for l := Level(0); l <= targetLevel; l++ {
+				t.Logf("level %d: %v", l, got[l])
+			}
 			assert.Equal(t, tt.want, got)
 		})
 	}

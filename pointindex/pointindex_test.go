@@ -629,6 +629,13 @@ func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 	return &ix
 }
 
+func newSimplePointIndexWithPixels(deepestLevel Level, cellSize float64, tilePixels, internalPixels uint) *PointIndex {
+	ix := newSimplePointIndex(deepestLevel, cellSize)
+	ix.tilePixels = tilePixels
+	ix.internalPixels = internalPixels
+	return ix
+}
+
 func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {
 	t.Helper()
 
