@@ -36,6 +36,14 @@ type Config struct {
 	IgnoreOutsideGrid   bool
 	ReverseWindingOrder bool
 	EncodeTiles         bool
+	// Buffer is the number of internal pixels by which the tile bounding
+	// box (or, when UseLineTrace is set, the line trace) is expanded.
+	Buffer uint
+	// UseLineTrace selects the tile-selection strategy: false (default)
+	// uses PointIndex.GetQBBoxWithBuffer (a simple buffered bounding box),
+	// true uses PointIndex.GetLineTraceResult (precise per-tile
+	// inside/outside/intersect classification).
+	UseLineTrace bool
 }
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
@@ -71,7 +79,12 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 	for level, newPolygons := range newPolygonsPerLevel {
 		var tilesbbox []tile.Tile
 		if config.EncodeTiles {
-			tilesbbox = ix.GetPrimitiveQBBox(pointindex.Level(tmIDsByLevels[level])) //nolint:gosec // G115 These are numbers < 40
+			tmID := tmIDsByLevels[level]
+			if config.UseLineTrace {
+				tilesbbox = ix.GetLineTraceResult(polygon, tmID, config.Buffer)
+			} else {
+				tilesbbox = ix.GetQBBoxWithBuffer(pointindex.Level(tmID), config.Buffer) //nolint:gosec // G115 These are numbers < 40
+			}
 		}
 		newGeometry := geomhelp.PolygonSliceToGeom(newPolygons)
 		newPolygonsPerTileMatrixID[tmIDsByLevels[level]] = processing.SnapResult{Geometry: newGeometry, Tiles: tilesbbox}
