@@ -7,6 +7,7 @@ import (
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
+	"github.com/pdok/texel/tile"
 	"github.com/pdok/texel/tms20"
 )
 
@@ -286,4 +287,38 @@ func (ix *PointIndex) ClassifyTiles(polygon geom.Polygon, tmsID tms20.TMID, buff
 	segments, classification := ix.registerPolygonEdges(polygon, tmsID, buffer)
 	ix.classifyNonIntersectingTiles(targetLevel, 0, 0, true, segments, classification, polygon)
 	return classification
+}
+
+// Plumbing function
+// Process output of ClassifyTiles
+func (ix *PointIndex) GetLineTraceResult(polygon geom.Polygon, tmsID tms20.TMID, buffer uint) (tiles []tile.Tile) {
+	classification := ix.ClassifyTiles(polygon, tmsID, buffer)
+	level := Level(tmsID) //nolint:gosec // G115 integers < 40
+	classifyAtLevel := classification[level]
+	tiles = make([]tile.Tile, 0)
+
+	for z, class := range classifyAtLevel {
+		switch class {
+		case ClassificationInside:
+			tiles = append(tiles, ix.makeTile(z, level, true))
+		case ClassificationOutside:
+			continue
+		case ClassificationIntersect:
+			tiles = append(tiles, ix.makeTile(z, level, false))
+		case ClassificationUnknown:
+			panic("ClassificationUnknown tile for polygon during linetrace")
+		}
+	}
+	return tiles
+}
+
+func (ix *PointIndex) makeTile(z morton.Z, l Level, isContained bool) tile.Tile {
+	x, y := morton.FromZ(z)
+	extent, _ := ix.getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
+	return tile.Tile{
+		Extent:      extent,
+		X:           x,
+		Y:           y,
+		IsContained: isContained,
+	}
 }

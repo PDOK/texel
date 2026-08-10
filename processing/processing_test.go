@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/go-spatial/geom"
-	"github.com/pdok/texel/pointindex"
+	"github.com/pdok/texel/tile"
 	"github.com/pdok/texel/tms20"
 )
 
@@ -14,8 +14,8 @@ import (
 func TestProcessGeometry(t *testing.T) {
 	polyA := geom.Polygon{{{0, 0}, {1, 0}, {1, 1}, {0, 0}}}
 	polyB := geom.Polygon{{{2, 2}, {3, 2}, {3, 3}, {2, 2}}}
-	tileA := pointindex.Quadrant{}
-	tileB := pointindex.Quadrant{}
+	tileA := tile.Tile{}
+	tileB := tile.Tile{}
 
 	tests := []struct {
 		name string
@@ -32,10 +32,10 @@ func TestProcessGeometry(t *testing.T) {
 			geometry: polyA,
 			tmIDs:    []tms20.TMID{1},
 			callResults: []map[tms20.TMID]SnapResult{
-				{1: {Geometry: polyA, Tiles: []pointindex.Quadrant{tileA}}},
+				{1: {Geometry: polyA, Tiles: []tile.Tile{tileA}}},
 			},
 			want: map[tms20.TMID]SnapResult{
-				1: {Geometry: polyA, Tiles: []pointindex.Quadrant{tileA}},
+				1: {Geometry: polyA, Tiles: []tile.Tile{tileA}},
 			},
 		},
 		{
@@ -69,10 +69,10 @@ func TestProcessGeometry(t *testing.T) {
 			geometry: geom.MultiPolygon{polyA},
 			tmIDs:    []tms20.TMID{1},
 			callResults: []map[tms20.TMID]SnapResult{
-				{1: {Geometry: polyA, Tiles: []pointindex.Quadrant{tileA}}},
+				{1: {Geometry: polyA, Tiles: []tile.Tile{tileA}}},
 			},
 			want: map[tms20.TMID]SnapResult{
-				1: {Geometry: polyA, Tiles: []pointindex.Quadrant{tileA}},
+				1: {Geometry: polyA, Tiles: []tile.Tile{tileA}},
 			},
 		},
 		{
@@ -80,11 +80,11 @@ func TestProcessGeometry(t *testing.T) {
 			geometry: geom.MultiPolygon{polyA, polyB},
 			tmIDs:    []tms20.TMID{1},
 			callResults: []map[tms20.TMID]SnapResult{
-				{1: {Geometry: polyA, Tiles: []pointindex.Quadrant{tileA}}},
-				{1: {Geometry: polyB, Tiles: []pointindex.Quadrant{tileB}}},
+				{1: {Geometry: polyA, Tiles: []tile.Tile{tileA}}},
+				{1: {Geometry: polyB, Tiles: []tile.Tile{tileB}}},
 			},
 			want: map[tms20.TMID]SnapResult{
-				1: {Geometry: geom.MultiPolygon{polyA, polyB}, Tiles: []pointindex.Quadrant{tileA, tileB}},
+				1: {Geometry: geom.MultiPolygon{polyA, polyB}, Tiles: []tile.Tile{tileA, tileB}},
 			},
 		},
 	}

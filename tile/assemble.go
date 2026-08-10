@@ -9,8 +9,8 @@ import (
 	"github.com/go-spatial/geom/encoding/mvt"
 	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
 	oldproto "github.com/golang/protobuf/proto" //nolint:staticcheck // needed: matches the reflection-based marshaling vector_tile.pb.go relies on
+	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/mapslicehelp"
-	"github.com/pdok/texel/pointindex"
 )
 
 const (
@@ -32,11 +32,18 @@ type EncodedFeatureRow struct {
 	Geom      EncodedGeometry
 }
 
+type Tile struct {
+	Extent      intgeom.Extent
+	X           uint
+	Y           uint
+	IsContained bool
+}
+
 // Transform geometry to tile extent, then encode. We assume the geometry is
 // snapped to the proposed grid, in which case makevalid operations should not
 // be necessary.
-func MvtEncodeGeometry(q pointindex.Quadrant, g geom.Geometry) EncodedGeometry {
-	ext := q.Extent()
+func MvtEncodeGeometry(q Tile, g geom.Geometry) EncodedGeometry {
+	ext := q.Extent.ToGeomExtent()
 	preparedGeo := mvt.PrepareGeo(g, &ext, float64(precision))
 
 	// This should not be necessary.
@@ -49,13 +56,11 @@ func MvtEncodeGeometry(q pointindex.Quadrant, g geom.Geometry) EncodedGeometry {
 		panic(err)
 	}
 
-	xTile, yTile := q.Coords()
-
 	return EncodedGeometry{
 		Encoding:     encgeom,
 		GeometryType: int32(geomtype),
-		XTile:        xTile,
-		YTile:        yTile,
+		XTile:        q.X,
+		YTile:        q.Y,
 	}
 }
 

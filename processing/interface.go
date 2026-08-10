@@ -2,7 +2,6 @@ package processing
 
 import (
 	"github.com/go-spatial/geom"
-	"github.com/pdok/texel/pointindex"
 	"github.com/pdok/texel/tile"
 )
 
@@ -21,7 +20,7 @@ type FeatureForTileMatrix interface {
 type SnapResult struct {
 	Geometry geom.Geometry
 	// Tiles is nil if encoding is not desired
-	Tiles []pointindex.Quadrant
+	Tiles []tile.Tile
 }
 
 type TileCoord struct {

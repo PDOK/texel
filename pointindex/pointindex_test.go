@@ -8,6 +8,7 @@ import (
 	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
+	"github.com/pdok/texel/tile"
 
 	"github.com/stretchr/testify/require"
 
@@ -183,13 +184,14 @@ func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
 				require.NoError(t, ix.InsertCoord(p[0], p[1]))
 			}
 
-			want := make([]Quadrant, 0, len(tt.wantTiles))
+			want := make([]tile.Tile, 0, len(tt.wantTiles))
 			for _, tc := range tt.wantTiles {
-				extent, centroid := ix.getQuadrantExtentAndCentroid(tt.tileLevel, tc.x, tc.y, ix.intExtent)
-				want = append(want, Quadrant{
-					z:           morton.MustToZ(tc.x, tc.y),
-					intExtent:   extent,
-					intCentroid: centroid,
+				extent, _ := ix.getQuadrantExtentAndCentroid(tt.tileLevel, tc.x, tc.y, ix.intExtent)
+				want = append(want, tile.Tile{
+					Extent:      extent,
+					X:           tc.x,
+					Y:           tc.y,
+					IsContained: false,
 				})
 			}
 

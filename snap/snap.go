@@ -11,6 +11,7 @@ import (
 	"github.com/pdok/texel/geomhelp"
 	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/pointindex"
+	"github.com/pdok/texel/tile"
 	"github.com/tobshub/go-sortedmap"
 	"golang.org/x/exp/maps" //nolint:exptostd
 
@@ -68,7 +69,7 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 
 	newPolygonsPerTileMatrixID := make(map[tms20.TMID]processing.SnapResult, len(newPolygonsPerLevel))
 	for level, newPolygons := range newPolygonsPerLevel {
-		var tilesbbox []pointindex.Quadrant
+		var tilesbbox []tile.Tile
 		if config.EncodeTiles {
 			tilesbbox = ix.GetPrimitiveQBBox(pointindex.Level(tmIDsByLevels[level])) //nolint:gosec // G115 These are numbers < 40
 		}
