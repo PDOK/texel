@@ -36,13 +36,10 @@ type Config struct {
 	IgnoreOutsideGrid   bool
 	ReverseWindingOrder bool
 	EncodeTiles         bool
-	// Buffer is the number of internal pixels by which the tile bounding
-	// box (or, when UseLineTrace is set, the line trace) is expanded.
+	// Buffer is the number of internal pixels that tiles get 
+	// inflated for detecting which geometries lie on them
 	Buffer uint
-	// UseLineTrace selects the tile-selection strategy: false (default)
-	// uses PointIndex.GetQBBoxWithBuffer (a simple buffered bounding box),
-	// true uses PointIndex.GetLineTraceResult (precise per-tile
-	// inside/outside/intersect classification).
+	// Decide whether to use lineTrace or BBox for tile detection
 	UseLineTrace bool
 }
 

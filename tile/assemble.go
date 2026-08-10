@@ -39,19 +39,46 @@ type Tile struct {
 	IsContained bool
 }
 
+func defaultEncoding(buffer uint) ([]uint32, vectorTile.Tile_GeomType, error) {
+	fbuffer := float64(buffer)
+	defaultPolygon := geom.Polygon{{
+		{-fbuffer, -fbuffer},
+		{-fbuffer, precision + fbuffer},
+		{precision + fbuffer, precision + fbuffer},
+		{precision + fbuffer, -fbuffer},
+	}}
+
+	defaultExtent := geom.Extent{
+		-fbuffer,
+		-fbuffer,
+		precision + fbuffer,
+		precision + fbuffer,
+	}
+	preparedPolygon := mvt.PrepareGeo(defaultPolygon, &defaultExtent, precision)
+
+	return EncodeGeometry(preparedPolygon)
+}
+
 // Transform geometry to tile extent, then encode. We assume the geometry is
 // snapped to the proposed grid, in which case makevalid operations should not
 // be necessary.
-func MvtEncodeGeometry(q Tile, g geom.Geometry) EncodedGeometry {
-	ext := q.Extent.ToGeomExtent()
-	preparedGeo := mvt.PrepareGeo(g, &ext, float64(precision))
+func MvtEncodeGeometry(t Tile, g geom.Geometry) EncodedGeometry {
+	var encgeom []uint32
+	var geomtype vectorTile.Tile_GeomType
+	var err error
+	if t.IsContained {
+		encgeom, geomtype, err = defaultEncoding(0)
+	} else {
+		ext := t.Extent.ToGeomExtent()
+		preparedGeo := mvt.PrepareGeo(g, &ext, float64(precision))
 
-	// This should not be necessary.
-	//	sg, err := convert.ToTegola(preparedGeo)
-	//	tegolaGeo, err := validate.CleanGeometry(context.TODO(), sg, &ext)
-	//	validatedGeo := convert.ToGeom(tegolaGeo)
+		// This should not be necessary.
+		//	sg, err := convert.ToTegola(preparedGeo)
+		//	tegolaGeo, err := validate.CleanGeometry(context.TODO(), sg, &ext)
+		//	validatedGeo := convert.ToGeom(tegolaGeo)
 
-	encgeom, geomtype, err := EncodeGeometry(preparedGeo)
+		encgeom, geomtype, err = EncodeGeometry(preparedGeo)
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -59,8 +86,8 @@ func MvtEncodeGeometry(q Tile, g geom.Geometry) EncodedGeometry {
 	return EncodedGeometry{
 		Encoding:     encgeom,
 		GeometryType: int32(geomtype),
-		XTile:        q.X,
-		YTile:        q.Y,
+		XTile:        t.X,
+		YTile:        t.Y,
 	}
 }
 
