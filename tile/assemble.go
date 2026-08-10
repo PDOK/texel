@@ -39,7 +39,19 @@ type Tile struct {
 	IsContained bool
 }
 
-func defaultEncoding(buffer uint) ([]uint32, vectorTile.Tile_GeomType, error) {
+// DefaultEncoding is the pre-encoded geometry for a tile that is fully
+// contained by a polygon, i.e. a square covering the tile's (buffered)
+// extent. Since it only depends on the (constant) buffer, it can be
+// computed once and reused for every contained tile.
+type DefaultEncoding struct {
+	Encoding []uint32
+	GeomType vectorTile.Tile_GeomType
+}
+
+// NewDefaultEncoding precomputes the DefaultEncoding for the given buffer
+// (in internal pixels). Compute once and reuse across calls to
+// MvtEncodeGeometry, since the result only depends on the buffer.
+func NewDefaultEncoding(buffer uint) (DefaultEncoding, error) {
 	fbuffer := float64(buffer)
 	defaultPolygon := geom.Polygon{{
 		{-fbuffer, -fbuffer},
@@ -56,18 +68,20 @@ func defaultEncoding(buffer uint) ([]uint32, vectorTile.Tile_GeomType, error) {
 	}
 	preparedPolygon := mvt.PrepareGeo(defaultPolygon, &defaultExtent, precision)
 
-	return EncodeGeometry(preparedPolygon)
+	encoding, geomType, err := EncodeGeometry(preparedPolygon)
+	return DefaultEncoding{Encoding: encoding, GeomType: geomType}, err
 }
 
 // Transform geometry to tile extent, then encode. We assume the geometry is
 // snapped to the proposed grid, in which case makevalid operations should not
-// be necessary.
-func MvtEncodeGeometry(t Tile, g geom.Geometry) EncodedGeometry {
+// be necessary. defaultEnc is the precomputed encoding (see NewDefaultEncoding)
+// used for tiles fully contained by the polygon.
+func MvtEncodeGeometry(t Tile, g geom.Geometry, defaultEnc DefaultEncoding) EncodedGeometry {
 	var encgeom []uint32
 	var geomtype vectorTile.Tile_GeomType
 	var err error
 	if t.IsContained {
-		encgeom, geomtype, err = defaultEncoding(0)
+		encgeom, geomtype = defaultEnc.Encoding, defaultEnc.GeomType
 	} else {
 		ext := t.Extent.ToGeomExtent()
 		preparedGeo := mvt.PrepareGeo(g, &ext, float64(precision))

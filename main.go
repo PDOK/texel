@@ -293,7 +293,7 @@ func injectSuffixIntoPath(p string) string {
 func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, snapConfig snap.Config) {
 	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]processing.SnapResult {
 		return snap.SnapPolygon(p, tileMatrixSet, tmIDs, snapConfig)
-	}, snapConfig.EncodeTiles)
+	}, snapConfig.EncodeTiles, snapConfig.Buffer)
 }
 
 // Initialize resources for creating vecotrtiles and delegate to processing.
