@@ -145,8 +145,8 @@ func (t Table) insertSQL() string {
 // insertSQLEncoded used for writing the encoded geometries when -enc is on
 func (t Table) insertSQLEncoded() string {
 	return `INSERT INTO "` + t.EncodedName() + `"` +
-		` (tile_x, tile_y, feature_id, geometry_type, data)` +
-		` VALUES (?, ?, ?, ?, ?)`
+		` (tile_x, tile_y, tile_z, feature_id, geometry_type, data)` +
+		` VALUES (?, ?, ?, ?, ?, ?)`
 }
 
 func serializeToBytes(intslice []uint32) []byte {
@@ -280,7 +280,7 @@ func (target *TargetGeopackage) writeEncodedFeatures(encFeature []processing.Fea
 		fid := cols[0]
 		for _, eg := range ef.EncodedGeoms() {
 			bytes := serializeToBytes(eg.Encoding)
-			_, err := stmt.Exec(eg.XTile, eg.YTile, fid, eg.GeometryType, bytes)
+			_, err := stmt.Exec(eg.XTile, eg.YTile, uint(ef.TileMatrixID()), fid, eg.GeometryType, bytes) //nolint:gosec // G115 integers < 40
 			if err != nil {
 				log.Fatalf("Could not get a result summary from the prepared statement for fid %s: %s", fid, err)
 			}
@@ -349,6 +349,7 @@ func buildEncodedTable(h *gpkg.Handle, t Table) error {
 			id INTEGER PRIMARY KEY,
 			tile_x INTEGER NOT NULL,
 			tile_y INTEGER NOT NULL,
+			tile_z INTEGER NOT NULL,
 			feature_id INTEGER NOT NULL,
 			geometry_type INTEGER NOT NULL,
 			data BLOB

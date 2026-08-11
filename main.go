@@ -237,7 +237,7 @@ func main() {
 				&cli.StringFlag{
 					Name:     MVTOUTDIR,
 					Aliases:  []string{"o"},
-					Usage:    "Directory to write the generated <tileX>/<tileY>.mvt files to",
+					Usage:    "Directory to write the generated <Z>/<tileX>/<tileY>.mvt files to",
 					Required: true,
 					EnvVars:  []string{strcase.ToScreamingSnake(MVTOUTDIR)},
 				},

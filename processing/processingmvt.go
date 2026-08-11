@@ -19,7 +19,7 @@ func BuildAndWriteMVTTiles(source MVTSource, target MVTTarget, tableName string)
 	}
 
 	for _, tc := range tiles {
-		encFeatRows, err := source.GetFeaturesForTile(tc.X, tc.Y)
+		encFeatRows, err := source.GetFeaturesForTile(tc.X, tc.Y, tc.Z)
 		if err != nil {
 			return fmt.Errorf("getting features for tile (%d,%d): %w", tc.X, tc.Y, err)
 		}
@@ -38,7 +38,7 @@ func BuildAndWriteMVTTiles(source MVTSource, target MVTTarget, tableName string)
 			return fmt.Errorf("building tile (%d,%d): %w", tc.X, tc.Y, err)
 		}
 
-		if err := target.WriteTile(tc.X, tc.Y, data); err != nil {
+		if err := target.WriteTile(tc.X, tc.Y, tc.Z, data); err != nil {
 			return fmt.Errorf("writing tile (%d,%d): %w", tc.X, tc.Y, err)
 		}
 	}

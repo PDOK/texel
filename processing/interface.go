@@ -24,7 +24,7 @@ type SnapResult struct {
 }
 
 type TileCoord struct {
-	X, Y uint
+	X, Y, Z uint
 }
 
 // Source and target for snapping
@@ -39,11 +39,11 @@ type Target interface {
 // Source and target for tile generation
 type MVTSource interface {
 	ListTiles() ([]TileCoord, error)
-	GetFeaturesForTile(tileX, tileY uint) ([]tile.EncodedFeatureRow, error)
+	GetFeaturesForTile(tileX, tileY, tileZ uint) ([]tile.EncodedFeatureRow, error)
 	GetAttributesForFeatures(featureIDs []int64) (tile.InternalAttributeTable, error)
 	AttributeColumnNames() []string
 }
 
 type MVTTarget interface {
-	WriteTile(x, y uint, data []byte) error
+	WriteTile(x, y, z uint, data []byte) error
 }
