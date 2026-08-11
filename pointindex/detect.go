@@ -174,15 +174,15 @@ func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, tmsID tms20.TMI
 	return segments, classification
 }
 
-func (ix *PointIndex) findIntersectingTilesLeft(x, y, targetLevel Level, classification map[Level]map[morton.Z]TileClassification) []morton.Z {
+func (ix *PointIndex) findIntersectingTilesLeft(x, y, tileLevel Level, classification map[Level]map[morton.Z]TileClassification) []morton.Z {
 	intersectingCurrentLevel := []morton.Z{0}
 	var intersectingNextLevel []morton.Z
 	var leftChild, rightChild morton.Z
-	for currentLevel := range targetLevel {
+	for currentLevel := range tileLevel {
 		intersectingNextLevel = make([]morton.Z, 0)
 
-		xAtNextLevel := x >> (targetLevel - currentLevel - 1)
-		yAtNextLevel := y >> (targetLevel - currentLevel - 1)
+		xAtNextLevel := x >> (tileLevel - currentLevel - 1)
+		yAtNextLevel := y >> (tileLevel - currentLevel - 1)
 
 		nextLevelDown := yAtNextLevel%2 == 0
 		for _, z := range intersectingCurrentLevel {
@@ -268,7 +268,8 @@ func (ix *PointIndex) classifyNonIntersectingTiles(targetLevel, currentLevel Lev
 		if containsAll {
 			classification[nextLevel][child] = ClassificationOutside
 		} else {
-			classification[nextLevel][child] = ix.classifyNonIntersectingTile(child, nextLevel, segments, classification, polygon)
+			childAtTargetLevel := child << ((targetLevel - nextLevel) * 2)
+			classification[nextLevel][child] = ix.classifyNonIntersectingTile(childAtTargetLevel, targetLevel, segments, classification, polygon)
 		}
 	}
 
@@ -293,20 +294,27 @@ func (ix *PointIndex) ClassifyTiles(polygon geom.Polygon, tmsID tms20.TMID, buff
 // Process output of ClassifyTiles
 func (ix *PointIndex) GetLineTraceResult(polygon geom.Polygon, tmsID tms20.TMID, buffer uint) (tiles []tile.Tile) {
 	classification := ix.ClassifyTiles(polygon, tmsID, buffer)
-	level := Level(tmsID) //nolint:gosec // G115 integers < 40
-	classifyAtLevel := classification[level]
+	tileLevel := Level(tmsID) //nolint:gosec // G115 integers < 40
 	tiles = make([]tile.Tile, 0)
 
-	for z, class := range classifyAtLevel {
-		switch class {
-		case ClassificationInside:
-			tiles = append(tiles, ix.makeTile(z, level, true))
-		case ClassificationOutside:
-			continue
-		case ClassificationIntersect:
-			tiles = append(tiles, ix.makeTile(z, level, false))
-		case ClassificationUnknown:
-			panic("ClassificationUnknown tile for polygon during linetrace")
+	for level, classificationAtLevel := range classification {
+		for z, class := range classificationAtLevel {
+			switch class {
+			case ClassificationInside:
+				size := mathhelp.Pow2((tileLevel - level) * 2)
+				baseZ := z << (2 * (tileLevel - level))
+				for i := range size {
+					tiles = append(tiles, ix.makeTile(baseZ+i, tileLevel, true))
+				}
+			case ClassificationOutside:
+				continue
+			case ClassificationIntersect:
+				if level == tileLevel {
+					tiles = append(tiles, ix.makeTile(z, tileLevel, false))
+				}
+			case ClassificationUnknown:
+				panic("ClassificationUnknown tile for polygon during linetrace")
+			}
 		}
 	}
 	return tiles
