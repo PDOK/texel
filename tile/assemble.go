@@ -61,10 +61,7 @@ func NewDefaultEncoding(buffer uint) (DefaultEncoding, error) {
 	}}
 
 	defaultExtent := geom.Extent{
-		-fbuffer,
-		-fbuffer,
-		precision + fbuffer,
-		precision + fbuffer,
+		0, 0, precision, precision,
 	}
 	preparedPolygon := mvt.PrepareGeo(defaultPolygon, &defaultExtent, precision)
 
