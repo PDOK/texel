@@ -326,7 +326,7 @@ func (ix *PointIndex) makeTile(z morton.Z, l Level, isContained bool) tile.Tile 
 	return tile.Tile{
 		Extent:      extent,
 		X:           x,
-		Y:           y,
+		Y:           mathhelp.Pow2(l) - 1 - y,
 		IsContained: isContained,
 	}
 }
