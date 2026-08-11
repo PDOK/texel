@@ -219,8 +219,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel:   0,
 				deepestSize:    mathhelp.Pow2(0),
-				tilePixels:     0,
-				internalPixels: 1,
+				tilePixels:     256,
+				internalPixels: 16,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
 				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
@@ -240,8 +240,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel:   1,
 				deepestSize:    mathhelp.Pow2(1),
-				tilePixels:     1,
-				internalPixels: 1,
+				tilePixels:     256,
+				internalPixels: 16,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -268,8 +268,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel:   3,
 				deepestSize:    mathhelp.Pow2(3),
-				tilePixels:     3,
-				internalPixels: 1,
+				tilePixels:     256,
+				internalPixels: 16,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -307,8 +307,8 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 				},
 				deepestLevel:   5,
 				deepestSize:    mathhelp.Pow2(5),
-				tilePixels:     5,
-				internalPixels: 1,
+				tilePixels:     256,
+				internalPixels: 16,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -624,18 +624,11 @@ func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 		quadrants:      make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
 		hitOnce:        make(map[morton.Z]map[intgeom.Point][]int, 0),
 		hitMultiple:    make(map[morton.Z]map[intgeom.Point][]int, 0),
-		tilePixels:     deepestLevel,
-		internalPixels: 1,
+		tilePixels:     256,
+		internalPixels: 16,
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
 	return &ix
-}
-
-func newSimplePointIndexWithPixels(deepestLevel Level, cellSize float64, tilePixels, internalPixels uint) *PointIndex {
-	ix := newSimplePointIndex(deepestLevel, cellSize)
-	ix.tilePixels = tilePixels
-	ix.internalPixels = internalPixels
-	return ix
 }
 
 func loadEmbeddedTileMatrixSet(t *testing.T, tmsID string) tms20.TileMatrixSet {

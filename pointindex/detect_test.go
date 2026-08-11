@@ -410,7 +410,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 	}{
 		{
 			name:      "tile outside a centered square",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   squarePolygon(2, 2, 6, 6),
 			tmsID:     3,
 			buffer:    0,
@@ -420,8 +420,19 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 			want:      ClassificationOutside,
 		},
 		{
+			name:      "tile outside a centered square",
+			ix:        newSimplePointIndex(3, 1.5),
+			polygon:   squarePolygon(3, 3, 9, 9),
+			tmsID:     3,
+			buffer:    0,
+			tileLevel: 3,
+			tileX:     0,
+			tileY:     0,
+			want:      ClassificationOutside,
+		},
+		{
 			name:      "tile inside a centered square",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   squarePolygon(2, 2, 6, 6),
 			tmsID:     3,
 			buffer:    0,
@@ -432,7 +443,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 		},
 		{
 			name:      "higher-level tile inside a centered square",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   squarePolygon(1, 1, 6, 6),
 			tmsID:     3,
 			buffer:    0,
@@ -443,7 +454,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 		},
 		{
 			name:      "tile clearly outside, opposite corner",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   squarePolygon(2, 2, 6, 6),
 			tmsID:     3,
 			buffer:    0,
@@ -454,7 +465,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 		},
 		{
 			name: "tile inside the hole of a donut polygon",
-			ix:   newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:   newSimplePointIndex(3, 1.0),
 			// This should work with hole 3,3,5,5 but lineIntesects is buggy
 			polygon:   squareWithHolePolygon(0, 0, 7, 7, 3, 3, 6, 6),
 			tmsID:     3,
@@ -466,7 +477,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 		},
 		{
 			name:      "tile in the solid part of a donut polygon",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   squareWithHolePolygon(0, 0, 8, 8, 3, 3, 5, 5),
 			tmsID:     3,
 			buffer:    0,
@@ -477,7 +488,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 		},
 		{
 			name:      "tile in the solid part of a donut polygon, far corner",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   squareWithHolePolygon(0, 0, 8, 8, 3, 3, 6, 6),
 			tmsID:     3,
 			buffer:    0,
@@ -488,7 +499,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 		},
 		{
 			name:      "tile below a diagonal triangle (raycast hits intersection)",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   trianglePolygon(0, 0, 0, 7, 7, 7),
 			tmsID:     3,
 			buffer:    0,
@@ -499,7 +510,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 		},
 		{
 			name:      "tile above a diagonal triangle (raycast hits intersection)",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   trianglePolygon(0, 0, 7, 0, 0, 7),
 			tmsID:     3,
 			buffer:    0,
@@ -510,7 +521,7 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 		},
 		{
 			name:      "nonzero buffer around a centered square",
-			ix:        newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:        newSimplePointIndex(3, 1.0),
 			polygon:   squarePolygon(2, 2, 6, 6),
 			tmsID:     3,
 			buffer:    4,
@@ -572,7 +583,7 @@ func TestPointIndex_classifyNonIntersectingTiles(t *testing.T) {
 	}{
 		{
 			name:    "centered square",
-			ix:      newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:      newSimplePointIndex(3, 1.0),
 			polygon: squarePolygon(2, 2, 6, 6),
 			tmsID:   3,
 			buffer:  0,
@@ -599,7 +610,7 @@ func TestPointIndex_classifyNonIntersectingTiles(t *testing.T) {
 		},
 		{
 			name:    "donut polygon (square with a square hole)",
-			ix:      newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:      newSimplePointIndex(3, 1.0),
 			polygon: squareWithHolePolygon(0, 0, 7, 7, 3, 3, 5, 5),
 			tmsID:   3,
 			buffer:  0,
@@ -626,7 +637,7 @@ func TestPointIndex_classifyNonIntersectingTiles(t *testing.T) {
 		},
 		{
 			name:    "diagonal triangle",
-			ix:      newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:      newSimplePointIndex(3, 1.0),
 			polygon: trianglePolygon(0, 0, 7, 0, 7, 7),
 			tmsID:   3,
 			buffer:  0,
@@ -653,7 +664,7 @@ func TestPointIndex_classifyNonIntersectingTiles(t *testing.T) {
 		},
 		{
 			name:    "polygon covering the whole extent",
-			ix:      newSimplePointIndexWithPixels(2, 1.0, 256, 16),
+			ix:      newSimplePointIndex(2, 1.0),
 			polygon: squarePolygon(0, 0, 4, 4),
 			tmsID:   2,
 			buffer:  0,
@@ -670,7 +681,7 @@ func TestPointIndex_classifyNonIntersectingTiles(t *testing.T) {
 		},
 		{
 			name:    "tiny polygon in a single corner tile",
-			ix:      newSimplePointIndexWithPixels(3, 1.0, 256, 16),
+			ix:      newSimplePointIndex(3, 1.0),
 			polygon: squarePolygon(0.25, 0.25, 0.75, 0.75),
 			tmsID:   3,
 			buffer:  0,

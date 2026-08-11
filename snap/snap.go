@@ -36,7 +36,7 @@ type Config struct {
 	IgnoreOutsideGrid   bool
 	ReverseWindingOrder bool
 	EncodeTiles         bool
-	// Buffer is the number of internal pixels that tiles get 
+	// Buffer is the number of internal pixels that tiles get
 	// inflated for detecting which geometries lie on them
 	Buffer uint
 	// Decide whether to use lineTrace or BBox for tile detection
