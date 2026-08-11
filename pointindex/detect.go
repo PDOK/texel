@@ -20,6 +20,8 @@ type SegmentIdx struct {
 // level l) as touched by the segment identified by segmentIdx.
 type RegisterFunc func(xCoord, yCoord uint, l Level, segmentIdx SegmentIdx)
 
+// Logic for searching tile grid for tiles that intersect a line.
+// Detect line direction and trace that direction
 func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ringIdx int, pointIdx int, buffer uint, register RegisterFunc) {
 	intLine := intgeom.FromGeomLine(line)
 	idx := SegmentIdx{
@@ -43,16 +45,16 @@ func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ri
 	startX, startY := int(startTileX), int(startTileY)              //nolint:gosec // G115
 	bufferSize := ix.getResolution(intPixLevel) * intgeom.M(buffer) //nolint:gosec // G115
 
-	// Register tiles at start otherwise missed
+	// Register tiles at start
 	ix.tryRegisterTile(intLine, startX-dx, startY+dy, tileLevel, bufferSize, register, idx)
 	ix.tryRegisterTile(intLine, startX-dx, startY, tileLevel, bufferSize, register, idx)
 	ix.tryRegisterTile(intLine, startX-dx, startY-dy, tileLevel, bufferSize, register, idx)
 	ix.tryRegisterTile(intLine, startX, startY-dy, tileLevel, bufferSize, register, idx)
 	ix.tryRegisterTile(intLine, startX+dx, startY-dy, tileLevel, bufferSize, register, idx)
 
-	// Register tiles by only walking in direction dx and dy.
 	type coord struct{ x, y int }
 
+	// Advance over an anti-diagonal, keeping track of the last two "hits"
 	frontier := []coord{{startX, startY}}
 	prevFrontier := make([]coord, 0)
 	ix.tryRegisterTile(intLine, startX, startY, tileLevel, bufferSize, register, idx)
@@ -87,12 +89,7 @@ func (ix *PointIndex) getInternalPixelLevel(deepestTIMID tms20.TMID) Level {
 	return uint(deepestTIMID) + levelDiff //nolint:gosec // G115
 }
 
-// tryRegisterTile checks whether the (buffered) tile at (x, y) at level l
-// intersects line, and if so registers it. Returns whether it was
-// registered, so callers can use it to decide whether to keep expanding a
-// walk in that direction. x, y may be out of the valid tile coordinate
-// range (e.g. when called with a neighbor one step outside the grid); such
-// out-of-bounds candidates are simply reported as not registered.
+// Logic for deciding whether line intersects tile with buffer.
 func (ix *PointIndex) tryRegisterTile(line intgeom.Line, x, y int, l Level, bufferSize intgeom.M, register RegisterFunc, idx SegmentIdx) bool {
 	maxCoord := int(mathhelp.Pow2(l)) - 1 //nolint:gosec // G115
 	if x < 0 || y < 0 || x > maxCoord || y > maxCoord {
@@ -138,6 +135,7 @@ const (
 	ClassificationOutside
 )
 
+// Create register logic, then loop over polygon edges
 func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, tmsID tms20.TMID, buffer uint) (segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification) {
 	segments = make(map[morton.Z][]SegmentIdx)
 	tileLevel := Level(tmsID) //nolint:gosec // G115
@@ -147,6 +145,7 @@ func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, tmsID tms20.TMI
 		classification[l] = make(map[morton.Z]TileClassification)
 	}
 
+	// Logic for keeping track of intersected tiles
 	var markIntersected func(l Level, z morton.Z)
 	markIntersected = func(l Level, z morton.Z) {
 		if classification[l][z] == ClassificationIntersect {
@@ -159,12 +158,14 @@ func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, tmsID tms20.TMI
 		markIntersected(l-1, z>>2)
 	}
 
+	// Logic for keeping track which segment hits which tile
 	register := func(x, y uint, l Level, segmentIdx SegmentIdx) {
 		z := morton.MustToZ(x, y)
 		segments[z] = append(segments[z], segmentIdx)
 		markIntersected(l, z)
 	}
 
+	// Loop
 	for ringIdx, ring := range polygon.LinearRings() {
 		for pointIdx := range ring {
 			line := geom.Line{ring[pointIdx], ring[(pointIdx+1)%len(ring)]}
@@ -174,6 +175,8 @@ func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, tmsID tms20.TMI
 	return segments, classification
 }
 
+// Given a tile, binary search for tiles left of it that have segments on them
+// Note: tileLevel must be the actual tile level and x and y coordinates for that level
 func (ix *PointIndex) findIntersectingTilesLeft(x, y, tileLevel Level, classification map[Level]map[morton.Z]TileClassification) []morton.Z {
 	intersectingCurrentLevel := []morton.Z{0}
 	var intersectingNextLevel []morton.Z
@@ -207,6 +210,8 @@ func (ix *PointIndex) findIntersectingTilesLeft(x, y, tileLevel Level, classific
 	return intersectingCurrentLevel
 }
 
+// Implements raycast to detect whether a non-intersecting tile lies on the inside or outside.
+// tileLevel needs to be the tile level and z needs to be a morton coordinate for this level
 func (ix *PointIndex) classifyNonIntersectingTile(z morton.Z, tileLevel Level, segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification, polygon geom.Polygon) TileClassification {
 	x, y := morton.FromZ(z)
 	intersectingTilesLeft := ix.findIntersectingTilesLeft(x, y, tileLevel, classification)
@@ -216,6 +221,7 @@ func (ix *PointIndex) classifyNonIntersectingTile(z morton.Z, tileLevel Level, s
 	seen := make(map[SegmentIdx]bool)
 	numIntersections := 0
 
+	// Raycast and loop over intersecting segments
 	for _, z := range intersectingTilesLeft {
 		for _, segment := range segments[z] {
 			if seen[segment] {
@@ -230,6 +236,8 @@ func (ix *PointIndex) classifyNonIntersectingTile(z morton.Z, tileLevel Level, s
 			minY := min(y1, y2)
 			maxY := max(y1, y2)
 
+			// Logic for deciding relevant segments
+			// Needed for when ray intersects vertex of polygon
 			switch {
 			case minY == maxY:
 			case maxY < tileHeightCoord:
@@ -239,6 +247,8 @@ func (ix *PointIndex) classifyNonIntersectingTile(z morton.Z, tileLevel Level, s
 			}
 		}
 	}
+
+	// Result determined by "Jordan Curve Theorem"
 	if numIntersections%2 == 0 {
 		return ClassificationOutside
 	}
@@ -250,6 +260,8 @@ func getChildren(z morton.Z) [4]morton.Z {
 	return [4]morton.Z{shift, shift + 1, shift + 2, shift + 3}
 }
 
+// Classify all tiles on being inside or outside using quadtree. An "outside" or "inside"
+// classification of a parent means children have the same class.
 func (ix *PointIndex) classifyNonIntersectingTiles(targetLevel, currentLevel Level, currentZ morton.Z, containsAll bool, segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification, polygon geom.Polygon) {
 	if targetLevel == currentLevel {
 		return

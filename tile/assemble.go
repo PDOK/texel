@@ -39,18 +39,12 @@ type Tile struct {
 	IsContained bool
 }
 
-// DefaultEncoding is the pre-encoded geometry for a tile that is fully
-// contained by a polygon, i.e. a square covering the tile's (buffered)
-// extent. Since it only depends on the (constant) buffer, it can be
-// computed once and reused for every contained tile.
 type DefaultEncoding struct {
 	Encoding []uint32
 	GeomType vectorTile.Tile_GeomType
 }
 
-// NewDefaultEncoding precomputes the DefaultEncoding for the given buffer
-// (in internal pixels). Compute once and reuse across calls to
-// MvtEncodeGeometry, since the result only depends on the buffer.
+// Default tile-filling geometry with buffer
 func NewDefaultEncoding(buffer uint) (DefaultEncoding, error) {
 	fbuffer := float64(buffer)
 	defaultPolygon := geom.Polygon{{
@@ -69,10 +63,7 @@ func NewDefaultEncoding(buffer uint) (DefaultEncoding, error) {
 	return DefaultEncoding{Encoding: encoding, GeomType: geomType}, err
 }
 
-// Transform geometry to tile extent, then encode. We assume the geometry is
-// snapped to the proposed grid, in which case makevalid operations should not
-// be necessary. defaultEnc is the precomputed encoding (see NewDefaultEncoding)
-// used for tiles fully contained by the polygon.
+// Encode geometry. defaultEnc is the precomputed tile-filling geometry
 func MvtEncodeGeometry(t Tile, g geom.Geometry, defaultEnc DefaultEncoding) EncodedGeometry {
 	var encgeom []uint32
 	var geomtype vectorTile.Tile_GeomType
