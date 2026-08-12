@@ -10,6 +10,7 @@ import (
 	"slices"
 	"syscall"
 
+	"github.com/pdok/texel/config"
 	"github.com/pdok/texel/pointindex"
 
 	"github.com/go-spatial/geom"
@@ -39,8 +40,9 @@ const (
 	TILEBUFFER          string = `tilebuffer`
 	USELINETRACE        string = `uselinetrace`
 
-	MVTSOURCE string = `mvtSourceGpkg`
-	MVTOUTDIR string = `mvtOutDir`
+	MVTSOURCE  string = `mvtSourceGpkg`
+	MVTOUTDIR  string = `mvtOutDir`
+	TILEMATRIX string = `tilematrix`
 )
 
 //nolint:funlen
@@ -241,6 +243,13 @@ func main() {
 					Required: true,
 					EnvVars:  []string{strcase.ToScreamingSnake(MVTOUTDIR)},
 				},
+				&cli.UintFlag{
+					Name:     TILEMATRIX,
+					Aliases:  []string{"z"},
+					Usage:    "Target zoomlevel",
+					Required: true,
+					EnvVars:  []string{strcase.ToScreamingSnake(TILEMATRIX)},
+				},
 			},
 			Action: func(c *cli.Context) error {
 				return runBuildMVTTiles(c.String(MVTSOURCE), c.String(MVTOUTDIR))
@@ -294,6 +303,65 @@ func processBySnapping(source processing.Source, targets map[tms20.TMID]processi
 	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]processing.SnapResult {
 		return snap.SnapPolygon(p, tileMatrixSet, tmIDs, snapConfig)
 	}, snapConfig.EncodeTiles, snapConfig.Buffer)
+}
+
+// Construct Layer info from config; init gpkg sources
+// Make sure to reuse gpkg handles
+// Also return helper that closes all sources
+func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func()) {
+	type initedSource struct {
+		source gpkg.MVTSourceGeopackage
+		tables map[string]gpkg.Table
+	}
+	dataSourceDictionary := processing.DatasourceToDictionary(rawConfig.DataSource)
+	layers := make([]processing.Layer, 0)
+	sources := make(map[string]initedSource)
+	for _, tileset := range rawConfig.Tileset {
+		if z < tileset.MinZoom || z > tileset.MaxZoom {
+			continue
+		}
+		for _, rawLayer := range tileset.Layer {
+			if z < rawLayer.MinZoom || z > rawLayer.MaxZoom {
+				continue
+			}
+			// Only init gpkg sources once
+			if _, present := sources[rawLayer.DataSource]; !present {
+				path := dataSourceDictionary[rawLayer.DataSource]
+				source := gpkg.MVTSourceGeopackage{}
+				source.Init(path)
+				tables := source.GetTableInfo()
+				tableMap := make(map[string]gpkg.Table, len(tables))
+				for _, table := range tables {
+					tableMap[table.Name] = table
+				}
+				sources[rawLayer.DataSource] = initedSource{source, tableMap}
+			}
+			initedSource, present := sources[rawLayer.DataSource]
+			if !present {
+				err := fmt.Errorf("layer %s requires datasource %s; not found", rawLayer.Name, rawLayer.DataSource)
+				panic(err)
+			}
+			table, present := initedSource.tables[rawLayer.TableName]
+			if !present {
+				err := fmt.Errorf("layer %s requires table %s in datasource %s; not found", rawLayer.Name, rawLayer.TableName, rawLayer.DataSource)
+				panic(err)
+			}
+			// Create source with this table
+			source := initedSource.source
+			source.Table = table
+			layer := processing.Layer{
+				Name:   rawLayer.Name,
+				Source: source,
+			}
+			layers = append(layers, layer)
+		}
+	}
+	closeSources := func() {
+		for _, s := range sources {
+			s.source.Close()
+		}
+	}
+	return layers, closeSources
 }
 
 // Initialize resources for creating vecotrtiles and delegate to processing.

@@ -5,6 +5,7 @@ package processing
 import (
 	"fmt"
 
+	"github.com/pdok/texel/config"
 	"github.com/pdok/texel/tile"
 )
 
@@ -43,4 +44,22 @@ func BuildAndWriteMVTTiles(source MVTSource, target MVTTarget, tableName string)
 		}
 	}
 	return nil
+}
+
+type Layer struct {
+	Source MVTSource
+	Name   string
+}
+
+type MvtConfig struct {
+	Layers    []Layer
+	Zoomlevel uint
+}
+
+func DatasourceToDictionary(sources []config.DataSource) map[string]string {
+	dataSourceDictionary := make(map[string]string, 0)
+	for _, dataSource := range sources {
+		dataSourceDictionary[dataSource.Name] = dataSource.Path
+	}
+	return dataSourceDictionary
 }
