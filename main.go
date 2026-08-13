@@ -349,10 +349,7 @@ func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func(
 			// Create source with this table
 			source := initedSource.source
 			source.Table = table
-			layer := processing.Layer{
-				Name:   rawLayer.Name,
-				Source: source,
-			}
+			layer := processing.BuildLayer(rawLayer.Name, source)
 			layers = append(layers, layer)
 		}
 	}
@@ -374,15 +371,16 @@ func runBuildMVTTiles(sourcePath, outDir string) error {
 	source.Init(sourcePath)
 	defer source.Close()
 
-	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
+//	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
 
 	tables := source.GetTableInfo()
 	for _, table := range tables {
 		source.Table = table
 		log.Printf("  building MVT tiles for %s", table.Name)
-		if err := processing.BuildAndWriteMVTTiles(&source, &mvtTarget, table.Name); err != nil {
-			return fmt.Errorf("building MVT tiles for %s: %w", table.Name, err)
-		}
+		// To be replaced
+		//if err := processing.BuildAndWriteMVTTiles(&source, &mvtTarget, table.Name); err != nil {
+		//	return fmt.Errorf("building MVT tiles for %s: %w", table.Name, err)
+		//}
 	}
 	return nil
 }

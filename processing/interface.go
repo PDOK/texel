@@ -38,7 +38,7 @@ type Target interface {
 
 // Source and target for tile generation
 type MVTSource interface {
-	ListTiles() ([]TileCoord, error)
+	ListTiles(zoomlevel uint, tileSet map[TileCoord]bool) error
 	GetFeaturesForTile(tileX, tileY, tileZ uint) ([]tile.EncodedFeatureRow, error)
 	GetAttributesForFeatures(featureIDs []int64) (tile.InternalAttributeTable, error)
 	AttributeColumnNames() []string

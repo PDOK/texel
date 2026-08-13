@@ -106,7 +106,7 @@ func (t Table) selectEncodedSQL() string {
 // selectDistinctTilesSQL builds the SELECT for enumerating every tile that has at
 // least one encoded feature.
 func (t Table) selectDistinctTilesSQL() string {
-	return `SELECT DISTINCT tile_x, tile_y, tile_z FROM "` + t.EncodedName() + `" ORDER BY tile_x, tile_y`
+	return `SELECT DISTINCT tile_x, tile_y FROM "` + t.EncodedName() + `" WHERE tile_z = ? ORDER BY tile_x, tile_y`
 }
 
 // GetFeaturesForTile returns every encoded feature stored for the given tile,
@@ -153,25 +153,24 @@ func deserializeFromBytes(data []byte) []uint32 {
 }
 
 // ListTiles returns every distinct tile present in the "<table>_encoded" table.
-func (source MVTSourceGeopackage) ListTiles() ([]processing.TileCoord, error) {
-	rows, err := source.handle.Query(source.Table.selectDistinctTilesSQL())
+func (source MVTSourceGeopackage) ListTiles(z uint, tileSet map[processing.TileCoord]bool) error {
+	rows, err := source.handle.Query(source.Table.selectDistinctTilesSQL(), z)
 	if err != nil {
-		return nil, fmt.Errorf("listing tiles: %w", err)
+		return fmt.Errorf("listing tiles: %w", err)
 	}
 	defer rows.Close()
 
-	var tiles []processing.TileCoord
 	for rows.Next() {
-		var x, y, z int64
-		if err := rows.Scan(&x, &y, &z); err != nil {
-			return nil, fmt.Errorf("scanning tile row: %w", err)
+		var x, y int64
+		if err := rows.Scan(&x, &y); err != nil {
+			return fmt.Errorf("scanning tile row: %w", err)
 		}
-		tiles = append(tiles, processing.TileCoord{X: uint(x), Y: uint(y), Z: uint(z)}) //nolint:gosec // G115 Tile coords fit within uint
+		tileSet[processing.TileCoord{X: uint(x), Y: uint(y), Z: z}] = true //nolint:gosec // G115 Tile coord fit within uint
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating tile rows: %w", err)
+		return fmt.Errorf("iterating tile rows: %w", err)
 	}
-	return tiles, nil
+	return nil
 }
 
 // Read from source.Table, store rows as attributes[fid][columnName] = value for all fids
