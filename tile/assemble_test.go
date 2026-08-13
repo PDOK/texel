@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
-	oldproto "github.com/golang/protobuf/proto" //nolint:staticcheck // matches MarshalTile's use of the reflection-based marshaler
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -155,82 +154,109 @@ func TestBuildTags(t *testing.T) {
 }
 
 func TestBuildLayer(t *testing.T) {
-	t.Run("happy path building layer", func(t *testing.T) {
-		keyIndex := map[string]uint32{"b": 1, "a": 0}
-		valueIndex := map[any]uint32{"second": 1, "first": 0}
-		features := []*vectorTile.Tile_Feature{{}, {}}
+	tests := []struct {
+		name        string
+		layerName   string
+		keyIndex    map[string]uint32
+		encFeatRows []EncodedFeatureRow
+		attributes  InternalAttributeTable
+		wantErr     bool
+		validate    func(t *testing.T, layer *vectorTile.Tile_Layer)
+	}{
+		{
+			name:        "empty layer",
+			layerName:   "empty",
+			keyIndex:    map[string]uint32{},
+			encFeatRows: nil,
+			attributes:  InternalAttributeTable{},
+			validate: func(t *testing.T, layer *vectorTile.Tile_Layer) {
+				t.Helper()
+				assert.Equal(t, "empty", layer.GetName())
+				assert.Equal(t, uint32(mvtVersion), layer.GetVersion())
+				assert.Equal(t, uint32(precision), layer.GetExtent())
+				assert.Empty(t, layer.GetKeys())
+				assert.Empty(t, layer.GetValues())
+				assert.Empty(t, layer.GetFeatures())
+			},
+		},
+		{
+			name:      "keys are ordered according to key index",
+			layerName: "mylayer",
+			keyIndex:  map[string]uint32{"b": 1, "a": 0},
+			encFeatRows: []EncodedFeatureRow{
+				{FeatureID: 1, Geom: EncodedGeometry{GeometryType: int32(vectorTile.Tile_POINT)}},
+			},
+			attributes: InternalAttributeTable{
+				1: {"a": "first", "b": "second"},
+			},
+			validate: func(t *testing.T, layer *vectorTile.Tile_Layer) {
+				t.Helper()
+				assert.Equal(t, "mylayer", layer.GetName())
+				assert.Equal(t, uint32(mvtVersion), layer.GetVersion())
+				assert.Equal(t, uint32(precision), layer.GetExtent())
 
-		layer := BuildLayer("mylayer", features, keyIndex, valueIndex)
+				// Keys must be ordered according to their assigned index,
+				// regardless of the (arbitrary) map iteration order.
+				assert.Equal(t, []string{"a", "b"}, layer.GetKeys())
+				require.Len(t, layer.GetValues(), 2)
+				gotValues := make([]string, len(layer.GetValues()))
+				for i, v := range layer.GetValues() {
+					gotValues[i] = v.GetStringValue()
+				}
+				assert.ElementsMatch(t, []string{"first", "second"}, gotValues)
+			},
+		},
+		{
+			name:      "happy path roundtrips features, tags and attribute values",
+			layerName: "mylayer",
+			keyIndex:  BuildKeyDictionary([]string{"name"}),
+			encFeatRows: []EncodedFeatureRow{
+				{FeatureID: 1, Geom: EncodedGeometry{GeometryType: int32(vectorTile.Tile_POINT)}},
+				{FeatureID: 2, Geom: EncodedGeometry{GeometryType: int32(vectorTile.Tile_POINT)}},
+			},
+			attributes: InternalAttributeTable{
+				1: {"name": "foo"},
+				2: {"name": "bar"},
+			},
+			validate: func(t *testing.T, layer *vectorTile.Tile_Layer) {
+				t.Helper()
+				assert.Equal(t, "mylayer", layer.GetName())
+				require.Len(t, layer.GetFeatures(), 2)
 
-		assert.Equal(t, "mylayer", layer.GetName())
-		assert.Equal(t, uint32(mvtVersion), layer.GetVersion())
-		assert.Equal(t, uint32(precision), layer.GetExtent())
-		assert.Same(t, features[0], layer.GetFeatures()[0])
-		assert.Same(t, features[1], layer.GetFeatures()[1])
-
-		// Keys/values must be ordered according to their assigned index,
-		// regardless of the (arbitrary) map iteration order used to build them.
-		assert.Equal(t, []string{"a", "b"}, layer.GetKeys())
-		require.Len(t, layer.GetValues(), 2)
-		assert.Equal(t, "first", layer.GetValues()[0].GetStringValue())
-		assert.Equal(t, "second", layer.GetValues()[1].GetStringValue())
-	})
-	t.Run("empty layer", func(t *testing.T) {
-		layer := BuildLayer("empty", nil, map[string]uint32{}, map[any]uint32{})
-
-		assert.Equal(t, "empty", layer.GetName())
-		assert.Empty(t, layer.GetKeys())
-		assert.Empty(t, layer.GetValues())
-		assert.Empty(t, layer.GetFeatures())
-	})
-}
-
-func TestBuildMVTTile(t *testing.T) {
-	t.Run("happy path roundtrips features, tags and attribute values", func(t *testing.T) {
-		keyIndex := BuildKeyDictionary([]string{"name"})
-		attributes := InternalAttributeTable{
-			1: {"name": "foo"},
-			2: {"name": "bar"},
-		}
-		encFeatRows := []EncodedFeatureRow{
-			{FeatureID: 1, Geom: EncodedGeometry{GeometryType: int32(vectorTile.Tile_POINT)}},
-			{FeatureID: 2, Geom: EncodedGeometry{GeometryType: int32(vectorTile.Tile_POINT)}},
-		}
-
-		data, err := BuildMVTTile("mylayer", keyIndex, encFeatRows, attributes)
-		require.NoError(t, err)
-		require.NotEmpty(t, data)
-
-		got := &vectorTile.Tile{}
-		require.NoError(t, oldproto.Unmarshal(data, got))
-		require.Len(t, got.GetLayers(), 1)
-
-		layer := got.GetLayers()[0]
-		assert.Equal(t, "mylayer", layer.GetName())
-		require.Len(t, layer.GetFeatures(), 2)
-
-		// Collect the string values assigned to each feature via its tags,
-		// independent of feature/value ordering.
-		gotNames := make([]string, 0, 2)
-		for _, feature := range layer.GetFeatures() {
-			require.Len(t, feature.GetTags(), 2)
-			valueIdx := feature.GetTags()[1]
-			gotNames = append(gotNames, layer.GetValues()[valueIdx].GetStringValue())
-		}
-		sort.Strings(gotNames)
-		assert.Equal(t, []string{"bar", "foo"}, gotNames)
-	})
-
-	t.Run("error building a feature's tags propagates", func(t *testing.T) {
-		keyIndex := map[string]uint32{"name": 0}
-		attributes := InternalAttributeTable{
-			1: {"unknown-key": "foo"},
-		}
-		encFeatRows := []EncodedFeatureRow{
-			{FeatureID: 1, Geom: EncodedGeometry{}},
-		}
-
-		_, err := BuildMVTTile("mylayer", keyIndex, encFeatRows, attributes)
-		require.Error(t, err)
-	})
+				// Collect the string values assigned to each feature via its
+				// tags, independent of feature/value ordering.
+				gotNames := make([]string, 0, 2)
+				for _, feature := range layer.GetFeatures() {
+					require.Len(t, feature.GetTags(), 2)
+					valueIdx := feature.GetTags()[1]
+					gotNames = append(gotNames, layer.GetValues()[valueIdx].GetStringValue())
+				}
+				sort.Strings(gotNames)
+				assert.Equal(t, []string{"bar", "foo"}, gotNames)
+			},
+		},
+		{
+			name:      "error building a feature's tags propagates",
+			layerName: "mylayer",
+			keyIndex:  map[string]uint32{"name": 0},
+			encFeatRows: []EncodedFeatureRow{
+				{FeatureID: 1, Geom: EncodedGeometry{}},
+			},
+			attributes: InternalAttributeTable{
+				1: {"unknown-key": "foo"},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			layer, err := BuildLayer(tt.layerName, tt.keyIndex, tt.encFeatRows, tt.attributes)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			tt.validate(t, layer)
+		})
+	}
 }

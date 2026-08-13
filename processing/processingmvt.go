@@ -5,6 +5,7 @@ package processing
 import (
 	"fmt"
 
+	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
 	"github.com/pdok/texel/config"
 	"github.com/pdok/texel/tile"
 )
@@ -18,33 +19,13 @@ func BuildAndWriteMVTTiles(layers []Layer, zoomlevel uint, target MVTTarget) err
 		return err
 	}
 
-	// temporary code
-	source := layers[0].Source
-	tableName := layers[0].Name // This is incorrect
-	keyIndex := layers[0].keyIndex
-
-	for _, tc := range tiles {
-		encFeatRows, err := source.GetFeaturesForTile(tc.X, tc.Y, tc.Z)
+	for _, coord := range tiles {
+		data, err := processTile(coord, layers)
 		if err != nil {
-			return fmt.Errorf("getting features for tile (%d,%d): %w", tc.X, tc.Y, err)
+			return fmt.Errorf("building tile (%d, %d): %w", coord.X, coord.Y, err)
 		}
-		featIDs := make([]int64, len(encFeatRows))
-		for i, encFeatRow := range encFeatRows {
-			featIDs[i] = encFeatRow.FeatureID
-		}
-
-		attributes, err := source.GetAttributesForFeatures(featIDs)
-		if err != nil {
-			return fmt.Errorf("getting attributes for tile (%d,%d): %w", tc.X, tc.Y, err)
-		}
-
-		data, err := tile.BuildMVTTile(tableName, keyIndex, encFeatRows, attributes)
-		if err != nil {
-			return fmt.Errorf("building tile (%d,%d): %w", tc.X, tc.Y, err)
-		}
-
-		if err := target.WriteTile(tc.X, tc.Y, tc.Z, data); err != nil {
-			return fmt.Errorf("writing tile (%d,%d): %w", tc.X, tc.Y, err)
+		if err := target.WriteTile(coord.X, coord.Y, coord.Z, data); err != nil {
+			return fmt.Errorf("writing tile (%d, %d): %w", coord.X, coord.Y, err)
 		}
 	}
 	return nil
@@ -92,4 +73,35 @@ func listTiles(zoomlevel uint, layers []Layer) ([]TileCoord, error) {
 		tileList = append(tileList, tilecoord)
 	}
 	return tileList, nil
+}
+
+func processLayer(tileCoord TileCoord, layer Layer) (*vectorTile.Tile_Layer, error) {
+	encFeatRows, err := layer.Source.GetFeaturesForTile(tileCoord.X, tileCoord.Y, tileCoord.Z)
+	if err != nil {
+		return nil, fmt.Errorf("getting features for tile (%d,%d): %w", tileCoord.X, tileCoord.Y, err)
+	}
+	featIDs := make([]int64, len(encFeatRows))
+	for i, encFeatRow := range encFeatRows {
+		featIDs[i] = encFeatRow.FeatureID
+	}
+
+	attributes, err := layer.Source.GetAttributesForFeatures(featIDs)
+	if err != nil {
+		return nil, fmt.Errorf("getting attributes for tile (%d,%d): %w", tileCoord.X, tileCoord.Y, err)
+	}
+
+	return tile.BuildLayer(layer.Name, layer.keyIndex, encFeatRows, attributes)
+}
+
+func processTile(coord TileCoord, layers []Layer) ([]byte, error) {
+	encLayers := make([]*vectorTile.Tile_Layer, 0, len(layers))
+	for _, layer := range layers {
+		encLayer, err := processLayer(coord, layer)
+		if err != nil {
+			err = fmt.Errorf("during layer encoding %s: %w", layer.Name, err)
+			return nil, err
+		}
+		encLayers = append(encLayers, encLayer)
+	}
+	return tile.BuildEncodeTile(encLayers)
 }

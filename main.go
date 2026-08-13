@@ -371,16 +371,12 @@ func runBuildMVTTiles(sourcePath, outDir string) error {
 	source.Init(sourcePath)
 	defer source.Close()
 
-//	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
+	//	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
 
 	tables := source.GetTableInfo()
 	for _, table := range tables {
 		source.Table = table
 		log.Printf("  building MVT tiles for %s", table.Name)
-		// To be replaced
-		//if err := processing.BuildAndWriteMVTTiles(&source, &mvtTarget, table.Name); err != nil {
-		//	return fmt.Errorf("building MVT tiles for %s: %w", table.Name, err)
-		//}
 	}
 	return nil
 }
