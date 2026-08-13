@@ -35,18 +35,12 @@ type TomlConfig struct {
 	Tileset    []Tileset    `toml:"tileset"`
 }
 
-// ParseMVTConfig reads an mvt config toml file and returns all the
-// DataSource and LayerConfig instances it contains.
-func ParseMVTConfig(path string) ([]DataSource, []LayerConfig, error) {
+// ParseMVTConfig reads an mvt config toml file and returns the resulting
+// TomlConfig.
+func ParseMVTConfig(path string) (TomlConfig, error) {
 	var cfg TomlConfig
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
-		return nil, nil, fmt.Errorf("decoding mvt config %q: %w", path, err)
+		return TomlConfig{}, fmt.Errorf("decoding mvt config %q: %w", path, err)
 	}
-
-	var layers []LayerConfig
-	for _, ts := range cfg.Tileset {
-		layers = append(layers, ts.Layer...)
-	}
-
-	return cfg.DataSource, layers, nil
+	return cfg, nil
 }

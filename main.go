@@ -40,7 +40,7 @@ const (
 	TILEBUFFER          string = `tilebuffer`
 	USELINETRACE        string = `uselinetrace`
 
-	MVTSOURCE  string = `mvtSourceGpkg`
+	MVTCONFIG  string = `config`
 	MVTOUTDIR  string = `mvtOutDir`
 	TILEMATRIX string = `tilematrix`
 )
@@ -230,11 +230,11 @@ func main() {
 			Usage: "Build MVT tiles from an already-encoded target GeoPackage (see --" + ENCODETILES + ")",
 			Flags: []cli.Flag{
 				&cli.StringFlag{
-					Name:     MVTSOURCE,
-					Aliases:  []string{"s"},
-					Usage:    `GeoPackage containing the encoded ("<table>_encoded") and attribute tables`,
+					Name:     MVTCONFIG,
+					Aliases:  []string{"c"},
+					Usage:    "Config toml file describing datasources, tilesets and layers",
 					Required: true,
-					EnvVars:  []string{strcase.ToScreamingSnake(MVTSOURCE)},
+					EnvVars:  []string{strcase.ToScreamingSnake(MVTCONFIG)},
 				},
 				&cli.StringFlag{
 					Name:     MVTOUTDIR,
@@ -252,7 +252,7 @@ func main() {
 				},
 			},
 			Action: func(c *cli.Context) error {
-				return runBuildMVTTiles(c.String(MVTSOURCE), c.String(MVTOUTDIR))
+				return runMVT(c.String(MVTCONFIG), c.String(MVTOUTDIR), c.Uint(TILEMATRIX))
 			},
 		},
 	}
@@ -327,6 +327,10 @@ func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func(
 			// Only init gpkg sources once
 			if _, present := sources[rawLayer.DataSource]; !present {
 				path := dataSourceDictionary[rawLayer.DataSource]
+				if _, err := os.Stat(path); os.IsNotExist(err) {
+					err = fmt.Errorf("source GeoPackage does not exist: %s", path)
+					panic(err)
+				}
 				source := gpkg.MVTSourceGeopackage{}
 				source.Init(path)
 				tables := source.GetTableInfo()
@@ -361,22 +365,22 @@ func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func(
 	return layers, closeSources
 }
 
-// Initialize resources for creating vecotrtiles and delegate to processing.
-func runBuildMVTTiles(sourcePath, outDir string) error {
-	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-		return fmt.Errorf("source GeoPackage does not exist: %s", sourcePath)
+// runMVT wires the config, layers and target together to build
+// and write the MVT tiles for the requested zoomlevel.
+func runMVT(configPath, outDir string, zoomlevel uint) error {
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return fmt.Errorf("config file does not exist: %s", configPath)
 	}
 
-	source := gpkg.MVTSourceGeopackage{}
-	source.Init(sourcePath)
-	defer source.Close()
-
-	//	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
-
-	tables := source.GetTableInfo()
-	for _, table := range tables {
-		source.Table = table
-		log.Printf("  building MVT tiles for %s", table.Name)
+	rawConfig, err := config.ParseMVTConfig(configPath)
+	if err != nil {
+		return err
 	}
-	return nil
+
+	layers, closeSources := buildLayers(zoomlevel, rawConfig)
+	defer closeSources()
+
+	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
+
+	return processing.BuildAndWriteMVTTiles(layers, zoomlevel, &mvtTarget)
 }

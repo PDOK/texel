@@ -3,6 +3,7 @@ module github.com/pdok/texel
 go 1.26.2
 
 require (
+	github.com/BurntSushi/toml v1.5.0
 	github.com/carlmjohnson/versioninfo v0.22.5
 	github.com/creasty/defaults v1.8.0
 	github.com/go-playground/validator/v10 v10.30.3
@@ -19,7 +20,6 @@ require (
 )
 
 require (
-	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/arolek/p v0.0.0-20191103215535-df3c295ed582 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
