@@ -326,31 +326,16 @@ func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func(
 			}
 			// Only init gpkg sources once
 			if _, present := sources[rawLayer.DataSource]; !present {
-				path := dataSourceDictionary[rawLayer.DataSource]
-				if _, err := os.Stat(path); os.IsNotExist(err) {
-					err = fmt.Errorf("source GeoPackage does not exist: %s", path)
-					panic(err)
-				}
-				source := gpkg.MVTSourceGeopackage{}
-				source.Init(path)
-				tables := source.GetTableInfo()
-				tableMap := make(map[string]gpkg.Table, len(tables))
-				for _, table := range tables {
-					tableMap[table.Name] = table
-				}
+				source, tableMap := initMvtSource(rawLayer, dataSourceDictionary)
 				sources[rawLayer.DataSource] = initedSource{source, tableMap}
 			}
-			initedSource, present := sources[rawLayer.DataSource]
-			if !present {
-				err := fmt.Errorf("layer %s requires datasource %s; not found", rawLayer.Name, rawLayer.DataSource)
-				panic(err)
-			}
+			initedSource := sources[rawLayer.DataSource]
 			table, present := initedSource.tables[rawLayer.TableName]
 			if !present {
 				err := fmt.Errorf("layer %s requires table %s in datasource %s; not found", rawLayer.Name, rawLayer.TableName, rawLayer.DataSource)
 				panic(err)
 			}
-			// Create source with this table
+			// Pair gpkg handle with layer table
 			source := initedSource.source
 			source.Table = table
 			layer := processing.BuildLayer(rawLayer.Name, source)
@@ -363,6 +348,26 @@ func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func(
 		}
 	}
 	return layers, closeSources
+}
+
+func initMvtSource(rawLayer config.LayerConfig, dataSourceDicationary map[string]string) (gpkg.MVTSourceGeopackage, map[string]gpkg.Table) {
+	path, present := dataSourceDicationary[rawLayer.DataSource]
+	if !present {
+		err := fmt.Errorf("configuration error for layer %s, datasource not found: %s", rawLayer.Name, rawLayer.DataSource)
+		panic(err)
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		err = fmt.Errorf("source Geopackage does not exist: %s", path)
+		panic(err)
+	}
+	source := gpkg.MVTSourceGeopackage{}
+	source.Init(path)
+	tables := source.GetTableInfo()
+	tableMap := make(map[string]gpkg.Table, len(tables))
+	for _, table := range tables {
+		tableMap[table.Name] = table
+	}
+	return source, tableMap
 }
 
 // runMVT wires the config, layers and target together to build
