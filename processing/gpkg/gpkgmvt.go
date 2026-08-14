@@ -250,7 +250,7 @@ func (t *MVTFileTarget) WriteTile(x, y, z uint, data []byte) error {
 		return fmt.Errorf("creating tile directory %s: %w", dir, err)
 	}
 
-	path := filepath.Join(dir, strconv.FormatUint(uint64(y), 10)+".mvt")
+	path := filepath.Join(dir, strconv.FormatUint(uint64(y), 10)+".pbf")
 	if err := os.WriteFile(path, data, 0o644); err != nil { //nolint:gosec // G306 tile output does not need restrictive permissions
 		return fmt.Errorf("writing tile file %s: %w", path, err)
 	}
