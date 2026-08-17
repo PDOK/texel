@@ -4,6 +4,7 @@ package processing
 
 import (
 	"fmt"
+	"log"
 
 	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
 	"github.com/pdok/texel/config"
@@ -12,14 +13,13 @@ import (
 
 // Orchestrator for the tile creation pipeline
 func BuildAndWriteMVTTiles(layers []Layer, zoomlevel uint, target MVTTarget) error {
-	// Build key index (columns) just once.
-
 	tiles, err := listTiles(zoomlevel, layers)
 	if err != nil {
 		return err
 	}
 
 	for _, coord := range tiles {
+		log.Printf(" building (%d, %d, Z = %d)", coord.X, coord.Y, coord.Z)
 		data, err := processTile(coord, layers)
 		if err != nil {
 			return fmt.Errorf("building tile (%d, %d): %w", coord.X, coord.Y, err)
