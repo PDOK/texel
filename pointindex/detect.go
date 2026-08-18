@@ -17,17 +17,14 @@ type SegmentIdx struct {
 }
 
 // RegisterFunc marks a tile at (xCoord, yCoord) (in tile coordinates at
-// level l) as touched by the segment identified by segmentIdx.
-type RegisterFunc func(xCoord, yCoord uint, l Level, segmentIdx SegmentIdx)
+// level l) as touched. Callers that need to associate the touched tile
+// with a segment should do so via a variable captured in their closure.
+type RegisterFunc func(xCoord, yCoord uint, l Level)
 
 // Logic for searching tile grid for tiles that intersect a line.
 // Detect line direction and trace that direction
-func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ringIdx int, pointIdx int, buffer uint, register RegisterFunc) {
+func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, buffer uint, register RegisterFunc) {
 	intLine := intgeom.FromGeomLine(line)
-	idx := SegmentIdx{
-		ringIdx:  ringIdx,
-		pointIdx: pointIdx,
-	}
 
 	var dx, dy int
 	if intLine.Point1().X() < intLine.Point2().X() {
@@ -46,18 +43,18 @@ func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ri
 	bufferSize := ix.getResolution(intPixLevel) * intgeom.M(buffer) //nolint:gosec // G115
 
 	// Register tiles at start
-	ix.tryRegisterTile(intLine, startX-dx, startY+dy, tileLevel, bufferSize, register, idx)
-	ix.tryRegisterTile(intLine, startX-dx, startY, tileLevel, bufferSize, register, idx)
-	ix.tryRegisterTile(intLine, startX-dx, startY-dy, tileLevel, bufferSize, register, idx)
-	ix.tryRegisterTile(intLine, startX, startY-dy, tileLevel, bufferSize, register, idx)
-	ix.tryRegisterTile(intLine, startX+dx, startY-dy, tileLevel, bufferSize, register, idx)
+	ix.tryRegisterTile(intLine, startX-dx, startY+dy, tileLevel, bufferSize, register)
+	ix.tryRegisterTile(intLine, startX-dx, startY, tileLevel, bufferSize, register)
+	ix.tryRegisterTile(intLine, startX-dx, startY-dy, tileLevel, bufferSize, register)
+	ix.tryRegisterTile(intLine, startX, startY-dy, tileLevel, bufferSize, register)
+	ix.tryRegisterTile(intLine, startX+dx, startY-dy, tileLevel, bufferSize, register)
 
 	type coord struct{ x, y int }
 
 	// Advance over an anti-diagonal, keeping track of the last two "hits"
 	frontier := []coord{{startX, startY}}
 	prevFrontier := make([]coord, 0)
-	ix.tryRegisterTile(intLine, startX, startY, tileLevel, bufferSize, register, idx)
+	ix.tryRegisterTile(intLine, startX, startY, tileLevel, bufferSize, register)
 
 	for len(prevFrontier)+len(frontier) > 0 {
 		nextSet := make(map[coord]bool, len(frontier)*2+len(prevFrontier))
@@ -71,7 +68,7 @@ func (ix *PointIndex) lineTrace(line geom.Line, tileLevel, intPixLevel Level, ri
 
 		next := make([]coord, 0, len(nextSet))
 		for c := range nextSet {
-			if ix.tryRegisterTile(intLine, c.x, c.y, tileLevel, bufferSize, register, idx) {
+			if ix.tryRegisterTile(intLine, c.x, c.y, tileLevel, bufferSize, register) {
 				next = append(next, c)
 			}
 		}
@@ -90,7 +87,7 @@ func (ix *PointIndex) getInternalPixelLevel(deepestTIMID tms20.TMID) Level {
 }
 
 // Logic for deciding whether line intersects tile with buffer.
-func (ix *PointIndex) tryRegisterTile(line intgeom.Line, x, y int, l Level, bufferSize intgeom.M, register RegisterFunc, idx SegmentIdx) bool {
+func (ix *PointIndex) tryRegisterTile(line intgeom.Line, x, y int, l Level, bufferSize intgeom.M, register RegisterFunc) bool {
 	maxCoord := int(mathhelp.Pow2(l)) - 1 //nolint:gosec // G115
 	if x < 0 || y < 0 || x > maxCoord || y > maxCoord {
 		return false // out of bounds: no tile there, nothing to register
@@ -98,7 +95,7 @@ func (ix *PointIndex) tryRegisterTile(line intgeom.Line, x, y int, l Level, buff
 	ux, uy := uint(x), uint(y)
 	extent, _ := ix.getQuadrantExtentAndCentroid(l, ux, uy, ix.intExtent)
 	if tileIntersectsLine(line, extent, bufferSize) {
-		register(ux, uy, l, idx)
+		register(ux, uy, l)
 		return true
 	}
 	return false
@@ -158,18 +155,22 @@ func (ix *PointIndex) registerPolygonEdges(polygon geom.Polygon, tmsID tms20.TMI
 		markIntersected(l-1, z>>2)
 	}
 
-	// Logic for keeping track which segment hits which tile
-	register := func(x, y uint, l Level, segmentIdx SegmentIdx) {
+	// Logic that keeps track of which segments hit which tiles.
+	// idx is captured in the closure and updated in the loop; this keeps the
+	// interface registerFunc general.
+	var idx SegmentIdx
+	register := func(x, y uint, l Level) {
 		z := morton.MustToZ(x, y)
-		segments[z] = append(segments[z], segmentIdx)
+		segments[z] = append(segments[z], idx)
 		markIntersected(l, z)
 	}
 
 	// Loop
 	for ringIdx, ring := range polygon.LinearRings() {
 		for pointIdx := range ring {
+			idx = SegmentIdx{ringIdx: ringIdx, pointIdx: pointIdx}
 			line := geom.Line{ring[pointIdx], ring[(pointIdx+1)%len(ring)]}
-			ix.lineTrace(line, tileLevel, intPixLevel, ringIdx, pointIdx, buffer, register)
+			ix.lineTrace(line, tileLevel, intPixLevel, buffer, register)
 		}
 	}
 	return segments, classification
@@ -336,14 +337,14 @@ func (ix *PointIndex) GetLineTraceLine(line geom.LineString, tmsID tms20.TMID, b
 	tileSet := make(map[tile.Tile]bool)
 	l := Level(tmsID) //nolint:gosec // G115 integers < 40
 
-	register := func(x, y uint, l Level, segmentIdx SegmentIdx) {
+	register := func(x, y uint, l Level) {
 		tile := ix.makeTile(x, y, l, false)
 		tileSet[tile] = true
 	}
 
 	segments, _ := line.AsSegments()
-	for i, segment := range segments {
-		ix.lineTrace(segment, l, ix.internalPixels, 0, i, buffer, register)
+	for _, segment := range segments {
+		ix.lineTrace(segment, l, ix.internalPixels, buffer, register)
 	}
 
 	tileList := make([]tile.Tile, 0, len(tileSet))

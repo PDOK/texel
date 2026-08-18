@@ -15,18 +15,17 @@ import (
 
 // registeredTile records a single call to a RegisterFunc during a test.
 type registeredTile struct {
-	x, y       uint
-	segmentIdx SegmentIdx
+	x, y uint
 }
 
 // Register function for testing
 func recordingRegister(dst *[]registeredTile) RegisterFunc {
-	return func(tileX, tileY uint, l Level, segmentIdx SegmentIdx) {
+	return func(tileX, tileY uint, l Level) {
 		maxCoord := mathhelp.Pow2(l) - 1
 		if tileX > maxCoord || tileY > maxCoord {
 			return
 		}
-		*dst = append(*dst, registeredTile{tileX, tileY, segmentIdx})
+		*dst = append(*dst, registeredTile{tileX, tileY})
 	}
 }
 
@@ -212,7 +211,7 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			ix := newOffsetPointIndex(tt.deepestLevel, tt.cellSize, tt.originX, tt.originY)
 
 			var recorded []registeredTile
-			ix.lineTrace(tt.line, tt.l, tt.deepestLevel, 0, 0, tt.buffer, recordingRegister(&recorded))
+			ix.lineTrace(tt.line, tt.l, tt.deepestLevel, tt.buffer, recordingRegister(&recorded))
 
 			got := uniqueTileCoords(recorded)
 			assert.Equal(t, tt.want, got)
