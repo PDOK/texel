@@ -316,13 +316,13 @@ func (ix *PointIndex) GetLineTraceResult(polygon geom.Polygon, tmsID tms20.TMID,
 				size := mathhelp.Pow2((tileLevel - level) * 2)
 				baseZ := z << (2 * (tileLevel - level))
 				for i := range size {
-					tiles = append(tiles, ix.makeTile(baseZ+i, tileLevel, true))
+					tiles = append(tiles, ix.makeTileZ(baseZ+i, tileLevel, true))
 				}
 			case ClassificationOutside:
 				continue
 			case ClassificationIntersect:
 				if level == tileLevel {
-					tiles = append(tiles, ix.makeTile(z, tileLevel, false))
+					tiles = append(tiles, ix.makeTileZ(z, tileLevel, false))
 				}
 			case ClassificationUnknown:
 				panic("ClassificationUnknown tile for polygon during linetrace")
@@ -332,8 +332,34 @@ func (ix *PointIndex) GetLineTraceResult(polygon geom.Polygon, tmsID tms20.TMID,
 	return tiles
 }
 
-func (ix *PointIndex) makeTile(z morton.Z, l Level, isContained bool) tile.Tile {
+func (ix *PointIndex) GetLineTraceLine(line geom.LineString, tmsID tms20.TMID, buffer uint) []tile.Tile {
+	tileSet := make(map[tile.Tile]bool)
+	l := Level(tmsID) //nolint:gosec // G115 integers < 40
+
+	register := func(x, y uint, l Level, segmentIdx SegmentIdx) {
+		tile := ix.makeTile(x, y, l, false)
+		tileSet[tile] = true
+	}
+
+	segments, _ := line.AsSegments()
+	for i, segment := range segments {
+		ix.lineTrace(segment, l, ix.internalPixels, 0, i, buffer, register)
+	}
+
+	tileList := make([]tile.Tile, 0, len(tileSet))
+	for tile := range tileSet {
+		tileList = append(tileList, tile)
+	}
+
+	return tileList
+}
+
+func (ix *PointIndex) makeTileZ(z morton.Z, l Level, isContained bool) tile.Tile {
 	x, y := morton.FromZ(z)
+	return ix.makeTile(x, y, l, isContained)
+}
+
+func (ix *PointIndex) makeTile(x, y uint, l Level, isContained bool) tile.Tile {
 	extent, _ := ix.getQuadrantExtentAndCentroid(l, x, y, ix.intExtent)
 	return tile.Tile{
 		Extent:      extent,
