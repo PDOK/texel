@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
+	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
 	"github.com/pdok/texel/tile"
@@ -373,6 +374,7 @@ func (ix *PointIndex) findIntersectingTilesLeft(x, y, tileLevel Level, classific
 // Line tracing for lines //
 ////////////////////////////
 
+// Line trace by looping over segments
 func (ix *PointIndex) lineTraceLine(line geom.LineString, tmsID tms20.TMID, buffer uint) []tile.Tile {
 	tileSet := make(map[tile.Tile]bool)
 	l := LevelFromTmsId(tmsID)
@@ -387,18 +389,14 @@ func (ix *PointIndex) lineTraceLine(line geom.LineString, tmsID tms20.TMID, buff
 		ix.lineTrace(segment, l, ix.internalPixels, buffer, register)
 	}
 
-	tileList := make([]tile.Tile, 0, len(tileSet))
-	for tile := range tileSet {
-		tileList = append(tileList, tile)
-	}
-
-	return tileList
+	return mapslicehelp.MapKeys(tileSet)
 }
 
 /////////////////////////////
 // Line tracing for points //
 /////////////////////////////
 
+// Line tracing is not applicable, fall back to BBox
 func (ix *PointIndex) lineTracePoint(_ geom.Point, tmsID tms20.TMID, buffer uint) []tile.Tile {
 	l := LevelFromTmsId(tmsID)
 	return ix.GetQBBoxWithBuffer(l, buffer)
