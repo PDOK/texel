@@ -1,6 +1,7 @@
 package geomhelp
 
 import (
+	"fmt"
 	"math"
 	"strings"
 
@@ -175,4 +176,35 @@ func PolygonSliceToGeom(polygons []geom.Polygon) geom.Geometry {
 		multipolygon[i] = p
 	}
 	return multipolygon
+}
+
+// Convert geometry to slice of points. Does not accept multi-geometries
+func PointSlice(g geom.Geometry) []geom.Point {
+	switch g := g.(type) {
+	case geom.Point:
+		return []geom.Point{g}
+	case geom.Polygon:
+		rings := g.LinearRings()
+		pointsCount := 0
+		for _, ring := range rings {
+			pointsCount += len(ring)
+		}
+		points := make([]geom.Point, 0, pointsCount)
+		for _, ring := range rings {
+			for _, point := range ring {
+				points = append(points, point)
+			}
+		}
+		return points
+	case geom.LineString:
+		vertices := g.Vertices()
+		points := make([]geom.Point, 0, len(vertices))
+		for _, vert := range vertices {
+			points = append(points, vert)
+		}
+		return points
+	default:
+		err := fmt.Errorf("PointSlice called incompatible geometry type: %s", g)
+		panic(err)
+	}
 }

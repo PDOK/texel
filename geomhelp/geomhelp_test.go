@@ -47,3 +47,44 @@ func TestGeomhelp_PolygonSliceToGeom(t *testing.T) {
 		})
 	}
 }
+
+func TestPointSlice(t *testing.T) {
+	tests := []struct {
+		name string
+		g    geom.Geometry
+		want []geom.Point
+	}{
+		{
+			name: "point",
+			g:    geom.Point{1, 2},
+			want: []geom.Point{{1, 2}},
+		},
+		{
+			name: "line string",
+			g:    geom.LineString{{0, 0}, {1, 1}, {2, 2}},
+			want: []geom.Point{{0, 0}, {1, 1}, {2, 2}},
+		},
+		{
+			name: "polygon with single ring",
+			g:    geom.Polygon{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}},
+			want: []geom.Point{{0, 0}, {1, 0}, {1, 1}, {0, 1}},
+		},
+		{
+			name: "polygon with hole",
+			g: geom.Polygon{
+				{{0, 0}, {10, 0}, {10, 10}, {0, 10}},
+				{{2, 2}, {4, 2}, {4, 4}, {2, 4}},
+			},
+			want: []geom.Point{
+				{0, 0}, {10, 0}, {10, 10}, {0, 10},
+				{2, 2}, {4, 2}, {4, 4}, {2, 4},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PointSlice(tt.g)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

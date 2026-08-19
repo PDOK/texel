@@ -59,7 +59,7 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 		levels = append(levels, level)
 	}
 
-	err = ix.InsertPolygon(polygon)
+	err = ix.InsertGeometry(polygon)
 	if err != nil {
 		outsideGridErr := new(pointindex.OutsideGridError)
 		if errors.As(err, outsideGridErr) && config.IgnoreOutsideGrid {

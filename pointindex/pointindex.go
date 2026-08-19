@@ -11,6 +11,7 @@ import (
 	"github.com/go-spatial/geom/encoding/wkt"
 	"golang.org/x/exp/maps" //nolint:exptostd
 
+	"github.com/pdok/texel/geomhelp"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
 	"github.com/pdok/texel/tile"
@@ -208,6 +209,24 @@ func (ix *PointIndex) GetQBBoxWithBuffer(l Level, bufferSize uint) []tile.Tile {
 		}
 	}
 	return tiles
+}
+
+// Insert all points of a geometry in the pointindex. Multi-geometries not supported
+func (ix *PointIndex) InsertGeometry(geometry geom.Geometry) error {
+	pointSlice := geomhelp.PointSlice(geometry)
+	// Initialize the map
+	for level := range ix.deepestLevel + 1 {
+		if ix.quadrants[level] == nil {
+			ix.quadrants[level] = make(map[morton.Z]Quadrant, len(pointSlice))
+		}
+	}
+	// Insert points
+	for _, point := range pointSlice {
+		if err := ix.InsertPoint(point); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // InsertPolygon inserts all points from a Polygon

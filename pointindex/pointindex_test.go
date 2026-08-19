@@ -550,7 +550,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := tt.ix
 			poly := tt.poly
-			err := ix.InsertPolygon(poly)
+			err := ix.InsertGeometry(poly)
 			require.NoError(t, err)
 			levels := tt.levels
 			if levels == nil {
