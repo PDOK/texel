@@ -19,7 +19,7 @@ type registeredTile struct {
 }
 
 // Register function for testing
-func recordingRegister(dst *[]registeredTile) RegisterFunc {
+func recordingRegister(dst *[]registeredTile) registerFunc {
 	return func(tileX, tileY uint, l Level) {
 		maxCoord := mathhelp.Pow2(l) - 1
 		if tileX > maxCoord || tileY > maxCoord {
@@ -532,9 +532,9 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			segments, classification := tt.ix.registerPolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
+			segments, classification := tt.ix.lineTracePolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
 			z := morton.MustToZ(tt.tileX, tt.tileY)
-			got := tt.ix.classifyNonIntersectingTile(z, tt.tileLevel, segments, classification, tt.polygon)
+			got := tt.ix.fillTile(z, tt.tileLevel, segments, classification, tt.polygon)
 			t.Logf("classifyNonIntersectingTile(tile=(%d,%d)) = %v", tt.tileX, tt.tileY, got)
 			assert.Equal(t, tt.want, got)
 		})
@@ -709,8 +709,8 @@ func TestPointIndex_classifyNonIntersectingTiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			targetLevel := Level(tt.tmsID) //nolint:gosec // G115
-			segments, classification := tt.ix.registerPolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
-			tt.ix.classifyNonIntersectingTiles(targetLevel, 0, 0, true, segments, classification, tt.polygon)
+			segments, classification := tt.ix.lineTracePolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
+			tt.ix.fillTiles(targetLevel, 0, 0, true, segments, classification, tt.polygon)
 
 			got := classificationGrid(classification, targetLevel)
 			for l := Level(0); l <= targetLevel; l++ {

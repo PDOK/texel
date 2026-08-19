@@ -78,7 +78,7 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 		if config.EncodeTiles {
 			tmID := tmIDsByLevels[level]
 			if config.UseLineTrace {
-				tilesbbox = ix.GetLineTraceResult(polygon, tmID, config.Buffer)
+				tilesbbox = ix.DetectTilesViaLineTrace(polygon, tmID, config.Buffer)
 			} else {
 				tilesbbox = ix.GetQBBoxWithBuffer(pointindex.Level(tmID), config.Buffer) //nolint:gosec // G115 These are numbers < 40
 			}
