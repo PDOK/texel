@@ -36,6 +36,8 @@ const (
 	IGNOREOUTSIDEGRID   string = `ignoreoutsidegrid`
 	REVERSEWINDINGORDER string = `reversewindingorder`
 	ENCODETILES         string = `encodetiles`
+	TILEBUFFER          string = `tilebuffer`
+	USELINETRACE        string = `uselinetrace`
 
 	MVTSOURCE string = `mvtSourceGpkg`
 	MVTOUTDIR string = `mvtOutDir`
@@ -133,6 +135,22 @@ func main() {
 					Required: false,
 					EnvVars:  []string{strcase.ToScreamingSnake(ENCODETILES)},
 				},
+				&cli.UintFlag{
+					Name:     TILEBUFFER,
+					Aliases:  []string{"buf"},
+					Usage:    "Buffer (in internal pixels) used to select the tiles a polygon's geometry touches.",
+					Value:    0,
+					Required: false,
+					EnvVars:  []string{strcase.ToScreamingSnake(TILEBUFFER)},
+				},
+				&cli.BoolFlag{
+					Name:     USELINETRACE,
+					Aliases:  []string{"lt"},
+					Usage:    "Use precise line-trace tile classification instead of a simple buffered bounding box to select tiles.",
+					Value:    false,
+					Required: false,
+					EnvVars:  []string{strcase.ToScreamingSnake(USELINETRACE)},
+				},
 			},
 			Action: func(c *cli.Context) error {
 				tileMatrixSet, err := tms20.LoadEmbeddedTileMatrixSet(c.String(TILEMATRIXSET))
@@ -167,6 +185,8 @@ func main() {
 					IgnoreOutsideGrid:   c.Bool(IGNOREOUTSIDEGRID),
 					ReverseWindingOrder: c.Bool(REVERSEWINDINGORDER),
 					EncodeTiles:         c.Bool(ENCODETILES),
+					Buffer:              c.Uint(TILEBUFFER),
+					UseLineTrace:        c.Bool(USELINETRACE),
 				}
 				for _, tmID := range tileMatrixIDs {
 					gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize, c.Bool(ENCODETILES))
@@ -273,7 +293,7 @@ func injectSuffixIntoPath(p string) string {
 func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, snapConfig snap.Config) {
 	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]processing.SnapResult {
 		return snap.SnapPolygon(p, tileMatrixSet, tmIDs, snapConfig)
-	}, snapConfig.EncodeTiles)
+	}, snapConfig.EncodeTiles, snapConfig.Buffer)
 }
 
 // Initialize resources for creating vecotrtiles and delegate to processing.

@@ -11,6 +11,7 @@ import (
 	"github.com/pdok/texel/geomhelp"
 	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/pointindex"
+	"github.com/pdok/texel/tile"
 	"github.com/tobshub/go-sortedmap"
 	"golang.org/x/exp/maps" //nolint:exptostd
 
@@ -35,6 +36,11 @@ type Config struct {
 	IgnoreOutsideGrid   bool
 	ReverseWindingOrder bool
 	EncodeTiles         bool
+	// Buffer is the number of internal pixels that tiles get
+	// inflated for detecting which geometries lie on them
+	Buffer uint
+	// Decide whether to use lineTrace or BBox for tile detection
+	UseLineTrace bool
 }
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
@@ -68,9 +74,14 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 
 	newPolygonsPerTileMatrixID := make(map[tms20.TMID]processing.SnapResult, len(newPolygonsPerLevel))
 	for level, newPolygons := range newPolygonsPerLevel {
-		var tilesbbox []pointindex.Quadrant
+		var tilesbbox []tile.Tile
 		if config.EncodeTiles {
-			tilesbbox = ix.GetPrimitiveQBBox(pointindex.Level(tmIDsByLevels[level])) //nolint:gosec // G115 These are numbers < 40
+			tmID := tmIDsByLevels[level]
+			if config.UseLineTrace {
+				tilesbbox = ix.GetLineTraceResult(polygon, tmID, config.Buffer)
+			} else {
+				tilesbbox = ix.GetQBBoxWithBuffer(pointindex.Level(tmID), config.Buffer) //nolint:gosec // G115 These are numbers < 40
+			}
 		}
 		newGeometry := geomhelp.PolygonSliceToGeom(newPolygons)
 		newPolygonsPerTileMatrixID[tmIDsByLevels[level]] = processing.SnapResult{Geometry: newGeometry, Tiles: tilesbbox}

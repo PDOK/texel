@@ -13,6 +13,7 @@ import (
 
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
+	"github.com/pdok/texel/tile"
 	"github.com/pdok/texel/tms20"
 
 	"github.com/go-spatial/geom"
@@ -74,11 +75,13 @@ type PointIndex struct {
 	Quadrant
 	deepestLevel Level
 	// Number of quadrants (in one direction) on the deepest level (= 2 ^ deepestLevel)
-	deepestSize uint
-	deepestRes  intgeom.M
-	quadrants   map[Level]map[morton.Z]Quadrant
-	hitOnce     map[Level]map[intgeom.Point][]int
-	hitMultiple map[Level]map[intgeom.Point][]int
+	deepestSize    uint
+	deepestRes     intgeom.M
+	quadrants      map[Level]map[morton.Z]Quadrant
+	hitOnce        map[Level]map[intgeom.Point][]int
+	hitMultiple    map[Level]map[intgeom.Point][]int
+	tilePixels     uint
+	internalPixels uint
 }
 
 type (
@@ -89,7 +92,8 @@ type (
 func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) (*PointIndex, error) {
 	// assuming IsQuadTree was tested before
 	rootTM := tileMatrixSet.TileMatrices[0]
-	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
+	tilePixels := rootTM.TileWidth
+	levelDiff := uint(math.Log2(float64(tilePixels))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
 	//nolint:gosec // G115
 	deepestLevel := uint(deepestTMID) + levelDiff
 	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
@@ -105,8 +109,10 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 			intExtent: intExtent,
 			z:         0,
 		},
-		deepestLevel: deepestLevel,
-		deepestSize:  deepestSize,
+		tilePixels:     tilePixels,
+		internalPixels: VectorTileInternalPixelResolution,
+		deepestLevel:   deepestLevel,
+		deepestSize:    deepestSize,
 		//nolint:gosec // G115
 		deepestRes:  intExtent.XSpan() / int64(deepestSize),
 		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
@@ -119,7 +125,7 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 }
 
 // Temporary function: primitively marks quadrants as relevant for tiling
-func (ix *PointIndex) GetPrimitiveQBBox(l Level) []Quadrant {
+func (ix *PointIndex) GetPrimitiveQBBox(l Level) []tile.Tile {
 	quadrants := ix.quadrants[l]
 
 	minX := ^uint(0)
@@ -135,19 +141,73 @@ func (ix *PointIndex) GetPrimitiveQBBox(l Level) []Quadrant {
 		maxY = max(y, maxY)
 	}
 
-	quadrantSlice := make([]Quadrant, (maxY-minY+1)*(maxX-minX+1))
+	quadrantSlice := make([]tile.Tile, (maxY-minY+1)*(maxX-minX+1))
 	for i := range maxX - minX + 1 {
 		for j := range maxY - minY + 1 {
-			extent, centroid := ix.getQuadrantExtentAndCentroid(l, minX+i, minY+j, ix.intExtent)
-			newQuadrant := Quadrant{
-				z:           morton.MustToZ(minX+i, minY+j),
-				intExtent:   extent,
-				intCentroid: centroid,
+			extent, _ := ix.getQuadrantExtentAndCentroid(l, minX+i, minY+j, ix.intExtent)
+			newTile := tile.Tile{
+				Extent:      extent,
+				X:           minX + i,
+				Y:           minY + i,
+				IsContained: false,
 			}
-			quadrantSlice[i*(maxY-minY+1)+j] = newQuadrant
+			quadrantSlice[i*(maxY-minY+1)+j] = newTile
 		}
 	}
 	return quadrantSlice
+}
+
+// Loop over all points to find the extent. Return slice of tiles whose
+// buffer intersects extent. Buufer size given in deepstlevel (internal pixels).
+func (ix *PointIndex) GetQBBoxWithBuffer(l Level, bufferSize uint) []tile.Tile {
+	quadrants := ix.quadrants[ix.deepestLevel]
+
+	minX := ^uint(0)
+	maxX := uint(0)
+	minY := ^uint(0)
+	maxY := uint(0)
+
+	for z := range quadrants {
+		x, y := morton.FromZ(z)
+		minX = min(x, minX)
+		maxX = max(x, maxX)
+		minY = min(y, minY)
+		maxY = max(y, maxY)
+	}
+
+	var tileMinX, tileMinY uint
+	if minX < bufferSize {
+		tileMinX = 0
+	} else {
+		tileMinX = (minX - bufferSize) >> (ix.deepestLevel - l)
+	}
+	if minY < bufferSize {
+		tileMinY = 0
+	} else {
+		tileMinY = (minY - bufferSize) >> (ix.deepestLevel - l)
+	}
+
+	maxTileCoord := mathhelp.Pow2(l) - 1
+	tileMaxX := min((maxX+bufferSize)>>(ix.deepestLevel-l), maxTileCoord)
+	tileMaxY := min((maxY+bufferSize)>>(ix.deepestLevel-l), maxTileCoord)
+
+	tiles := make([]tile.Tile, 0, (tileMaxX-tileMinX+1)*(tileMaxY-tileMinY+1))
+	for i := range tileMaxX - tileMinX + 1 {
+		for j := range tileMaxY - tileMinY + 1 {
+			tileX := tileMinX + i
+			tileY := tileMinY + j
+			extent, _ := ix.getQuadrantExtentAndCentroid(
+				l, tileX, tileY, ix.intExtent)
+
+			tiles = append(tiles, tile.Tile{
+				Extent:      extent,
+				X:           tileX,
+				Y:           tileY,
+				IsContained: false,
+			})
+		}
+	}
+	return tiles
 }
 
 // InsertPolygon inserts all points from a Polygon
