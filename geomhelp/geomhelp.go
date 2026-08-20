@@ -164,6 +164,15 @@ func wktMustEncodeTruncated(geom geom.Geometry, width uint) string {
 	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
 }
 
+func GeometrySliceToGeom(geometries []geom.Geometry) geom.Geometry{
+	if len(geometries) == 0 {
+		panic("Multipolygon with zero polygons encountered")
+	}
+	if len(geometries) == 1 {
+		return geometries[0]
+	}
+	return geometries
+}
 func PolygonSliceToGeom(polygons []geom.Polygon) geom.Geometry {
 	if len(polygons) == 0 {
 		panic("Multipolygon with zero polygons encountered")

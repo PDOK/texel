@@ -1,12 +1,14 @@
 package snap
 
 import (
+	"slices"
 	"strconv"
 	"testing"
 
 	"github.com/pdok/texel/geomhelp"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/pointindex"
+	"github.com/pdok/texel/processing"
 	"github.com/stretchr/testify/require"
 
 	"github.com/go-spatial/geom/encoding/wkt"
@@ -610,7 +612,9 @@ func TestSnap_snapPolygon(t *testing.T) {
 			config: Config{KeepPointsAndLines: true},
 			polygon: geom.Polygon{{
 				{48158.204, 392310.062},
-				{47753.125, 391885.44}, {48565.4, 391515.876}, {47751.195, 391884.821}, // a very sharp leg/extension
+				{47753.125, 391885.44},
+				{48565.4, 391515.876},
+				{47751.195, 391884.821}, // a very sharp leg/extension
 				{47677.592, 392079.403},
 			}},
 			want: map[tms20.TMID][]geom.Polygon{0: {
@@ -646,7 +650,8 @@ func TestSnap_snapPolygon(t *testing.T) {
 			polygon: geom.Polygon{
 				{{198877.1, 506188.635}, {198805.608, 506361.231}, {198633.011, 506432.722}, {198460.415, 506361.23}, {198388.924, 506188.633}, {198460.416, 506016.037}, {198633.013, 505944.546}, {198805.609, 506016.038}},
 				{{198429.407, 506188.635}, {198489.229, 506332.782}, {198633.531, 506392.228}, {198777.528, 506332.045}, {198836.612, 506187.594}, {198776.434, 506044.111}, {198632.5, 505985.022}, {198488.864, 506044.832}, {198429.407, 506188.615}, {198551.204, 506045.823}, {198690.244, 506034.324}, {198792.36, 506147.487}, {198748.509, 506305.863}, {198576.128, 506343.056}},
-				{{198633.012, 506279.536}, {198766.685, 506188.158}, {198632.396, 506055.195}, {198499.739, 506188.974}}},
+				{{198633.012, 506279.536}, {198766.685, 506188.158}, {198632.396, 506055.195}, {198499.739, 506188.974}},
+			},
 			want: map[tms20.TMID][]geom.Polygon{}, // want no panicMoreThanOneMatchingOuterRing
 		},
 		{
@@ -671,10 +676,12 @@ func TestSnap_snapPolygon(t *testing.T) {
 						{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
 						{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
 						{{28.0, 52.0}, {52.0, 52.0}, {52.0, 12.0}, {12.0, 12.0}, {12.0, 52.0}},   // cw
-					}, {
+					},
+					{
 						{{28.0, 44.0}, {20.0, 44.0}, {20.0, 20.0}, {44.0, 20.0}, {44.0, 44.0}}, // ccw
 						{{28.0, 36.0}, {36.0, 36.0}, {36.0, 28.0}, {28.0, 28.0}},               // cw
-					}, {
+					},
+					{
 						{{28.0, 84.0}, {44.0, 84.0}, {44.0, 108.0}, {20.0, 108.0}, {20.0, 84.0}}, // ccw
 						{{28.0, 100.0}, {36.0, 100.0}, {36.0, 92.0}, {28.0, 92.0}},               // cw
 					},
@@ -784,16 +791,28 @@ func TestSnap_snapPolygon(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.wantPanic {
 				require.Panics(t, func() {
-					SnapPolygon(tt.polygon, tt.tms, tt.tmIDs, tt.config)
+					ix, err := pointindex.FromTileMatrixSet(tt.tms, slices.Max(tt.tmIDs))
+					if err != nil {
+						panic(err)
+					}
+					err = ix.InsertGeometry(tt.polygon)
+					SnapGeometry(ix, tt.polygon, tt.tmIDs, processing.Config(tt.config))
 				})
 				return
 			}
-			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs, tt.config)
+
+			ix, err := pointindex.FromTileMatrixSet(tt.tms, slices.Max(tt.tmIDs))
+			if err != nil {
+				panic(err)
+			}
+			err = ix.InsertGeometry(tt.polygon)
+			got := SnapGeometry(ix, tt.polygon, tt.tmIDs, processing.Config(tt.config))
 			for tmID, wantPoly := range tt.want {
 				wantGeom := geomhelp.PolygonSliceToGeom(wantPoly)
-				if !assert.Equal(t, wantGeom, got[tmID].Geometry) {
+				gotGeom := geomhelp.GeometrySliceToGeom(got[tmID])
+				if !assert.Equal(t, wantGeom, gotGeom) {
 					t.Errorf("snapPolygon(%v, _, %v)\n=     %v\nwant: %v",
-						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncode(got[tmID].Geometry, 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
+						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncode(gotGeom, 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
 				}
 			}
 		})
@@ -1061,7 +1080,7 @@ func (f fakeCRS) Code() string {
 func squareRingArray(number int, isOuter bool) [][][2]float64 {
 	outerSquare := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}} // square, counter clockwise
 	innerSquare := [][2]float64{{0, 0}, {0, 1}, {1, 1}, {1, 0}} // square, clockwise
-	var squares = [][][2]float64{}                              //nolint:prealloc
+	squares := [][][2]float64{}                                 //nolint:prealloc
 	var square [][2]float64
 	// outer or inner
 	if isOuter {

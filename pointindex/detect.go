@@ -189,7 +189,7 @@ func (ix *PointIndex) lineTracePolygon(polygon geom.Polygon, tmsID tms20.TMID, b
 // Use a special registering function that keeps track of which edges hit which tiles.
 func (ix *PointIndex) lineTracePolygonEdges(polygon geom.Polygon, tmsID tms20.TMID, buffer uint) (segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification) {
 	tileLevel := LevelFromTmsId(tmsID)
-	intPixLevel := ix.internalPixelLevelFromTmsID(tmsID)
+	intPixLevel := ix.InternalPixelLevelFromTmsID(tmsID)
 
 	// Initialize data
 	segments = make(map[morton.Z][]SegmentIdx)
@@ -425,9 +425,14 @@ func (ix *PointIndex) getResolution(level Level) intgeom.M {
 	return ix.intExtent.XSpan() / int64(mathhelp.Pow2(level)) //nolint:gosec // G115
 }
 
-func (ix *PointIndex) internalPixelLevelFromTmsID(deepestTIMID tms20.TMID) Level {
+func (ix *PointIndex) InternalPixelLevelFromTmsID(deepestTIMID tms20.TMID) Level {
 	levelDiff := uint(math.Log2(float64(ix.tilePixels))) + uint(math.Log2(float64(ix.internalPixels)))
 	return uint(deepestTIMID) + levelDiff //nolint:gosec // G115
+}
+
+func (ix *PointIndex) TmsIDFromInternalPixelLevel(level Level) tms20.TMID {
+	levelDiff := uint(math.Log2(float64(ix.tilePixels))) + uint(math.Log2(float64(ix.internalPixels)))
+	return int(level) - int(levelDiff) //nolint:gosec // G115
 }
 
 func LevelFromTmsId(tms tms20.TMID) Level {

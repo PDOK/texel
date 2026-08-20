@@ -1,7 +1,6 @@
 package snap
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -11,7 +10,6 @@ import (
 	"github.com/pdok/texel/geomhelp"
 	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/pointindex"
-	"github.com/pdok/texel/tile"
 	"github.com/tobshub/go-sortedmap"
 	"golang.org/x/exp/maps" //nolint:exptostd
 
@@ -43,68 +41,34 @@ type Config struct {
 	UseLineTrace bool
 }
 
-// SnapPolygon snaps polygons' points to a tile's internal pixel grid
-// and adds points to lines to prevent intersections.
-//
-//nolint:revive
-func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID, config Config) map[tms20.TMID]processing.SnapResult {
-	deepestID := slices.Max(tmIDs)
-	ix, err := pointindex.FromTileMatrixSet(tileMatrixSet, deepestID)
-	if err != nil {
-		panic(err) // TODO let processing.processPolygonFunc return err
-	}
-	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
-	levels := make([]pointindex.Level, 0, len(tmIDsByLevels))
-	for level := range tmIDsByLevels {
-		levels = append(levels, level)
-	}
-
-	err = ix.InsertGeometry(polygon)
-	if err != nil {
-		outsideGridErr := new(pointindex.OutsideGridError)
-		if errors.As(err, outsideGridErr) && config.IgnoreOutsideGrid {
-			log.Println("[WARNING] skipping polygon because: " + err.Error())
-			return make(map[tms20.TMID]processing.SnapResult)
-		} else {
-			panic(err)
-		}
-	}
-
-	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels, config)
-
-	newPolygonsPerTileMatrixID := make(map[tms20.TMID]processing.SnapResult, len(newPolygonsPerLevel))
-	for level, newPolygons := range newPolygonsPerLevel {
-		var tilesbbox []tile.Tile
-		if config.EncodeTiles {
-			tmID := tmIDsByLevels[level]
-			if config.UseLineTrace {
-				tilesbbox = ix.DetectTilesViaLineTrace(polygon, tmID, config.Buffer)
-			} else {
-				tilesbbox = ix.GetQBBoxWithBuffer(pointindex.Level(tmID), config.Buffer) //nolint:gosec // G115 These are numbers < 40
-			}
-		}
-		newGeometry := geomhelp.PolygonSliceToGeom(newPolygons)
-		newPolygonsPerTileMatrixID[tmIDsByLevels[level]] = processing.SnapResult{Geometry: newGeometry, Tiles: tilesbbox}
-	}
-
-	return newPolygonsPerTileMatrixID
-}
-
-func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[pointindex.Level]tms20.TMID {
-	rootTM := tms.TileMatrices[0]
-	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(pointindex.VectorTileInternalPixelResolution)))
-	tmIDsByLevels := make(map[pointindex.Level]tms20.TMID, len(tmIDs))
+func SnapGeometry(ix *pointindex.PointIndex, geometry geom.Geometry, tmIDs []tms20.TMID, config processing.Config) map[tms20.TMID][]geom.Geometry {
+	levels := make([]pointindex.Level, 0, len(tmIDs))
 	for _, tmID := range tmIDs {
-		// assuming 2^(tmID) = tm.MatrixWidth = tm.MatrixHeight
-		//nolint:gosec // G115
-		level := uint(tmID) + levelDiff
-		tmIDsByLevels[level] = tmID
+		levels = append(levels, ix.InternalPixelLevelFromTmsID(tmID))
 	}
-	return tmIDsByLevels
+	switch geometry := geometry.(type) {
+	case geom.Polygon:
+		snappedPolygons := addPointsAndSnap(ix, geometry, levels, config)
+		result := make(map[tms20.TMID][]geom.Geometry, len(snappedPolygons))
+		for level, polygons := range snappedPolygons {
+			geoms := make([]geom.Geometry, 0, len(polygons))
+			for _, polygon := range polygons {
+				geoms = append(geoms, polygon)
+			}
+			result[ix.TmsIDFromInternalPixelLevel(level)] = geoms
+		}
+		return result
+	default:
+		result := make(map[tms20.TMID][]geom.Geometry, len(tmIDs))
+		for _, tmID := range tmIDs {
+			result[tmID] = []geom.Geometry{geometry}
+		}
+		return result
+	}
 }
 
 //nolint:cyclop
-func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level, config Config) map[pointindex.Level][]geom.Polygon {
+func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level, config processing.Config) map[pointindex.Level][]geom.Polygon {
 	levelMap := mapslicehelp.AsKeys(levels)
 	newOuters := make(map[pointindex.Level][][][2]float64, len(levels))
 	newInners := make(map[pointindex.Level][][][2]float64, len(levels))
@@ -172,7 +136,7 @@ func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []
 	return geomhelp.FloatPolygonsToGeomPolygonsForAllKeys(newPolygons)
 }
 
-func reverseWindingOrderIfConfigured(polygons [][][][2]float64, config Config) {
+func reverseWindingOrderIfConfigured(polygons [][][][2]float64, config processing.Config) {
 	if !config.ReverseWindingOrder {
 		return
 	}

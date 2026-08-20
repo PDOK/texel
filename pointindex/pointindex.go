@@ -125,6 +125,17 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 	return &ix, nil
 }
 
+func Factory(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) func() *PointIndex {
+	factory := func() *PointIndex {
+		ix, err := FromTileMatrixSet(tileMatrixSet, deepestTMID)
+		if err != nil {
+			panic(err)
+		}
+		return ix
+	}
+	return factory
+}
+
 // Temporary function: primitively marks quadrants as relevant for tiling
 func (ix *PointIndex) GetPrimitiveQBBox(l Level) []tile.Tile {
 	quadrants := ix.quadrants[l]
