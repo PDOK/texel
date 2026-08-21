@@ -147,7 +147,7 @@ func WktMustEncode(g geom.Geometry, maxLen uint) (s string) {
 	return s
 }
 
-func WktMustEncodeSlice(geoms []geom.Polygon, maxLen uint) string {
+func WktMustEncodeSlice(geoms []geom.Geometry, maxLen uint) string {
 	s := ""
 	var builder strings.Builder
 	for i := range geoms {

@@ -1,6 +1,8 @@
 package snap
 
 import (
+	"errors"
+	"log"
 	"slices"
 	"strconv"
 	"testing"
@@ -26,7 +28,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 		tmIDs     []tms20.TMID
 		config    Config
 		polygon   geom.Polygon
-		want      map[tms20.TMID][]geom.Polygon
+		want      map[tms20.TMID][]geom.Geometry
 		wantPanic bool
 	}{
 		{
@@ -42,7 +44,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{117221.990, 440133.510},
 				{117220.500, 440133.380},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{14: {{{
+			want: map[tms20.TMID][]geom.Geometry{14: {geom.Polygon{{
 				{117220.2846875, 440135.9021875},
 				{117210.7165625, 440135.1015625},
 				{117211.1234375, 440130.1009375},
@@ -65,7 +67,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{110929.44700000000011642, 504407.8219999999855645},
 				{110892.93099999999685679, 504407.8219999999855645},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{14: {{{
+			want: map[tms20.TMID][]geom.Geometry{14: {geom.Polygon{{
 				{110892.9321875, 504407.8196875},
 				{110929.4459375, 504407.8196875},
 				{110920.0353125, 504436.0778125},
@@ -95,7 +97,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{2.0, 2.4},
 				{0.0, 2.4},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{1: {{{
+			want: map[tms20.TMID][]geom.Geometry{1: {geom.Polygon{{
 				{0.25, 0.25},
 				{15.25, 0.25},
 				{15.25, 2.25},
@@ -123,7 +125,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{15.0, 0.0},
 				{0.0, 0.0},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{1: {{{
+			want: map[tms20.TMID][]geom.Geometry{1: {geom.Polygon{{
 				{0.25, 0.25},
 				{15.25, 0.25},
 				{15.25, 2.25},
@@ -156,7 +158,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{2.0, 2.4},
 				{0.0, 2.4},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{1: {{{
+			want: map[tms20.TMID][]geom.Geometry{1: {geom.Polygon{{
 				{0.25, 0.25},
 				{15.25, 0.25},
 				{15.25, 2.25},
@@ -194,7 +196,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{2.0, 2.4},
 				{0.0, 2.4},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{1: {{{
+			want: map[tms20.TMID][]geom.Geometry{1: {geom.Polygon{{
 				{0.25, 0.25},
 				{2.25, 0.25},
 				{15.25, 0.25},
@@ -220,14 +222,12 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{69879.413, 445710.912},
 				{69837.833, 445705.673},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{5: {
-				{
+			want: map[tms20.TMID][]geom.Geometry{5: {
+				geom.Polygon{
 					{{69840.8, 445706.08}, {69881.12, 445712.8}, {69840.8, 445712.8}},
-				},
-				{
+				}, geom.Polygon{
 					{{69840.8, 445706.08}, {69840.8, 445712.8}},
-				},
-				{
+				}, geom.Polygon{
 					{{69840.8, 445712.8}, {69840.8, 445753.12}},
 				},
 			}},
@@ -243,8 +243,8 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{90673.689, 530324.552},
 				{90664.068, 530379.532},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{0: {
-				{
+			want: map[tms20.TMID][]geom.Geometry{0: {
+				geom.Polygon{
 					{{90595.52, 530415.04}, {90810.56, 530415.04}},
 				},
 			}},
@@ -259,7 +259,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{90673.689, 530324.552},
 				{90664.068, 530379.532},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{},
+			want: map[tms20.TMID][]geom.Geometry{},
 		},
 		{
 			name:   "ring length < 3 _after_ deduping, also not filtered out",
@@ -272,8 +272,8 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{211059.858, 574971.321},
 				{211163.163, 574994.581},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{0: {
-				{
+			want: map[tms20.TMID][]geom.Geometry{0: {
+				geom.Polygon{
 					{{211232.96, 574928.32}, {211017.92, 574928.32}},
 				},
 			}},
@@ -295,14 +295,12 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{6.0, 3.0},
 				{3.0, 6.0},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
-				{ // left wing
+			want: map[tms20.TMID][]geom.Geometry{1: {
+				geom.Polygon{ // 3 separate polygons: left wing
 					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
-				},
-				{ // right wing
+				}, geom.Polygon{ // right wing
 					{{9.25, 3.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
-				},
-				{ // line in between (last)
+				}, geom.Polygon{ // line in between (last)
 					{{6.25, 3.25}, {9.25, 3.25}},
 				},
 			}},
@@ -332,15 +330,13 @@ func TestSnap_snapPolygon(t *testing.T) {
 					{3.0, 2.0},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
-				{ // left wing, including inner ring
+			want: map[tms20.TMID][]geom.Geometry{1: {
+				geom.Polygon{ // 3 separate polygons: left wing, including inner ring
 					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
 					{{2.25, 3.25}, {3.25, 4.25}, {4.25, 3.25}, {3.25, 2.25}},
-				},
-				{ // right wing
+				}, geom.Polygon{ // right wing
 					{{9.25, 3.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
-				},
-				{ // line in between (last)
+				}, geom.Polygon{ // line in between (last)
 					{{6.25, 3.25}, {9.25, 3.25}},
 				},
 			}},
@@ -376,16 +372,14 @@ func TestSnap_snapPolygon(t *testing.T) {
 					{12.0, 2.0},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 3 separate polygons:
-				{ // left wing, including inner ring
+			want: map[tms20.TMID][]geom.Geometry{1: {
+				geom.Polygon{ // 3 separate polygons: left wing, including inner ring
 					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
 					{{2.25, 3.25}, {3.25, 4.25}, {4.25, 3.25}, {3.25, 2.25}},
-				},
-				{ // right wing
+				}, geom.Polygon{ // right wing
 					{{9.25, 3.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
 					{{11.25, 3.25}, {12.25, 4.25}, {13.25, 3.25}, {12.25, 2.25}},
-				},
-				{ // line in between (last)
+				}, geom.Polygon{ // line in between (last)
 					{{6.25, 3.25}, {9.25, 3.25}},
 				},
 			}},
@@ -408,17 +402,15 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{6.0, 3.0},
 				{3.0, 6.0},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 4 separate polygons:
-				{ // left wing
+			want: map[tms20.TMID][]geom.Geometry{1: {
+				geom. // 4 separate polygons:
+					Polygon{ // left wing
 					{{0.25, 3.25}, {3.25, 0.25}, {6.25, 3.25}, {3.25, 6.25}},
-				},
-				{ // right wing
+				}, geom.Polygon{ // right wing
 					{{12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}},
-				},
-				{ // line 1
+				}, geom.Polygon{ // line 1
 					{{6.25, 3.25}, {9.25, 3.25}},
-				},
-				{ // line 2
+				}, geom.Polygon{ // line 2
 					{{9.25, 3.25}, {12.25, 0.25}},
 				},
 			}},
@@ -450,13 +442,13 @@ func TestSnap_snapPolygon(t *testing.T) {
 					{3.0, 2.0},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 2 separate polygons:
-				{ // outer ring, including two inner rings
+			want: map[tms20.TMID][]geom.Geometry{1: {
+				geom. // 2 separate polygons:
+					Polygon{ // outer ring, including two inner rings
 					{{0.25, 3.25}, {3.25, 0.25}, {12.25, 0.25}, {15.25, 3.25}, {12.25, 6.25}, {3.25, 6.25}},
 					{{2.25, 3.25}, {3.25, 4.25}, {4.25, 3.25}, {3.25, 2.25}},
 					{{11.25, 3.25}, {12.25, 4.25}, {13.25, 3.25}, {12.25, 2.25}},
-				},
-				{ // line in between inner rings (last)
+				}, geom.Polygon{ // line in between inner rings (last)
 					{{4.25, 3.25}, {11.25, 3.25}},
 				},
 			}},
@@ -476,11 +468,11 @@ func TestSnap_snapPolygon(t *testing.T) {
 					{0.0, 10.0},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 2 separate polygons:
-				{ // outer ring
+			want: map[tms20.TMID][]geom.Geometry{1: {
+				geom. // 2 separate polygons:
+					Polygon{ // outer ring
 					{{0.25, 0.25}, {2.25, 0.25}, {2.25, 10.25}, {0.25, 10.25}},
-				},
-				{ // line
+				}, geom.Polygon{ // line
 					{{2.25, 10.25}, {2.25, 12.25}},
 				},
 			}},
@@ -507,8 +499,9 @@ func TestSnap_snapPolygon(t *testing.T) {
 					{0.0, 6.0},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 1 polygon with 2 inner rings:
-				{
+			want: map[tms20.TMID][]geom.Geometry{1: {
+				geom. // 1 polygon with 2 inner rings:
+					Polygon{
 					{{0.25, 0.25}, {12.25, 0.25}, {12.25, 6.25}, {12.25, 12.25}, {6.25, 6.25}, {6.25, 12.25}, {0.25, 6.25}},
 					{{12.25, 6.25}, {9.25, 3.25}, {6.25, 6.25}},
 					{{6.25, 6.25}, {3.25, 3.25}, {0.25, 6.25}},
@@ -540,13 +533,13 @@ func TestSnap_snapPolygon(t *testing.T) {
 					{7.0, 2.5},
 				},
 			},
-			want: map[tms20.TMID][]geom.Polygon{1: { // 2 separate polygons:
-				{ // original outer ring with 2 inner rings
+			want: map[tms20.TMID][]geom.Geometry{1: {
+				geom. // 2 separate polygons:
+					Polygon{ // original outer ring with 2 inner rings
 					{{0.25, 0.25}, {15.25, 0.25}, {15.25, 2.25}, {12.25, 2.25}, {12.25, 6.25}, {0.25, 6.25}},
 					{{5.25, 2.25}, {2.25, 2.25}, {2.25, 4.25}, {5.25, 4.25}},   // inner ring created by snapping
 					{{7.25, 4.25}, {10.25, 4.25}, {10.25, 2.75}, {7.25, 2.75}}, // original inner ring
-				},
-				{ // self-tangent line split off as outer ring
+				}, geom.Polygon{ // self-tangent line split off as outer ring
 					{{12.25, 2.25}, {5.25, 2.25}},
 				},
 			}},
@@ -560,30 +553,24 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{{27435.253, 392410.493}, {27339.366, 392266.876}, {27156.23, 392261.72}, {27150.921, 392265.803}, {27153.05, 392268.68}, {27337.2, 392270.744}, {27431.77, 392409.367}, {27435.253, 392410.493}},
 				{{27325.12, 392269.53}, {27157.488, 392265.29}, {27153.165, 392267.869}, {27151.622, 392266.309}, {27156.228, 392262.52}, {27339.052, 392267.615}, {27434.775, 392409.844}, {27338.787, 392271.126}, {27337.382, 392269.953}, {27325.12, 392269.53}},
 			},
-			want: map[tms20.TMID][]geom.Polygon{5: { // 8 separate polygons - TODO: remove (mirrored) duplicates in lines:
-				{ // outer ring with inner ring
+			want: map[tms20.TMID][]geom.Geometry{5: {
+				geom. // 8 separate polygons - TODO: remove (mirrored) duplicates in lines:
+					Polygon{ // outer ring with inner ring
 					{{27323.36, 392268.64}, {27155.36, 392268.64}, {27148.64, 392268.64}, {27155.36, 392261.92}},
 					{{27323.36, 392268.64}, {27155.36, 392261.92}, {27155.36, 392268.64}},
-				},
-				{ // line 1 == line 6 mirrored
+				}, geom.Polygon{ // line 1 == line 6 mirrored
 					{{27437.6, 392409.76}, {27430.88, 392409.76}},
-				},
-				{ // line 2 == line 5 mirrored
+				}, geom.Polygon{ // line 2 == line 5 mirrored
 					{{27430.88, 392409.76}, {27336.8, 392268.64}},
-				},
-				{ // line 3 == line 4 mirrored
+				}, geom.Polygon{ // line 3 == line 4 mirrored
 					{{27336.8, 392268.64}, {27323.36, 392268.64}},
-				},
-				{ // line 4 == line 3 mirrored
+				}, geom.Polygon{ // line 4 == line 3 mirrored
 					{{27323.36, 392268.64}, {27336.8, 392268.64}},
-				},
-				{ // line 5 == line 2 mirrored
+				}, geom.Polygon{ // line 5 == line 2 mirrored
 					{{27336.8, 392268.64}, {27430.88, 392409.76}},
-				},
-				{ // line 6 == line 1 mirrored
+				}, geom.Polygon{ // line 6 == line 1 mirrored
 					{{27430.88, 392409.76}, {27437.6, 392409.76}},
-				},
-				{ // line 7
+				}, geom.Polygon{ // line 7
 					{{27155.36, 392268.64}, {27148.64, 392268.64}},
 				},
 			}},
@@ -598,8 +585,8 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{139566.36, 527736.9}, {139433.603, 527736.172}, {139364.846, 527736.093}, // horizontal with rightmostlowest
 				{139348.24, 527736.425675193}, {139348.24, 527754.592389722}, // (vertical)
 			}},
-			want: map[tms20.TMID][]geom.Polygon{5: {
-				{{{139345.76, 527757.28}, {139345.76, 527737.12}, {139365.92, 527737.12}, {139433.12, 527737.12}, {139567.52, 527737.12}, {139628, 527737.12}, {139681.76, 527743.84}, {139708.64, 527743.84}, {139802.72, 527757.28}, {139822.88, 527757.28}, {139822.88, 527790.88}, {139816.16, 527790.88}, {139789.28, 527790.88}, {139755.68, 527797.6}, {139728.8, 527797.6}, {139715.36, 527797.6}, {139668.32, 527790.88}, {139654.88, 527790.88}, {139648.16, 527790.88}, {139614.56, 527790.88}, {139607.84, 527790.88}, {139594.4, 527790.88}, {139587.68, 527784.16}, {139547.36, 527784.16}, {139527.2, 527784.16}, {139372.64, 527784.16}}, {{139527.2, 527777.44}, {139533.92, 527777.44}, {139533.92, 527770.72}, {139533.92, 527764}, {139527.2, 527757.28}, {139520.48, 527764}, {139520.48, 527770.72}, {139520.48, 527777.44}}},
+			want: map[tms20.TMID][]geom.Geometry{5: {
+				geom.Polygon{{{139345.76, 527757.28}, {139345.76, 527737.12}, {139365.92, 527737.12}, {139433.12, 527737.12}, {139567.52, 527737.12}, {139628, 527737.12}, {139681.76, 527743.84}, {139708.64, 527743.84}, {139802.72, 527757.28}, {139822.88, 527757.28}, {139822.88, 527790.88}, {139816.16, 527790.88}, {139789.28, 527790.88}, {139755.68, 527797.6}, {139728.8, 527797.6}, {139715.36, 527797.6}, {139668.32, 527790.88}, {139654.88, 527790.88}, {139648.16, 527790.88}, {139614.56, 527790.88}, {139607.84, 527790.88}, {139594.4, 527790.88}, {139587.68, 527784.16}, {139547.36, 527784.16}, {139527.2, 527784.16}, {139372.64, 527784.16}}, {{139527.2, 527777.44}, {139533.92, 527777.44}, {139533.92, 527770.72}, {139533.92, 527764}, {139527.2, 527757.28}, {139520.48, 527764}, {139520.48, 527770.72}, {139520.48, 527777.44}}},
 				geom.Polygon{{{139527.2, 527784.16}, {139527.2, 527777.44}}},
 				geom.Polygon{{{139533.92, 527777.44}, {139540.64, 527777.44}}},
 				geom.Polygon{{{139520.48, 527777.44}, {139513.76, 527777.44}}},
@@ -617,9 +604,9 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{47751.195, 391884.821}, // a very sharp leg/extension
 				{47677.592, 392079.403},
 			}},
-			want: map[tms20.TMID][]geom.Polygon{0: {
-				{{{47587.52, 392144.32}, {47802.56, 391929.28}, {48232.64, 392359.36}}}, // turned counterclockwise
-				{{{47802.56, 391929.28}, {48662.72, 391499.2}}},
+			want: map[tms20.TMID][]geom.Geometry{0: {
+				geom.Polygon{{{47587.52, 392144.32}, {47802.56, 391929.28}, {48232.64, 392359.36}}}, geom. // turned counterclockwise
+																Polygon{{{47802.56, 391929.28}, {48662.72, 391499.2}}},
 			}}, // want no panicInnerRingsButNoOuterRings
 		},
 		{
@@ -628,10 +615,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			tmIDs:   []tms20.TMID{0},
 			config:  Config{KeepPointsAndLines: true},
 			polygon: geom.Polygon{{{179334.089, 408229.072}, {179121.631, 408528.181}, {179328.228, 408231.924}, {178889.903, 408431.167}, {178531.386, 408106.618}, {178497.492, 407886.329}, {178535.353, 408103.574}, {178862.244, 408226.852}, {178891.816, 408426.547}, {179173.349, 408187.199}, {178893.957, 408423.424}, {178864.491, 408223.293}, {178537.744, 408101.003}, {178504.209, 407887.598}, {178510.008, 407890.491}, {178542.44, 408098.473}, {178867.788, 408219.534}, {178897.835, 408417.763}, {179170.131, 408181.285}}}, // ccw (with a sharp leg/extension also)
-			want: map[tms20.TMID][]geom.Polygon{0: {
-				{{{178976.96, 408487.36}, {178761.92, 408272.32}, {178546.88, 408057.28}, {179192, 408272.32}}}, // ccw
-				// bunch of points and lines:
-				{{{179407.04, 408272.32}, {179192, 408272.32}}}, {{{179192, 408272.32}, {179192, 408487.36}}}, {{{179407.04, 408272.32}, {179192, 408272.32}}}, {{{179192, 408272.32}, {178976.96, 408487.36}}}, {{{178976.96, 408487.36}, {178761.92, 408272.32}}}, {{{178761.92, 408272.32}, {178546.88, 408057.28}}}, {{{178546.88, 408057.28}, {178546.88, 407842.24}}},
+			want: map[tms20.TMID][]geom.Geometry{0: {
+				geom.Polygon{{{178976.96, 408487.36}, {178761.92, 408272.32}, {178546.88, 408057.28}, {179192, 408272.32}}}, geom. // ccw
+																			Polygon{ // bunch of points and lines:
+					{{179407.04, 408272.32}, {179192, 408272.32}}}, geom.Polygon{{{179192, 408272.32}, {179192, 408487.36}}}, geom.Polygon{{{179407.04, 408272.32}, {179192, 408272.32}}}, geom.Polygon{{{179192, 408272.32}, {178976.96, 408487.36}}}, geom.Polygon{{{178976.96, 408487.36}, {178761.92, 408272.32}}}, geom.Polygon{{{178761.92, 408272.32}, {178546.88, 408057.28}}}, geom.Polygon{{{178546.88, 408057.28}, {178546.88, 407842.24}}},
 			}},
 		},
 		{
@@ -640,7 +627,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 			tmIDs:   []tms20.TMID{0},
 			config:  Config{KeepPointsAndLines: true},
 			polygon: geom.Polygon{{{88580.011, 439678.996}, {88337.73, 439237.216}, {89273.964, 438026.4}, {89386.079, 438023.335}, {90251.524, 438784.15}, {89852.567, 439284.421}, {89425.263, 439355.284}, {89247.228, 439563.507}, {89089.95, 439692.364}, {88959.832, 439729.531}, {89055.886, 439819.684}, {89466.904, 439382.346}, {89899.488, 439311.969}, {90170.183, 438911.775}, {90329.354, 438821.391}, {90651.094, 438796.963}, {91473.854, 439243.296}, {90632.307, 438747.518}, {90270.708, 438757.632}, {89555.357, 437677.283}, {90499.163, 436096.427}, {91435.651, 435963.019}, {91404.334, 436039.088}, {91254.337, 436091.084}, {90500.745, 436098.362}, {90076.214, 437042.706}, {89870.055, 437307.816}, {89768.94, 437363.42}, {89650.683, 437521.434}, {89640.994, 437568.838}, {89558.222, 437677.647}, {90269.467, 438753.387}, {90632.85, 438744.94}, {91313.174, 439143.369}, {91477.748, 439241.657}, {91475.353, 439245.66}, {91457.592, 439266.852}, {91243.008, 439179.921}, {90710.843, 438897.924}, {90650.175, 438799.288}, {90440.729, 438846.985}, {90395.019, 438846.967}, {90329.938, 438823.822}, {90287.474, 438885.328}, {90172.086, 438913.396}, {90044.257, 439125.421}, {89901.052, 439313.924}, {89885.113, 439321.991}, {89835.824, 439335.083}, {89468.228, 439384.467}, {89173.832, 439758.873}, {89061.413, 439821.909}, {89054.68, 439821.883}, {89023.222, 439801.24}, {88989.659, 439763.597}, {88949.781, 439739.428}, {88958.959, 439726.203}, {89088.39, 439690.41}, {89245.45, 439561.75}, {89388.248, 439376.01}, {89424.081, 439353.075}, {89566.906, 439317.631}, {89851.03, 439282.45}, {90111.766, 438914.525}, {90249.027, 438784.029}, {90211.25, 438760.51}, {90183.492, 438736.293}, {89584.683, 438207.656}, {89384.579, 438025.335}, {89274.819, 438028.749}, {88339.974, 439238.317}, {88419.861, 439377.057}, {88447.454, 439387.602}, {88485.231, 439376.209}, {88505.9, 439379.802}, {88564.366, 439441.722}, {88589.428, 439478.721}, {88598.844, 439504.106}, {88608.517, 439561.563}, {88582.418, 439679.669}, {88565.692, 439724.97}, {88480.367, 439857.335}, {88409.981, 439938.527}, {88412.431, 439940.265}, {88366.171, 440033.682}, {88353.723, 440046.457}, {88356.08, 440054.25}, {88342.856, 440086.861}, {88266.552, 440224.799}, {88252.681, 440243.646}, {88196.44, 440306.135}, {87992.789, 440467.453}, {88250.595, 440274.14}, {88508.083, 439845.775}, {88270.249, 440256.888}, {88194.893, 440335.659}, {88010.485, 440474.349}, {87996.213, 440475.679}, {87990.894, 440469.07}, {88580.011, 439678.996}}},
-			want:    map[tms20.TMID][]geom.Polygon{}, // want no panicNoMatchingOuterForInnerRing
+			want:    map[tms20.TMID][]geom.Geometry{}, // want no panicNoMatchingOuterForInnerRing
 		},
 		{
 			name:   "sneaky nested pseudo ring creates more than 1 matching outer ring",
@@ -652,7 +639,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{{198429.407, 506188.635}, {198489.229, 506332.782}, {198633.531, 506392.228}, {198777.528, 506332.045}, {198836.612, 506187.594}, {198776.434, 506044.111}, {198632.5, 505985.022}, {198488.864, 506044.832}, {198429.407, 506188.615}, {198551.204, 506045.823}, {198690.244, 506034.324}, {198792.36, 506147.487}, {198748.509, 506305.863}, {198576.128, 506343.056}},
 				{{198633.012, 506279.536}, {198766.685, 506188.158}, {198632.396, 506055.195}, {198499.739, 506188.974}},
 			},
-			want: map[tms20.TMID][]geom.Polygon{}, // want no panicMoreThanOneMatchingOuterRing
+			want: map[tms20.TMID][]geom.Geometry{}, // want no panicMoreThanOneMatchingOuterRing
 		},
 		{
 			name: "nested rings",
@@ -668,31 +655,22 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{{30.0, 53.0}, {30.0, 54.0}, {54.0, 54.0}, {54.0, 10.0}, {10.0, 10.0}, {10.0, 54.0}, {27.0, 54.0}, {27.0, 53.0}, {11.0, 53.0}, {11.0, 11.0}, {53.0, 11.0}, {53.0, 53.0}},     // another C around the original C which snaps to a duplicate outer
 				{{28.0, 28.0}, {36.0, 28.0}, {36.0, 36.0}, {29.0, 36.0}, {29.0, 92.0}, {36.0, 92.0}, {36.0, 100.0}, {28.0, 100.0}},                                                           // dumbbell inside the two C's that also turns into a nested ring when snapped (and some lines)
 			},
-			want: map[tms20.TMID][]geom.Polygon{
+			want: map[tms20.TMID][]geom.Geometry{
 				// 1 big outer with 2 holes. and 2 new outers/polygons (inside those holes from the big outer) each with their own hole.
 				// a duplicate inner/outer pair from the extra C is removed
 				1: {
-					{
+					geom.Polygon{
 						{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
 						{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
 						{{28.0, 52.0}, {52.0, 52.0}, {52.0, 12.0}, {12.0, 12.0}, {12.0, 52.0}},   // cw
-					},
-					{
+					}, geom.Polygon{
 						{{28.0, 44.0}, {20.0, 44.0}, {20.0, 20.0}, {44.0, 20.0}, {44.0, 44.0}}, // ccw
 						{{28.0, 36.0}, {36.0, 36.0}, {36.0, 28.0}, {28.0, 28.0}},               // cw
-					},
-					{
+					}, geom.Polygon{
 						{{28.0, 84.0}, {44.0, 84.0}, {44.0, 108.0}, {20.0, 108.0}, {20.0, 84.0}}, // ccw
 						{{28.0, 100.0}, {36.0, 100.0}, {36.0, 92.0}, {28.0, 92.0}},               // cw
-					},
-					// and some lines
-					{{{28.0, 52.0}, {28.0, 44.0}}},
-					{{{28.0, 76.0}, {28.0, 84.0}}},
-					{{{28.0, 92.0}, {28.0, 84.0}}},
-					{{{28.0, 84.0}, {28.0, 76.0}}},
-					{{{28.0, 76.0}, {28.0, 52.0}}},
-					{{{28.0, 52.0}, {28.0, 44.0}}},
-					{{{28.0, 44.0}, {28.0, 36.0}}},
+					}, geom.Polygon{ // and some lines
+						{{28.0, 52.0}, {28.0, 44.0}}}, geom.Polygon{{{28.0, 76.0}, {28.0, 84.0}}}, geom.Polygon{{{28.0, 92.0}, {28.0, 84.0}}}, geom.Polygon{{{28.0, 84.0}, {28.0, 76.0}}}, geom.Polygon{{{28.0, 76.0}, {28.0, 52.0}}}, geom.Polygon{{{28.0, 52.0}, {28.0, 44.0}}}, geom.Polygon{{{28.0, 44.0}, {28.0, 36.0}}},
 				},
 			},
 		},
@@ -704,14 +682,14 @@ func TestSnap_snapPolygon(t *testing.T) {
 			polygon: geom.Polygon{
 				{{642743.3299, 6898063.027}, {642694.6797, 6898049.319}, {642671.3143, 6898042.735}, {642671.3143, 6898042.735}, {642668.1822, 6898053.868}, {642740.1897, 6898074.148}},
 			},
-			want: map[tms20.TMID][]geom.Polygon{}, // want no panicNoPointsFoundForVertices
+			want: map[tms20.TMID][]geom.Geometry{}, // want no panicNoPointsFoundForVertices
 		},
 		{
 			name:      "panic outside grid",
 			tms:       newSimpleTileMatrixSet(0, 1),
 			tmIDs:     []tms20.TMID{0},
 			polygon:   geom.Polygon{{{0.1, 0.1}, {0.2, 0.1}, {0.2, -0.1}}},
-			want:      map[tms20.TMID][]geom.Polygon{}, // empty, ignored
+			want:      map[tms20.TMID][]geom.Geometry{}, // empty, ignored
 			wantPanic: true,
 		},
 		{
@@ -720,7 +698,7 @@ func TestSnap_snapPolygon(t *testing.T) {
 			config:  Config{IgnoreOutsideGrid: true},
 			tmIDs:   []tms20.TMID{0},
 			polygon: geom.Polygon{{{0.1, 0.1}, {0.2, 0.1}, {0.2, -0.1}}},
-			want:    map[tms20.TMID][]geom.Polygon{}, // empty, ignored
+			want:    map[tms20.TMID][]geom.Geometry{}, // empty, ignored
 		},
 		{
 			name:   "correct winding order",
@@ -731,8 +709,8 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{{60.0, 124.0}, {60.0, 4.0}, {4.0, 4.0}, {4.0, 124.0}},                   // cw
 				{{12.0, 76.0}, {28.0, 76.0}, {52.0, 76.0}, {52.0, 116.0}, {12.0, 116.0}}, // ccw
 			},
-			want: map[tms20.TMID][]geom.Polygon{
-				1: {{
+			want: map[tms20.TMID][]geom.Geometry{
+				1: {geom.Polygon{
 					{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
 					{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
 				}},
@@ -747,8 +725,8 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
 				{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
 			},
-			want: map[tms20.TMID][]geom.Polygon{
-				1: {{
+			want: map[tms20.TMID][]geom.Geometry{
+				1: {geom.Polygon{
 					{{60.0, 124.0}, {60.0, 4.0}, {4.0, 4.0}, {4.0, 124.0}},                   // cw
 					{{12.0, 76.0}, {28.0, 76.0}, {52.0, 76.0}, {52.0, 116.0}, {12.0, 116.0}}, // ccw
 				}},
@@ -763,8 +741,8 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
 				{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
 			},
-			want: map[tms20.TMID][]geom.Polygon{
-				1: {{
+			want: map[tms20.TMID][]geom.Geometry{
+				1: {geom.Polygon{
 					{{4.0, 124.0}, {4.0, 4.0}, {60.0, 4.0}, {60.0, 124.0}},                   // ccw
 					{{12.0, 116.0}, {52.0, 116.0}, {52.0, 76.0}, {28.0, 76.0}, {12.0, 76.0}}, // cw
 				}},
@@ -779,8 +757,8 @@ func TestSnap_snapPolygon(t *testing.T) {
 				{{60.0, 124.0}, {60.0, 4.0}, {4.0, 4.0}, {4.0, 124.0}},                   // cw
 				{{12.0, 76.0}, {28.0, 76.0}, {52.0, 76.0}, {52.0, 116.0}, {12.0, 116.0}}, // ccw
 			},
-			want: map[tms20.TMID][]geom.Polygon{
-				1: {{
+			want: map[tms20.TMID][]geom.Geometry{
+				1: {geom.Polygon{
 					{{60.0, 124.0}, {60.0, 4.0}, {4.0, 4.0}, {4.0, 124.0}},                   // cw
 					{{12.0, 76.0}, {28.0, 76.0}, {52.0, 76.0}, {52.0, 116.0}, {12.0, 116.0}}, // ccw
 				}},
@@ -796,6 +774,14 @@ func TestSnap_snapPolygon(t *testing.T) {
 						panic(err)
 					}
 					err = ix.InsertGeometry(tt.polygon)
+					if err != nil {
+						outsideGridErr := new(pointindex.OutsideGridError)
+						if errors.As(err, outsideGridErr) && tt.config.IgnoreOutsideGrid {
+							log.Println("[WARNING] skipping polygon because: " + err.Error())
+						}
+						panic(err)
+					}
+
 					SnapGeometry(ix, tt.polygon, tt.tmIDs, processing.Config(tt.config))
 				})
 				return
@@ -808,11 +794,9 @@ func TestSnap_snapPolygon(t *testing.T) {
 			err = ix.InsertGeometry(tt.polygon)
 			got := SnapGeometry(ix, tt.polygon, tt.tmIDs, processing.Config(tt.config))
 			for tmID, wantPoly := range tt.want {
-				wantGeom := geomhelp.PolygonSliceToGeom(wantPoly)
-				gotGeom := geomhelp.GeometrySliceToGeom(got[tmID])
-				if !assert.Equal(t, wantGeom, gotGeom) {
+				if !assert.Equal(t, wantPoly, got[tmID]) {
 					t.Errorf("snapPolygon(%v, _, %v)\n=     %v\nwant: %v",
-						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncode(gotGeom, 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
+						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncode(got[tmID], 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
 				}
 			}
 		})
