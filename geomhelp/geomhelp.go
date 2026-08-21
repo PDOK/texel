@@ -162,3 +162,17 @@ func wktMustEncodeTruncated(geom geom.Geometry, width uint) string {
 	}
 	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
 }
+
+func PolygonSliceToGeom(polygons []geom.Polygon) geom.Geometry {
+	if len(polygons) == 0 {
+		panic("Multipolygon with zero polygons encountered")
+	}
+	if len(polygons) == 1 {
+		return polygons[0]
+	}
+	multipolygon := make(geom.MultiPolygon, len(polygons))
+	for i, p := range polygons {
+		multipolygon[i] = p
+	}
+	return multipolygon
+}

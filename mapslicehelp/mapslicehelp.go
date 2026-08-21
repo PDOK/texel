@@ -51,6 +51,15 @@ func OrderedMapKeys[K comparable, V any](m *orderedmap.OrderedMap[K, V]) []K {
 	return l
 }
 
+// Assumes all indices 0, 1, ..., len(index)-1 are used exactly once.
+func OrderedByIndex[K comparable](index map[K]uint32) []K {
+	ordered := make([]K, len(index))
+	for k, i := range index {
+		ordered[i] = k
+	}
+	return ordered
+}
+
 func RemoveSequences[V any, K comparable](s []V, sequencesToRemove *sortedmap.SortedMap[K, [2]int]) (newS []V) {
 	mmap := sequencesToRemove.Map()
 	keepFrom := 0

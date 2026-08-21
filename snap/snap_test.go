@@ -790,9 +790,10 @@ func TestSnap_snapPolygon(t *testing.T) {
 			}
 			got := SnapPolygon(tt.polygon, tt.tms, tt.tmIDs, tt.config)
 			for tmID, wantPoly := range tt.want {
-				if !assert.Equal(t, wantPoly, got[tmID]) {
+				wantGeom := geomhelp.PolygonSliceToGeom(wantPoly)
+				if !assert.Equal(t, wantGeom, got[tmID].Geometry) {
 					t.Errorf("snapPolygon(%v, _, %v)\n=     %v\nwant: %v",
-						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncodeSlice(got[tmID], 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
+						wkt.MustEncode(tt.polygon), tmID, geomhelp.WktMustEncode(got[tmID].Geometry, 0), geomhelp.WktMustEncodeSlice(wantPoly, 0))
 				}
 			}
 		})

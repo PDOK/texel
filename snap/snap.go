@@ -11,6 +11,7 @@ import (
 	"github.com/pdok/texel/geomhelp"
 	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/pointindex"
+	"github.com/pdok/texel/tile"
 	"github.com/tobshub/go-sortedmap"
 	"golang.org/x/exp/maps" //nolint:exptostd
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
+	"github.com/pdok/texel/processing"
 	"github.com/pdok/texel/tms20"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 )
@@ -33,13 +35,19 @@ type Config struct {
 	KeepPointsAndLines  bool
 	IgnoreOutsideGrid   bool
 	ReverseWindingOrder bool
+	EncodeTiles         bool
+	// Buffer is the number of internal pixels that tiles get
+	// inflated for detecting which geometries lie on them
+	Buffer uint
+	// Decide whether to use lineTrace or BBox for tile detection
+	UseLineTrace bool
 }
 
 // SnapPolygon snaps polygons' points to a tile's internal pixel grid
 // and adds points to lines to prevent intersections.
 //
 //nolint:revive
-func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID, config Config) map[tms20.TMID][]geom.Polygon {
+func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID, config Config) map[tms20.TMID]processing.SnapResult {
 	deepestID := slices.Max(tmIDs)
 	ix, err := pointindex.FromTileMatrixSet(tileMatrixSet, deepestID)
 	if err != nil {
@@ -56,7 +64,7 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 		outsideGridErr := new(pointindex.OutsideGridError)
 		if errors.As(err, outsideGridErr) && config.IgnoreOutsideGrid {
 			log.Println("[WARNING] skipping polygon because: " + err.Error())
-			return make(map[tms20.TMID][]geom.Polygon)
+			return make(map[tms20.TMID]processing.SnapResult)
 		} else {
 			panic(err)
 		}
@@ -64,9 +72,19 @@ func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs 
 
 	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels, config)
 
-	newPolygonsPerTileMatrixID := make(map[tms20.TMID][]geom.Polygon, len(newPolygonsPerLevel))
+	newPolygonsPerTileMatrixID := make(map[tms20.TMID]processing.SnapResult, len(newPolygonsPerLevel))
 	for level, newPolygons := range newPolygonsPerLevel {
-		newPolygonsPerTileMatrixID[tmIDsByLevels[level]] = newPolygons
+		var tilesbbox []tile.Tile
+		if config.EncodeTiles {
+			tmID := tmIDsByLevels[level]
+			if config.UseLineTrace {
+				tilesbbox = ix.GetLineTraceResult(polygon, tmID, config.Buffer)
+			} else {
+				tilesbbox = ix.GetQBBoxWithBuffer(pointindex.Level(tmID), config.Buffer) //nolint:gosec // G115 These are numbers < 40
+			}
+		}
+		newGeometry := geomhelp.PolygonSliceToGeom(newPolygons)
+		newPolygonsPerTileMatrixID[tmIDsByLevels[level]] = processing.SnapResult{Geometry: newGeometry, Tiles: tilesbbox}
 	}
 
 	return newPolygonsPerTileMatrixID
