@@ -164,7 +164,7 @@ func wktMustEncodeTruncated(geom geom.Geometry, width uint) string {
 	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
 }
 
-func GeometrySliceToGeom(geometries []geom.Geometry) geom.Geometry{
+func GeometrySliceToGeom(geometries []geom.Geometry) geom.Geometry {
 	if len(geometries) == 0 {
 		panic("Multipolygon with zero polygons encountered")
 	}
@@ -173,6 +173,7 @@ func GeometrySliceToGeom(geometries []geom.Geometry) geom.Geometry{
 	}
 	return geometries
 }
+
 func PolygonSliceToGeom(polygons []geom.Polygon) geom.Geometry {
 	if len(polygons) == 0 {
 		panic("Multipolygon with zero polygons encountered")
@@ -215,5 +216,65 @@ func PointSlice(g geom.Geometry) []geom.Point {
 	default:
 		err := fmt.Errorf("PointSlice called incompatible geometry type: %s", g)
 		panic(err)
+	}
+}
+
+func MergeGeometries(g, h geom.Geometry) geom.Geometry {
+	if g == nil {
+		return h
+	}
+	if h == nil {
+		return g
+	}
+
+	switch g := g.(type) {
+	case geom.Polygon:
+		switch h := h.(type) {
+		case geom.Polygon:
+			return geom.MultiPolygon{g, h}
+		case geom.MultiPolygon:
+			return append(h, g)
+		default:
+			panic("Trying to merge a non-polygon geometry.")
+
+		}
+	case geom.MultiPolygon:
+		switch h := h.(type) {
+		case geom.Polygon:
+			return append(g, h)
+		case geom.MultiPolygon:
+			return append(g, h.Polygons()...)
+		default:
+			panic("Trying to merge a non-polygon geometry.")
+		}
+
+	default:
+		panic("Trying to merge a non-polygon geometry.")
+	}
+}
+
+// A rather unfortunate function that needs to exist to deal with golang interfaces.
+func MultiGeometryToSlice(multiGeom geom.Geometry) []geom.Geometry {
+	switch geometry := multiGeom.(type) {
+	case geom.MultiPolygon:
+		geoms := make([]geom.Geometry, 0, len(geometry))
+		for _, polygon := range geometry {
+			geoms = append(geoms, geom.Polygon(polygon))
+		}
+		return geoms
+	case geom.MultiLineString:
+		geoms := make([]geom.Geometry, 0, len(geometry))
+		for _, line := range geometry {
+			geoms = append(geoms, geom.LineString(line))
+		}
+		return geoms
+	case geom.MultiPoint:
+		geoms := make([]geom.Geometry, 0, len(geometry))
+		for _, point := range geometry {
+			geoms = append(geoms, geom.Point(point))
+		}
+		return geoms
+	default:
+		panic("Cannot convert to slice: not a multigeometry.")
 	}
 }

@@ -792,6 +792,14 @@ func TestSnap_snapPolygon(t *testing.T) {
 				panic(err)
 			}
 			err = ix.InsertGeometry(tt.polygon)
+			if err != nil {
+				outsideGridErr := new(pointindex.OutsideGridError)
+				if errors.As(err, outsideGridErr) && tt.config.IgnoreOutsideGrid {
+					log.Println("[WARNING] skipping polygon because: " + err.Error())
+				} else {
+					panic(err)
+				}
+			}
 			got := SnapGeometry(ix, tt.polygon, tt.tmIDs, processing.Config(tt.config))
 			for tmID, wantPoly := range tt.want {
 				if !assert.Equal(t, wantPoly, got[tmID]) {
