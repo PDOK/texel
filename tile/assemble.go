@@ -180,8 +180,29 @@ func BuildFeature(featureID int64, geom EncodedGeometry, attributes map[string]a
 	}, nil
 }
 
-// Construct layer according to protobuf format
-func BuildLayer(name string, features []*vectorTile.Tile_Feature, keyIndex map[string]uint32, valueIndex map[any]uint32) *vectorTile.Tile_Layer {
+func BuildEncodeTile(layers []*vectorTile.Tile_Layer) ([]byte, error) {
+	tile := &vectorTile.Tile{Layers: layers}
+	data, err := oldproto.Marshal(tile)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling tile: %w", err)
+	}
+	return data, nil
+}
+
+func BuildLayer(name string, keyIndex map[string]uint32, encFeatrows []EncodedFeatureRow, attributes InternalAttributeTable) (*vectorTile.Tile_Layer, error) {
+	valueIndex := BuildValueDictionary(attributes)
+
+	features := make([]*vectorTile.Tile_Feature, 0, len(encFeatrows))
+	for _, encodedFeature := range encFeatrows {
+		featureID := encodedFeature.FeatureID
+		attrs := attributesForFeature(attributes, featureID)
+		feature, err := BuildFeature(featureID, encodedFeature.Geom, attrs, keyIndex, valueIndex)
+		if err != nil {
+			return nil, err
+		}
+		features = append(features, feature)
+	}
+
 	keys := mapslicehelp.OrderedByIndex(keyIndex)
 
 	rawValues := mapslicehelp.OrderedByIndex(valueIndex)
@@ -194,7 +215,7 @@ func BuildLayer(name string, features []*vectorTile.Tile_Feature, keyIndex map[s
 	extent := uint32(precision)
 	layerName := name
 
-	return &vectorTile.Tile_Layer{
+	tile := &vectorTile.Tile_Layer{
 		Version:  &version,
 		Name:     &layerName,
 		Features: features,
@@ -202,37 +223,7 @@ func BuildLayer(name string, features []*vectorTile.Tile_Feature, keyIndex map[s
 		Values:   values,
 		Extent:   &extent,
 	}
-}
-
-// Construct tile according to protobuf format
-func BuildTile(layers ...*vectorTile.Tile_Layer) *vectorTile.Tile {
-	return &vectorTile.Tile{Layers: layers}
-}
-
-// Main exported function that encodes a tile of a single layer. Assumes
-// geometry and keyIndex have already been encoded. Returns marshalled byte
-// string.
-func BuildMVTTile(layerName string, keyIndex map[string]uint32, encFeatRows []EncodedFeatureRow, attributes InternalAttributeTable) ([]byte, error) {
-	valueIndex := BuildValueDictionary(attributes)
-
-	features := make([]*vectorTile.Tile_Feature, 0, len(encFeatRows))
-	for _, encodedFeature := range encFeatRows {
-		featureID := encodedFeature.FeatureID
-		attrs := attributesForFeature(attributes, featureID)
-		feature, err := BuildFeature(featureID, encodedFeature.Geom, attrs, keyIndex, valueIndex)
-		if err != nil {
-			return nil, err
-		}
-		features = append(features, feature)
-	}
-
-	layer := BuildLayer(layerName, features, keyIndex, valueIndex)
-
-	data, err := MarshalTile(BuildTile(layer))
-	if err != nil {
-		return nil, fmt.Errorf("marshaling tile: %w", err)
-	}
-	return data, nil
+	return tile, nil
 }
 
 // attributesForFeature extracts a single feature's attributes from the map construct.

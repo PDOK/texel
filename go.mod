@@ -3,6 +3,7 @@ module github.com/pdok/texel
 go 1.26.2
 
 require (
+	github.com/BurntSushi/toml v1.5.0
 	github.com/carlmjohnson/versioninfo v0.22.5
 	github.com/creasty/defaults v1.8.0
 	github.com/go-playground/validator/v10 v10.30.3

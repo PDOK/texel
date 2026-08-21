@@ -10,6 +10,7 @@ import (
 	"slices"
 	"syscall"
 
+	"github.com/pdok/texel/config"
 	"github.com/pdok/texel/pointindex"
 
 	"github.com/go-spatial/geom"
@@ -39,8 +40,9 @@ const (
 	TILEBUFFER          string = `tilebuffer`
 	USELINETRACE        string = `uselinetrace`
 
-	MVTSOURCE string = `mvtSourceGpkg`
-	MVTOUTDIR string = `mvtOutDir`
+	MVTCONFIG  string = `config`
+	MVTOUTDIR  string = `mvtOutDir`
+	TILEMATRIX string = `tilematrix`
 )
 
 //nolint:funlen
@@ -228,22 +230,29 @@ func main() {
 			Usage: "Build MVT tiles from an already-encoded target GeoPackage (see --" + ENCODETILES + ")",
 			Flags: []cli.Flag{
 				&cli.StringFlag{
-					Name:     MVTSOURCE,
-					Aliases:  []string{"s"},
-					Usage:    `GeoPackage containing the encoded ("<table>_encoded") and attribute tables`,
+					Name:     MVTCONFIG,
+					Aliases:  []string{"c"},
+					Usage:    "Config toml file describing datasources, tilesets and layers",
 					Required: true,
-					EnvVars:  []string{strcase.ToScreamingSnake(MVTSOURCE)},
+					EnvVars:  []string{strcase.ToScreamingSnake(MVTCONFIG)},
 				},
 				&cli.StringFlag{
 					Name:     MVTOUTDIR,
 					Aliases:  []string{"o"},
-					Usage:    "Directory to write the generated <tileX>/<tileY>.mvt files to",
+					Usage:    "Directory to write the generated <Z>/<tileX>/<tileY>.mvt files to",
 					Required: true,
 					EnvVars:  []string{strcase.ToScreamingSnake(MVTOUTDIR)},
 				},
+				&cli.UintFlag{
+					Name:     TILEMATRIX,
+					Aliases:  []string{"z"},
+					Usage:    "Target zoomlevel",
+					Required: true,
+					EnvVars:  []string{strcase.ToScreamingSnake(TILEMATRIX)},
+				},
 			},
 			Action: func(c *cli.Context) error {
-				return runBuildMVTTiles(c.String(MVTSOURCE), c.String(MVTOUTDIR))
+				return runMVT(c.String(MVTCONFIG), c.String(MVTOUTDIR), c.Uint(TILEMATRIX))
 			},
 		},
 	}
@@ -296,25 +305,87 @@ func processBySnapping(source processing.Source, targets map[tms20.TMID]processi
 	}, snapConfig.EncodeTiles, snapConfig.Buffer)
 }
 
-// Initialize resources for creating vecotrtiles and delegate to processing.
-func runBuildMVTTiles(sourcePath, outDir string) error {
-	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-		return fmt.Errorf("source GeoPackage does not exist: %s", sourcePath)
+// Construct Layer info from config; init gpkg sources
+// Make sure to reuse gpkg handles
+// Also return helper that closes all sources
+func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func()) {
+	type initedSource struct {
+		source gpkg.MVTSourceGeopackage
+		tables map[string]gpkg.Table
+	}
+	dataSourceDictionary := processing.DatasourceToDictionary(rawConfig.DataSource)
+	layers := make([]processing.Layer, 0)
+	sources := make(map[string]initedSource)
+	for _, tileset := range rawConfig.Tileset {
+		if z < tileset.MinZoom || z > tileset.MaxZoom {
+			continue
+		}
+		for _, rawLayer := range tileset.Layer {
+			if z < rawLayer.MinZoom || z > rawLayer.MaxZoom {
+				continue
+			}
+			// Only init gpkg sources once
+			if _, present := sources[rawLayer.DataSource]; !present {
+				source, tableMap := initMvtSource(rawLayer, dataSourceDictionary)
+				sources[rawLayer.DataSource] = initedSource{source, tableMap}
+			}
+			initedSource := sources[rawLayer.DataSource]
+			table, present := initedSource.tables[rawLayer.TableName]
+			if !present {
+				err := fmt.Errorf("layer %s requires table %s in datasource %s; not found", rawLayer.Name, rawLayer.TableName, rawLayer.DataSource)
+				panic(err)
+			}
+			// Pair gpkg handle with layer table
+			source := initedSource.source
+			source.Table = table
+			layer := processing.BuildLayer(rawLayer.Name, source)
+			layers = append(layers, layer)
+		}
+	}
+	closeSources := func() {
+		for _, s := range sources {
+			s.source.Close()
+		}
+	}
+	return layers, closeSources
+}
+
+func initMvtSource(rawLayer config.LayerConfig, dataSourceDicationary map[string]string) (gpkg.MVTSourceGeopackage, map[string]gpkg.Table) {
+	path, present := dataSourceDicationary[rawLayer.DataSource]
+	if !present {
+		err := fmt.Errorf("configuration error for layer %s, datasource not found: %s", rawLayer.Name, rawLayer.DataSource)
+		panic(err)
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		err = fmt.Errorf("source Geopackage does not exist: %s", path)
+		panic(err)
+	}
+	source := gpkg.MVTSourceGeopackage{}
+	source.Init(path)
+	tables := source.GetTableInfo()
+	tableMap := make(map[string]gpkg.Table, len(tables))
+	for _, table := range tables {
+		tableMap[table.Name] = table
+	}
+	return source, tableMap
+}
+
+// runMVT wires the config, layers and target together to build
+// and write the MVT tiles for the requested zoomlevel.
+func runMVT(configPath, outDir string, zoomlevel uint) error {
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return fmt.Errorf("config file does not exist: %s", configPath)
 	}
 
-	source := gpkg.MVTSourceGeopackage{}
-	source.Init(sourcePath)
-	defer source.Close()
+	rawConfig, err := config.ParseMVTConfig(configPath)
+	if err != nil {
+		return err
+	}
+
+	layers, closeSources := buildLayers(zoomlevel, rawConfig)
+	defer closeSources()
 
 	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
 
-	tables := source.GetTableInfo()
-	for _, table := range tables {
-		source.Table = table
-		log.Printf("  building MVT tiles for %s", table.Name)
-		if err := processing.BuildAndWriteMVTTiles(&source, &mvtTarget, table.Name); err != nil {
-			return fmt.Errorf("building MVT tiles for %s: %w", table.Name, err)
-		}
-	}
-	return nil
+	return processing.BuildAndWriteMVTTiles(layers, zoomlevel, &mvtTarget)
 }

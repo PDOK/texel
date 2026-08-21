@@ -100,21 +100,21 @@ func (source MVTSourceGeopackage) AttributeColumnNames() []string {
 
 // selectEncodedSQL builds the SELECT for fetching the encoded features of a single tile
 func (t Table) selectEncodedSQL() string {
-	return `SELECT feature_id, geometry_type, data FROM "` + t.EncodedName() + `" WHERE tile_x = ? AND tile_y = ?`
+	return `SELECT feature_id, geometry_type, data FROM "` + t.EncodedName() + `" WHERE tile_x = ? AND tile_y = ? AND tile_z = ?`
 }
 
 // selectDistinctTilesSQL builds the SELECT for enumerating every tile that has at
 // least one encoded feature.
 func (t Table) selectDistinctTilesSQL() string {
-	return `SELECT DISTINCT tile_x, tile_y FROM "` + t.EncodedName() + `" ORDER BY tile_x, tile_y`
+	return `SELECT DISTINCT tile_x, tile_y FROM "` + t.EncodedName() + `" WHERE tile_z = ? ORDER BY tile_x, tile_y`
 }
 
 // GetFeaturesForTile returns every encoded feature stored for the given tile,
 // i.e. the equivalent of the tile-features table's rows for (tileX, tileY).
-func (source MVTSourceGeopackage) GetFeaturesForTile(tileX, tileY uint) ([]tile.EncodedFeatureRow, error) {
-	rows, err := source.handle.Query(source.Table.selectEncodedSQL(), tileX, tileY)
+func (source MVTSourceGeopackage) GetFeaturesForTile(tileX, tileY, tileZ uint) ([]tile.EncodedFeatureRow, error) {
+	rows, err := source.handle.Query(source.Table.selectEncodedSQL(), tileX, tileY, tileZ)
 	if err != nil {
-		return nil, fmt.Errorf("querying encoded features for tile (%d,%d): %w", tileX, tileY, err)
+		return nil, fmt.Errorf("querying encoded features for tile (%d,%d,%d): %w", tileX, tileY, tileZ, err)
 	}
 	defer rows.Close()
 
@@ -153,25 +153,24 @@ func deserializeFromBytes(data []byte) []uint32 {
 }
 
 // ListTiles returns every distinct tile present in the "<table>_encoded" table.
-func (source MVTSourceGeopackage) ListTiles() ([]processing.TileCoord, error) {
-	rows, err := source.handle.Query(source.Table.selectDistinctTilesSQL())
+func (source MVTSourceGeopackage) ListTiles(z uint, tileSet map[processing.TileCoord]bool) error {
+	rows, err := source.handle.Query(source.Table.selectDistinctTilesSQL(), z)
 	if err != nil {
-		return nil, fmt.Errorf("listing tiles: %w", err)
+		return fmt.Errorf("listing tiles: %w", err)
 	}
 	defer rows.Close()
 
-	var tiles []processing.TileCoord
 	for rows.Next() {
 		var x, y int64
 		if err := rows.Scan(&x, &y); err != nil {
-			return nil, fmt.Errorf("scanning tile row: %w", err)
+			return fmt.Errorf("scanning tile row: %w", err)
 		}
-		tiles = append(tiles, processing.TileCoord{X: uint(x), Y: uint(y)}) //nolint:gosec // G115 Tile coords fit within uint
+		tileSet[processing.TileCoord{X: uint(x), Y: uint(y), Z: z}] = true //nolint:gosec // G115 Tile coord fit within uint
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating tile rows: %w", err)
+		return fmt.Errorf("iterating tile rows: %w", err)
 	}
-	return tiles, nil
+	return nil
 }
 
 // Read from source.Table, store rows as attributes[fid][columnName] = value for all fids
@@ -245,13 +244,13 @@ type MVTFileTarget struct {
 
 // WriteTile writes one tile's serialized bytes to <OutDir>/<tileX>/<tileY>.mvt,
 // creating directories as needed.
-func (t *MVTFileTarget) WriteTile(x, y uint, data []byte) error {
-	dir := filepath.Join(t.OutDir, strconv.FormatUint(uint64(x), 10))
+func (t *MVTFileTarget) WriteTile(x, y, z uint, data []byte) error {
+	dir := filepath.Join(t.OutDir, strconv.FormatUint(uint64(z), 10), strconv.FormatUint(uint64(x), 10))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating tile directory %s: %w", dir, err)
 	}
 
-	path := filepath.Join(dir, strconv.FormatUint(uint64(y), 10)+".mvt")
+	path := filepath.Join(dir, strconv.FormatUint(uint64(y), 10)+".pbf")
 	if err := os.WriteFile(path, data, 0o644); err != nil { //nolint:gosec // G306 tile output does not need restrictive permissions
 		return fmt.Errorf("writing tile file %s: %w", path, err)
 	}

@@ -1,3 +1,5 @@
+github.com/BurntSushi/toml v1.5.0 h1:W5quZX/G/csjUnuI8SUYlsHs9M38FC7znL0lIO+DvMg=
+github.com/BurntSushi/toml v1.5.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/arolek/p v0.0.0-20191103215535-df3c295ed582 h1:DugKk4B3PpqfZ1QunDSPqNZDAErQmdCgwurloi1Axaw=
 github.com/arolek/p v0.0.0-20191103215535-df3c295ed582/go.mod h1:JPNItmi3yb44Q5QWM+Kh5n9oeRhfcJzPNS90mbLo25U=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
