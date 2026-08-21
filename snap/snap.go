@@ -29,18 +29,7 @@ const (
 
 type IsOuter = bool
 
-type Config struct {
-	KeepPointsAndLines  bool
-	IgnoreOutsideGrid   bool
-	ReverseWindingOrder bool
-	EncodeTiles         bool
-	// Buffer is the number of internal pixels that tiles get
-	// inflated for detecting which geometries lie on them
-	Buffer uint
-	// Decide whether to use lineTrace or BBox for tile detection
-	UseLineTrace bool
-}
-
+//nolint:revive
 func SnapGeometry(ix *pointindex.PointIndex, geometry geom.Geometry, tmIDs []tms20.TMID, config processing.Config) map[tms20.TMID][]geom.Geometry {
 	levels := make([]pointindex.Level, 0, len(tmIDs))
 	for _, tmID := range tmIDs {
