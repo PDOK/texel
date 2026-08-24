@@ -171,7 +171,9 @@ func (ix *PointIndex) GetPrimitiveQBBox(l Level) []tile.Tile {
 
 // Loop over all points to find the extent. Return slice of tiles whose
 // buffer intersects extent. Buufer size given in deepstlevel (internal pixels).
-func (ix *PointIndex) GetQBBoxWithBuffer(l Level, bufferSize uint) []tile.Tile {
+func (ix *PointIndex) GetQBBoxWithBuffer(tmsID tms20.TMID, bufferSize uint) []tile.Tile {
+	internalPixelLevel := ix.InternalPixelLevelFromTmsID(tmsID)
+	tileLevel := LevelFromTmsId(tmsID)
 	quadrants := ix.quadrants[ix.deepestLevel]
 
 	minX := ^uint(0)
@@ -191,17 +193,17 @@ func (ix *PointIndex) GetQBBoxWithBuffer(l Level, bufferSize uint) []tile.Tile {
 	if minX < bufferSize {
 		tileMinX = 0
 	} else {
-		tileMinX = (minX - bufferSize) >> (ix.deepestLevel - l)
+		tileMinX = (minX - bufferSize) >> (internalPixelLevel - tileLevel)
 	}
 	if minY < bufferSize {
 		tileMinY = 0
 	} else {
-		tileMinY = (minY - bufferSize) >> (ix.deepestLevel - l)
+		tileMinY = (minY - bufferSize) >> (internalPixelLevel - tileLevel)
 	}
 
-	maxTileCoord := mathhelp.Pow2(l) - 1
-	tileMaxX := min((maxX+bufferSize)>>(ix.deepestLevel-l), maxTileCoord)
-	tileMaxY := min((maxY+bufferSize)>>(ix.deepestLevel-l), maxTileCoord)
+	maxTileCoord := mathhelp.Pow2(tileLevel) - 1
+	tileMaxX := min((maxX+bufferSize)>>(internalPixelLevel-tileLevel), maxTileCoord)
+	tileMaxY := min((maxY+bufferSize)>>(internalPixelLevel-tileLevel), maxTileCoord)
 
 	tiles := make([]tile.Tile, 0, (tileMaxX-tileMinX+1)*(tileMaxY-tileMinY+1))
 	for i := range tileMaxX - tileMinX + 1 {
@@ -209,7 +211,7 @@ func (ix *PointIndex) GetQBBoxWithBuffer(l Level, bufferSize uint) []tile.Tile {
 			tileX := tileMinX + i
 			tileY := tileMinY + j
 			extent, _ := ix.getQuadrantExtentAndCentroid(
-				l, tileX, tileY, ix.intExtent)
+				tileLevel, tileX, tileY, ix.intExtent)
 
 			tiles = append(tiles, tile.Tile{
 				Extent:      extent,

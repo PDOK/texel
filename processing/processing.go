@@ -227,7 +227,7 @@ func newTileDetector(config Config) tileDetector {
 
 	// No line tracing: bbox detection
 	return func(ix *pointindex.PointIndex, tmsID tms20.TMID, _ []geom.Geometry) []tile.Tile {
-		return ix.GetQBBoxWithBuffer(pointindex.LevelFromTmsId(tmsID), config.Buffer)
+		return ix.GetQBBoxWithBuffer(tmsID, config.Buffer)
 	}
 }
 

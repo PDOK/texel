@@ -137,56 +137,58 @@ func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
 	type tileCoord struct{ x, y uint }
 	tests := []struct {
 		name         string
+		tmsID        tms20.TMID
+		tilePixels   uint
 		deepestLevel Level
 		points       [][2]int // Points to be inserted at deepestlevel
-		tileLevel    Level
 		bufferSize   uint
 		wantTiles    []tileCoord
 	}{
 		{
-			// deepestLevel 4 -> 16x16 pixel grid, level 2 -> 4x4 tiles of 4x4 pixels each.
-			name:         "points all within one tile, no buffer",
-			deepestLevel: 4,
-			points:       [][2]int{{5, 5}, {6, 6}},
-			tileLevel:    2,
-			bufferSize:   0,
-			wantTiles:    []tileCoord{{1, 1}},
+			// deepestLevel 4 -> 16x16 pixel grid, tmsID 2 -> 4x4 tiles of 4x4 pixels each.
+			name:       "points all within one tile, no buffer",
+			tmsID:      2,
+			tilePixels: 4,
+			points:     [][2]int{{5, 5}, {6, 6}},
+			bufferSize: 0,
+			wantTiles:  []tileCoord{{1, 1}},
 		},
 		{
-			name:         "point in one tile, buffer expands to multiple tiles",
-			deepestLevel: 4,
-			points:       [][2]int{{0, 0}},
-			tileLevel:    2,
-			bufferSize:   6,
-			wantTiles:    []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
+			name:       "point in one tile, buffer expands to multiple tiles",
+			tmsID:      2,
+			tilePixels: 4,
+			points:     [][2]int{{0, 0}},
+			bufferSize: 6,
+			wantTiles:  []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
 		},
 		{
-			name:         "non-square rectangle of tiles",
-			deepestLevel: 4,
-			points:       [][2]int{{4, 4}, {11, 5}},
-			tileLevel:    2,
-			bufferSize:   0,
-			wantTiles:    []tileCoord{{1, 1}, {2, 1}},
+			name:       "non-square rectangle of tiles",
+			tmsID:      2,
+			tilePixels: 4,
+			points:     [][2]int{{4, 4}, {11, 5}},
+			bufferSize: 0,
+			wantTiles:  []tileCoord{{1, 1}, {2, 1}},
 		},
 		{
-			name:         "points in diagonal tiles, expands to rectangle",
-			deepestLevel: 4,
-			points:       [][2]int{{3, 3}, {4, 4}},
-			tileLevel:    2,
-			bufferSize:   0,
-			wantTiles:    []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
+			name:       "points in diagonal tiles, expands to rectangle",
+			tmsID:      2,
+			tilePixels: 4,
+			points:     [][2]int{{3, 3}, {4, 4}},
+			bufferSize: 0,
+			wantTiles:  []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ix := newSimplePointIndex(tt.deepestLevel, 1.0)
+			ix := newPointIndex(tt.tmsID, tt.tilePixels, 1, 1.0)
 			for _, p := range tt.points {
 				require.NoError(t, ix.InsertCoord(p[0], p[1]))
 			}
 
+			l := LevelFromTmsId(tt.tmsID)
 			want := make([]tile.Tile, 0, len(tt.wantTiles))
 			for _, tc := range tt.wantTiles {
-				extent, _ := ix.getQuadrantExtentAndCentroid(tt.tileLevel, tc.x, tc.y, ix.intExtent)
+				extent, _ := ix.getQuadrantExtentAndCentroid(l, tc.x, tc.y, ix.intExtent)
 				want = append(want, tile.Tile{
 					Extent:      extent,
 					X:           tc.x,
@@ -195,7 +197,7 @@ func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
 				})
 			}
 
-			got := ix.GetQBBoxWithBuffer(tt.tileLevel, tt.bufferSize)
+			got := ix.GetQBBoxWithBuffer(tt.tmsID, tt.bufferSize)
 			assert.ElementsMatch(t, want, got)
 		})
 	}
@@ -628,6 +630,26 @@ func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 		internalPixels: 16,
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
+	return &ix
+}
+
+func newPointIndex(deepestTMID tms20.TMID, tilePixels, internalPixels uint, cellSize float64) *PointIndex {
+	ix := PointIndex{
+		hitOnce:        make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple:    make(map[morton.Z]map[intgeom.Point][]int, 0),
+		tilePixels:     tilePixels,
+		internalPixels: internalPixels,
+	}
+	deepestLevel := ix.InternalPixelLevelFromTmsID(deepestTMID)
+	ix.deepestLevel = deepestLevel
+	ix.deepestSize = mathhelp.Pow2(deepestLevel)
+	span := cellSize * float64(ix.deepestSize)
+	intExtent := intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)}
+	ix.Quadrant = Quadrant{
+		intExtent: intExtent,
+	}
+	ix.deepestRes = intExtent.XSpan() / int64(ix.deepestSize) //nolint:gosec // G115
+	ix.quadrants = make(map[Level]map[morton.Z]Quadrant, deepestLevel+1)
 	return &ix
 }
 

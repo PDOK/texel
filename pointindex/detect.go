@@ -398,8 +398,7 @@ func (ix *PointIndex) lineTraceLine(line geom.LineString, tmsID tms20.TMID, buff
 
 // Line tracing is not applicable, fall back to BBox
 func (ix *PointIndex) lineTracePoint(_ geom.Point, tmsID tms20.TMID, buffer uint) []tile.Tile {
-	l := LevelFromTmsId(tmsID)
-	return ix.GetQBBoxWithBuffer(l, buffer)
+	return ix.GetQBBoxWithBuffer(tmsID, buffer)
 }
 
 //////////////////////
