@@ -16,18 +16,19 @@ import (
 // embedded NetherlandsRDNewQuad tile matrix set, deep enough to hold tmIDs
 // up to deepestTMID without hitting OutsideGridError for coordinates that
 // lie within its bounding box (roughly x: -285402..595402, y: 22598..903402).
-func newTestIndexFactory(t *testing.T, deepestTMID tms20.TMID) func() *pointindex.PointIndex {
+func newTestIndexFactory(t *testing.T, deepestTMID tms20.TMID) func() PIndex {
 	t.Helper()
 	tms, err := tms20.LoadEmbeddedTileMatrixSet("NetherlandsRDNewQuad")
 	require.NoError(t, err)
-	return pointindex.Factory(tms, deepestTMID)
+	rawFactory := pointindex.Factory(tms, deepestTMID)
+	return func() PIndex { return rawFactory() }
 }
 
 // identitySnapFunc is a stub SnapFunc that returns the input geometry
 // unchanged for every requested tile matrix, so GeometryProcessor.Process's
 // wiring (type switch, single vs. multi geometry handling, geometry
 // merging) can be tested independently of the real snapping algorithm.
-func identitySnapFunc(_ *pointindex.PointIndex, g geom.Geometry, tmIDs []tms20.TMID, _ Config) map[tms20.TMID][]geom.Geometry {
+func identitySnapFunc(_ PIndex, g geom.Geometry, tmIDs []tms20.TMID, _ Config) map[tms20.TMID][]geom.Geometry {
 	result := make(map[tms20.TMID][]geom.Geometry, len(tmIDs))
 	for _, tmID := range tmIDs {
 		result[tmID] = []geom.Geometry{g}

@@ -30,7 +30,7 @@ const (
 type IsOuter = bool
 
 //nolint:revive
-func SnapGeometry(ix *pointindex.PointIndex, geometry geom.Geometry, tmIDs []tms20.TMID, config processing.Config) map[tms20.TMID][]geom.Geometry {
+func SnapGeometry(ix processing.PIndex, geometry geom.Geometry, tmIDs []tms20.TMID, config processing.Config) map[tms20.TMID][]geom.Geometry {
 	levels := make([]pointindex.Level, 0, len(tmIDs))
 	for _, tmID := range tmIDs {
 		levels = append(levels, ix.InternalPixelLevelFromTmsID(tmID))
@@ -58,7 +58,7 @@ func SnapGeometry(ix *pointindex.PointIndex, geometry geom.Geometry, tmIDs []tms
 }
 
 //nolint:cyclop
-func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level, config processing.Config) map[pointindex.Level][]geom.Polygon {
+func addPointsAndSnap(ix processing.PIndex, polygon geom.Polygon, levels []pointindex.Level, config processing.Config) map[pointindex.Level][]geom.Polygon {
 	levelMap := mapslicehelp.AsKeys(levels)
 	newOuters := make(map[pointindex.Level][][][2]float64, len(levels))
 	newInners := make(map[pointindex.Level][][][2]float64, len(levels))

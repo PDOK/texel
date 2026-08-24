@@ -302,7 +302,8 @@ func injectSuffixIntoPath(p string) string {
 func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, snapConfig processing.Config) {
 	snapFunction := snap.SnapGeometry
 	deepestTMID := slices.Max(mapslicehelp.MapKeys(targets))
-	factory := pointindex.Factory(tileMatrixSet, deepestTMID)
+	rawFactory := pointindex.Factory(tileMatrixSet, deepestTMID)
+	factory := func() processing.PIndex { return rawFactory() }
 	processing.ProcessFeatures(source, targets, snapFunction, factory, snapConfig)
 }
 

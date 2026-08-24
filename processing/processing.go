@@ -35,7 +35,7 @@ type Config struct {
 // Entry point for processing. Initialize channels and create processor.
 // Then kickstart processing.
 // Closing channels is the responsibility of functions supplying them.
-func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f SnapFunc, newIndex func() *pointindex.PointIndex, config Config) {
+func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f SnapFunc, newIndex func() PIndex, config Config) {
 	featuresBefore := make(chan Feature)
 	featuresAfter := make(chan FeatureForTileMatrix)
 	tileMatrixIDs := make([]tms20.TMID, 0, len(targets))
@@ -162,26 +162,26 @@ func (stats *countStats) countGeometry(g geom.Geometry) {
 type GeometryProcessor struct {
 	tmIDs       []tms20.TMID
 	newIndex    IndexFactory
-	snap        func(ix *pointindex.PointIndex, g geom.Geometry) map[tms20.TMID][]geom.Geometry
+	snap        func(ix PIndex, g geom.Geometry) map[tms20.TMID][]geom.Geometry
 	detectTiles tileDetector
 	encode      func(SnapResult) []tile.EncodedGeometry
 }
 
 // Abstract tile detector
-type tileDetector func(ix *pointindex.PointIndex, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile
+type tileDetector func(ix PIndex, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile
 
 // Abstract pointindex creator. Is implied to insert geometry in index
-type IndexFactory func(geometry geom.Geometry) (*pointindex.PointIndex, error)
+type IndexFactory func(geometry geom.Geometry) (PIndex, error)
 
-type SnapFunc func(ix *pointindex.PointIndex, g geom.Geometry, tmsIDs []tms20.TMID, config Config) map[tms20.TMID][]geom.Geometry
+type SnapFunc func(ix PIndex, g geom.Geometry, tmsIDs []tms20.TMID, config Config) map[tms20.TMID][]geom.Geometry
 
 // Initialize GeometryProcessor
 // Essentially turns configuration into functionality
-func NewGeometryProcessor(tmIDs []tms20.TMID, config Config, f SnapFunc, newIndex func() *pointindex.PointIndex) *GeometryProcessor {
+func NewGeometryProcessor(tmIDs []tms20.TMID, config Config, f SnapFunc, newIndex func() PIndex) *GeometryProcessor {
 	return &GeometryProcessor{
 		tmIDs:    tmIDs,
 		newIndex: newIndexFactory(newIndex, config.IgnoreOutsideGrid),
-		snap: func(ix *pointindex.PointIndex, g geom.Geometry) map[tms20.TMID][]geom.Geometry {
+		snap: func(ix PIndex, g geom.Geometry) map[tms20.TMID][]geom.Geometry {
 			return f(ix, g, tmIDs, config)
 		},
 		detectTiles: newTileDetector(config),
@@ -191,8 +191,8 @@ func NewGeometryProcessor(tmIDs []tms20.TMID, config Config, f SnapFunc, newInde
 
 // Create index and inserts geometry.
 // Depending on configuration, will panic or skip when polygon is outside bounds
-func newIndexFactory(newIndex func() *pointindex.PointIndex, ignoreOutsideGrid bool) IndexFactory {
-	return func(geometry geom.Geometry) (*pointindex.PointIndex, error) {
+func newIndexFactory(newIndex func() PIndex, ignoreOutsideGrid bool) IndexFactory {
+	return func(geometry geom.Geometry) (PIndex, error) {
 		ix := newIndex()
 		err := ix.InsertGeometry(geometry)
 		if err == nil {
@@ -211,12 +211,12 @@ func newIndexFactory(newIndex func() *pointindex.PointIndex, ignoreOutsideGrid b
 func newTileDetector(config Config) tileDetector {
 	// No encoding: do not detect tiles
 	if !config.EncodeTiles {
-		return func(_ *pointindex.PointIndex, _ tms20.TMID, _ []geom.Geometry) []tile.Tile { return nil }
+		return func(_ PIndex, _ tms20.TMID, _ []geom.Geometry) []tile.Tile { return nil }
 	}
 
 	// Line tracing: line trace each geometry, append results
 	if config.UseLineTrace {
-		return func(ix *pointindex.PointIndex, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile {
+		return func(ix PIndex, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile {
 			tiles := make([]tile.Tile, 0, len(newGeometries))
 			for _, newGeometry := range newGeometries {
 				tiles = append(tiles, ix.DetectTilesViaLineTrace(newGeometry, tmsID, config.Buffer)...)
@@ -226,7 +226,7 @@ func newTileDetector(config Config) tileDetector {
 	}
 
 	// No line tracing: bbox detection
-	return func(ix *pointindex.PointIndex, tmsID tms20.TMID, _ []geom.Geometry) []tile.Tile {
+	return func(ix PIndex, tmsID tms20.TMID, _ []geom.Geometry) []tile.Tile {
 		return ix.GetQBBoxWithBuffer(tmsID, config.Buffer)
 	}
 }
