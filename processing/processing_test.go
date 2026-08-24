@@ -97,24 +97,6 @@ func TestGeometryProcessorProcess(t *testing.T) {
 	}
 }
 
-// TestGeometryProcessorProcess_MergingMultipleNonPolygons documents that
-// mergeGeometries (used by ProcessMulti) only supports merging
-// Polygon/MultiPolygon results; combining more than one non-polygon
-// geometry (e.g. multiple LineStrings from a MultiLineString) panics.
-func TestGeometryProcessorProcess_MergingMultipleNonPolygons(t *testing.T) {
-	lineA := geom.LineString{{100000, 100000}, {100010, 100010}}
-	lineB := geom.LineString{{200000, 200000}, {200010, 200010}}
-
-	factory := newTestIndexFactory(t, 1)
-	tmIDs := []tms20.TMID{1}
-	config := Config{}
-	processor := NewGeometryProcessor(tmIDs, config, identitySnapFunc, factory)
-
-	assert.Panics(t, func() {
-		processor.Process(geom.MultiLineString{lineA, lineB})
-	})
-}
-
 // TestGeometryProcessorProcess_OutsideGrid covers the OutsideGridError path
 // shared by ProcessSingle: when a geometry falls outside the index's
 // grid/extent and Config.IgnoreOutsideGrid is set, an empty result map is

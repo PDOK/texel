@@ -219,6 +219,34 @@ func PointSlice(g geom.Geometry) []geom.Point {
 	}
 }
 
+// Essentially merge two lists
+func mergeFamily[S any, E any, M ~[]E](
+	g, h geom.Geometry, wrap func(S) M, errMsg string,
+) geom.Geometry {
+	switch g := g.(type) {
+	case S:
+		switch h := h.(type) {
+		case S:
+			return append(wrap(g), wrap(h)...)
+		case M:
+			return append(wrap(g), h...)
+		default:
+			panic(errMsg)
+		}
+	case M:
+		switch h := h.(type) {
+		case S:
+			return append(g, wrap(h)...)
+		case M:
+			return append(g, h...)
+		default:
+			panic(errMsg)
+		}
+	default:
+		panic(errMsg)
+	}
+}
+
 func MergeGeometries(g, h geom.Geometry) geom.Geometry {
 	if g == nil {
 		return h
@@ -227,63 +255,16 @@ func MergeGeometries(g, h geom.Geometry) geom.Geometry {
 		return g
 	}
 
-	switch g := g.(type) {
-	case geom.Point:
-		switch h := h.(type) {
-		case geom.Point:
-			return geom.MultiPoint{g, h}
-		case geom.MultiPoint:
-			return append(h, g)
-		default:
-			panic("Trying to merge point with non-point geometry")
-		}
-	case geom.MultiPoint:
-		switch h := h.(type) {
-		case geom.Point:
-			return append(g, h)
-		case geom.MultiPoint:
-			return append(h, g...)
-		default:
-			panic("Trying to merge point with non-point geometry")
-		}
-	case geom.LineString:
-		switch h := h.(type) {
-		case geom.LineString:
-			return geom.MultiLineString{g, h}
-		case geom.MultiLineString:
-			return append(h, g)
-		default:
-			panic("Trying to merge linestring with non-linestring geometry")
-		}
-	case geom.MultiLineString:
-		switch h := h.(type) {
-		case geom.LineString:
-			return append(g, h)
-		case geom.MultiLineString:
-			return append(h, g...)
-		default:
-			panic("Trying to merge linestring with non-linestring geometry")
-		}
-	case geom.Polygon:
-		switch h := h.(type) {
-		case geom.Polygon:
-			return geom.MultiPolygon{g, h}
-		case geom.MultiPolygon:
-			return append(h, g)
-		default:
-			panic("Trying to merge a polygon with a non-polygon geometry.")
-
-		}
-	case geom.MultiPolygon:
-		switch h := h.(type) {
-		case geom.Polygon:
-			return append(g, h)
-		case geom.MultiPolygon:
-			return append(g, h.Polygons()...)
-		default:
-			panic("Trying to merge a polygon with a non-polygon geometry.")
-		}
-
+	switch g.(type) {
+	case geom.Point, geom.MultiPoint:
+		return mergeFamily(g, h, func(p geom.Point) geom.MultiPoint { return geom.MultiPoint{p} },
+			"Trying to merge point with non-point geometry")
+	case geom.LineString, geom.MultiLineString:
+		return mergeFamily(g, h, func(l geom.LineString) geom.MultiLineString { return geom.MultiLineString{l} },
+			"Trying to merge linestring with non-linestring geometry")
+	case geom.Polygon, geom.MultiPolygon:
+		return mergeFamily(g, h, func(p geom.Polygon) geom.MultiPolygon { return geom.MultiPolygon{p} },
+			"Trying to merge a polygon with a non-polygon geometry.")
 	default:
 		panic("Trying to merge unknown geometry types.")
 	}
