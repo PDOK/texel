@@ -228,6 +228,42 @@ func MergeGeometries(g, h geom.Geometry) geom.Geometry {
 	}
 
 	switch g := g.(type) {
+	case geom.Point:
+		switch h := h.(type) {
+		case geom.Point:
+			return geom.MultiPoint{g, h}
+		case geom.MultiPoint:
+			return append(h, g)
+		default:
+			panic("Trying to merge point with non-point geometry")
+		}
+	case geom.MultiPoint:
+		switch h := h.(type) {
+		case geom.Point:
+			return append(g, h)
+		case geom.MultiPoint:
+			return append(h, g...)
+		default:
+			panic("Trying to merge point with non-point geometry")
+		}
+	case geom.LineString:
+		switch h := h.(type) {
+		case geom.LineString:
+			return geom.MultiLineString{g, h}
+		case geom.MultiLineString:
+			return append(h, g)
+		default:
+			panic("Trying to merge linestring with non-linestring geometry")
+		}
+	case geom.MultiLineString:
+		switch h := h.(type) {
+		case geom.LineString:
+			return append(g, h)
+		case geom.MultiLineString:
+			return append(h, g...)
+		default:
+			panic("Trying to merge linestring with non-linestring geometry")
+		}
 	case geom.Polygon:
 		switch h := h.(type) {
 		case geom.Polygon:
@@ -235,7 +271,7 @@ func MergeGeometries(g, h geom.Geometry) geom.Geometry {
 		case geom.MultiPolygon:
 			return append(h, g)
 		default:
-			panic("Trying to merge a non-polygon geometry.")
+			panic("Trying to merge a polygon with a non-polygon geometry.")
 
 		}
 	case geom.MultiPolygon:
@@ -245,11 +281,11 @@ func MergeGeometries(g, h geom.Geometry) geom.Geometry {
 		case geom.MultiPolygon:
 			return append(g, h.Polygons()...)
 		default:
-			panic("Trying to merge a non-polygon geometry.")
+			panic("Trying to merge a polygon with a non-polygon geometry.")
 		}
 
 	default:
-		panic("Trying to merge a non-polygon geometry.")
+		panic("Trying to merge unknown geometry types.")
 	}
 }
 
