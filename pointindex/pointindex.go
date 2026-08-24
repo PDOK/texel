@@ -173,7 +173,7 @@ func (ix *PointIndex) GetPrimitiveQBBox(l Level) []tile.Tile {
 // buffer intersects extent. Buufer size given in deepstlevel (internal pixels).
 func (ix *PointIndex) GetQBBoxWithBuffer(tmsID tms20.TMID, bufferSize uint) []tile.Tile {
 	internalPixelLevel := ix.InternalPixelLevelFromTmsID(tmsID)
-	tileLevel := LevelFromTmsId(tmsID)
+	tileLevel := levelFromTmsId(tmsID)
 	quadrants := ix.quadrants[ix.deepestLevel]
 
 	minX := ^uint(0)

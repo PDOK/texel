@@ -185,7 +185,7 @@ func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
 				require.NoError(t, ix.InsertCoord(p[0], p[1]))
 			}
 
-			l := LevelFromTmsId(tt.tmsID)
+			l := levelFromTmsId(tt.tmsID)
 			want := make([]tile.Tile, 0, len(tt.wantTiles))
 			for _, tc := range tt.wantTiles {
 				extent, _ := ix.getQuadrantExtentAndCentroid(l, tc.x, tc.y, ix.intExtent)

@@ -39,12 +39,13 @@ func SnapGeometry(ix *pointindex.PointIndex, geometry geom.Geometry, tmIDs []tms
 	case geom.Polygon:
 		snappedPolygons := addPointsAndSnap(ix, geometry, levels, config)
 		result := make(map[tms20.TMID][]geom.Geometry, len(snappedPolygons))
-		for level, polygons := range snappedPolygons {
+		for i, TMID := range tmIDs {
+			polygons := snappedPolygons[levels[i]]
 			geoms := make([]geom.Geometry, 0, len(polygons))
 			for _, polygon := range polygons {
 				geoms = append(geoms, polygon)
 			}
-			result[ix.TmsIDFromInternalPixelLevel(level)] = geoms
+			result[TMID] = geoms
 		}
 		return result
 	default:

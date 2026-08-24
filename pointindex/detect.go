@@ -156,9 +156,9 @@ func tileIntersectsLine(line intgeom.Line, extent intgeom.Extent, buffer intgeom
 // First line trace, then fill remaining tiles. This enables us to classify tiles as being "Inside" and "Outside" the polygon.
 // Then process output of `fillTiles` to return a list at tile level.
 func (ix *PointIndex) lineTracePolygon(polygon geom.Polygon, tmsID tms20.TMID, buffer uint) (tiles []tile.Tile) {
-	targetLevel := LevelFromTmsId(tmsID)
+	tileLevel := levelFromTmsId(tmsID)
 	segements, classification := ix.lineTracePolygonEdges(polygon, tmsID, buffer)
-	ix.fillTiles(targetLevel, 0, 0, true, segements, classification, polygon)
+	ix.fillTiles(tileLevel, 0, 0, true, segements, classification, polygon)
 
 	// Extract list of tiles at tile level.
 	tiles = make([]tile.Tile, 0)
@@ -166,16 +166,16 @@ func (ix *PointIndex) lineTracePolygon(polygon geom.Polygon, tmsID tms20.TMID, b
 		for z, class := range classificationAtLevel {
 			switch class {
 			case ClassificationInside:
-				size := mathhelp.Pow2((targetLevel - level) * 2)
-				baseZ := z << (2 * (targetLevel - level))
+				size := mathhelp.Pow2((tileLevel - level) * 2)
+				baseZ := z << (2 * (tileLevel - level))
 				for i := range size {
-					tiles = append(tiles, ix.makeTileZ(baseZ+i, targetLevel, true))
+					tiles = append(tiles, ix.makeTileZ(baseZ+i, tileLevel, true))
 				}
 			case ClassificationOutside:
 				continue
 			case ClassificationIntersect:
-				if level == targetLevel {
-					tiles = append(tiles, ix.makeTileZ(z, targetLevel, false))
+				if level == tileLevel {
+					tiles = append(tiles, ix.makeTileZ(z, tileLevel, false))
 				}
 			case ClassificationUnknown:
 				panic("ClassificationUnknown tile for polygon during linetrace")
@@ -188,7 +188,7 @@ func (ix *PointIndex) lineTracePolygon(polygon geom.Polygon, tmsID tms20.TMID, b
 // Loop over polygon edges and apply line trace.
 // Use a special registering function that keeps track of which edges hit which tiles.
 func (ix *PointIndex) lineTracePolygonEdges(polygon geom.Polygon, tmsID tms20.TMID, buffer uint) (segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification) {
-	tileLevel := LevelFromTmsId(tmsID)
+	tileLevel := levelFromTmsId(tmsID)
 	intPixLevel := ix.InternalPixelLevelFromTmsID(tmsID)
 
 	// Initialize data
@@ -240,8 +240,8 @@ func (ix *PointIndex) lineTracePolygonEdges(polygon geom.Polygon, tmsID tms20.TM
 // It also means that at any level, all children of an unmarked tile have the same classification
 // This enables the classification at higher levels.
 // We also assume that `segments` contains the data of which segments of polygon intersect which tiles at tile level.
-func (ix *PointIndex) fillTiles(targetLevel, currentLevel Level, currentZ morton.Z, containsAll bool, segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification, polygon geom.Polygon) {
-	if targetLevel == currentLevel {
+func (ix *PointIndex) fillTiles(tileLevel, currentLevel Level, currentZ morton.Z, containsAll bool, segments map[morton.Z][]SegmentIdx, classification map[Level]map[morton.Z]TileClassification, polygon geom.Polygon) {
+	if tileLevel == currentLevel {
 		return
 	}
 
@@ -259,8 +259,8 @@ func (ix *PointIndex) fillTiles(targetLevel, currentLevel Level, currentZ morton
 		if containsAll {
 			classification[nextLevel][child] = ClassificationOutside
 		} else {
-			childAtTargetLevel := child << ((targetLevel - nextLevel) * 2)
-			classification[nextLevel][child] = ix.fillTile(childAtTargetLevel, targetLevel, segments, classification, polygon)
+			childAtTileLevel := child << ((tileLevel - nextLevel) * 2)
+			classification[nextLevel][child] = ix.fillTile(childAtTileLevel, tileLevel, segments, classification, polygon)
 		}
 	}
 
@@ -269,7 +269,7 @@ func (ix *PointIndex) fillTiles(targetLevel, currentLevel Level, currentZ morton
 	// For intersecting children we recurse to the next level
 	for _, child := range intersectingChildren {
 		if _, present := classification[nextLevel][child]; present {
-			ix.fillTiles(targetLevel, nextLevel, child, containsAll, segments, classification, polygon)
+			ix.fillTiles(tileLevel, nextLevel, child, containsAll, segments, classification, polygon)
 		}
 	}
 }
@@ -377,7 +377,7 @@ func (ix *PointIndex) findIntersectingTilesLeft(x, y, tileLevel Level, classific
 // Line trace by looping over segments
 func (ix *PointIndex) lineTraceLine(line geom.LineString, tmsID tms20.TMID, buffer uint) []tile.Tile {
 	tileSet := make(map[tile.Tile]bool)
-	l := LevelFromTmsId(tmsID)
+	l := levelFromTmsId(tmsID)
 
 	register := func(x, y uint, l Level) {
 		tile := ix.makeTile(x, y, l, false)
@@ -434,7 +434,7 @@ func (ix *PointIndex) TmsIDFromInternalPixelLevel(level Level) tms20.TMID {
 	return int(level) - int(levelDiff) //nolint:gosec // G115
 }
 
-func LevelFromTmsId(tms tms20.TMID) Level {
+func levelFromTmsId(tms tms20.TMID) Level {
 	return Level(tms) //nolint:gosec // G115 integers < 40
 }
 
