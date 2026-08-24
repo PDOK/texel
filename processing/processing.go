@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
+	"sort"
 	"sync"
 
 	"github.com/pdok/texel/geomhelp"
@@ -168,7 +170,7 @@ type GeometryProcessor struct {
 }
 
 // Abstract tile detector
-type tileDetector func(ix PIndex, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile
+type tileDetector func(ix TDetector, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile
 
 // Abstract pointindex creator. Is implied to insert geometry in index
 type IndexFactory func(geometry geom.Geometry) (PIndex, error)
@@ -211,23 +213,27 @@ func newIndexFactory(newIndex func() PIndex, ignoreOutsideGrid bool) IndexFactor
 func newTileDetector(config Config) tileDetector {
 	// No encoding: do not detect tiles
 	if !config.EncodeTiles {
-		return func(_ PIndex, _ tms20.TMID, _ []geom.Geometry) []tile.Tile { return nil }
+		return func(_ TDetector, _ tms20.TMID, _ []geom.Geometry) []tile.Tile { return nil }
 	}
 
 	// Line tracing: line trace each geometry, append results
 	if config.UseLineTrace {
-		return func(ix PIndex, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile {
+		return func(td TDetector, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile {
 			tiles := make([]tile.Tile, 0, len(newGeometries))
 			for _, newGeometry := range newGeometries {
-				tiles = append(tiles, ix.DetectTilesViaLineTrace(newGeometry, tmsID, config.Buffer)...)
+				tiles = append(tiles, td.DetectTilesViaLineTrace(newGeometry, tmsID, config.Buffer)...)
 			}
+			sort.Slice(tiles, func(i int, j int) bool {
+				return tiles[i].X < tiles[j].X || (tiles[i].X == tiles[j].X && tiles[i].Y < tiles[j].Y)
+			})
+			tiles = slices.Compact(tiles)
 			return tiles
 		}
 	}
 
 	// No line tracing: bbox detection
-	return func(ix PIndex, tmsID tms20.TMID, _ []geom.Geometry) []tile.Tile {
-		return ix.GetQBBoxWithBuffer(tmsID, config.Buffer)
+	return func(td TDetector, tmsID tms20.TMID, _ []geom.Geometry) []tile.Tile {
+		return td.GetQBBoxWithBuffer(tmsID, config.Buffer)
 	}
 }
 

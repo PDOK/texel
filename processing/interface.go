@@ -31,12 +31,16 @@ type TileCoord struct {
 }
 
 type PIndex interface {
+	TDetector
 	InsertGeometry(geometry geom.Geometry) error
-	DetectTilesViaLineTrace(geometry geom.Geometry, tmsID tms20.TMID, buffer uint) []tile.Tile
-	GetQBBoxWithBuffer(tmsID tms20.TMID, buffer uint) []tile.Tile
 	InternalPixelLevelFromTmsID(tmsID tms20.TMID) pointindex.Level
 	SnapClosestPoints(line geom.Line, levelMap map[pointindex.Level]any, ringID int) map[pointindex.Level][][2]float64
 	GetHitMultiple(level pointindex.Level) map[intgeom.Point][]int
+}
+
+type TDetector interface {
+	DetectTilesViaLineTrace(geometry geom.Geometry, tmsID tms20.TMID, buffer uint) []tile.Tile
+	GetQBBoxWithBuffer(tmsID tms20.TMID, buffer uint) []tile.Tile
 }
 
 // Source and target for snapping
