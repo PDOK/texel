@@ -8,7 +8,6 @@ import (
 	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
-	"github.com/pdok/texel/tile"
 
 	"github.com/stretchr/testify/require"
 
@@ -129,76 +128,6 @@ func TestPointIndex_getQuadrantExtentAndCentroid(t *testing.T) {
 			if !assert.Equal(t, tt.want.centroid, centroid) {
 				t.Errorf("getQuadrantExtentAndCentroid() = %v, want %v", centroid, tt.want.centroid)
 			}
-		})
-	}
-}
-
-func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
-	type tileCoord struct{ x, y uint }
-	tests := []struct {
-		name         string
-		tmsID        tms20.TMID
-		tilePixels   uint
-		deepestLevel Level
-		points       [][2]int // Points to be inserted at deepestlevel
-		bufferSize   uint
-		wantTiles    []tileCoord
-	}{
-		{
-			// deepestLevel 4 -> 16x16 pixel grid, tmsID 2 -> 4x4 tiles of 4x4 pixels each.
-			name:       "points all within one tile, no buffer",
-			tmsID:      2,
-			tilePixels: 4,
-			points:     [][2]int{{5, 5}, {6, 6}},
-			bufferSize: 0,
-			wantTiles:  []tileCoord{{1, 1}},
-		},
-		{
-			name:       "point in one tile, buffer expands to multiple tiles",
-			tmsID:      2,
-			tilePixels: 4,
-			points:     [][2]int{{0, 0}},
-			bufferSize: 6,
-			wantTiles:  []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
-		},
-		{
-			name:       "non-square rectangle of tiles",
-			tmsID:      2,
-			tilePixels: 4,
-			points:     [][2]int{{4, 4}, {11, 5}},
-			bufferSize: 0,
-			wantTiles:  []tileCoord{{1, 1}, {2, 1}},
-		},
-		{
-			name:       "points in diagonal tiles, expands to rectangle",
-			tmsID:      2,
-			tilePixels: 4,
-			points:     [][2]int{{3, 3}, {4, 4}},
-			bufferSize: 0,
-			wantTiles:  []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ix := newPointIndex(tt.tmsID, tt.tilePixels, 1, 1.0)
-			for _, p := range tt.points {
-				require.NoError(t, ix.InsertCoord(p[0], p[1]))
-			}
-
-			l := levelFromTmsId(tt.tmsID)
-			want := make([]tile.Tile, 0, len(tt.wantTiles))
-			for _, tc := range tt.wantTiles {
-				extent, _ := ix.getQuadrantExtentAndCentroid(l, tc.x, tc.y, ix.intExtent)
-				want = append(want, tile.Tile{
-					Extent:      extent,
-					X:           tc.x,
-					Y:           tc.y,
-					IsContained: false,
-				})
-			}
-
-			got := ix.GetQBBoxWithBuffer(tt.tmsID, tt.bufferSize)
-			assert.ElementsMatch(t, want, got)
 		})
 	}
 }
