@@ -224,21 +224,21 @@ func mergeFamily[S any, E any, M ~[]E](
 	g, h geom.Geometry, wrap func(S) M, errMsg string,
 ) geom.Geometry {
 	switch g := g.(type) {
-	case S:
+	case M:
 		switch h := h.(type) {
-		case S:
-			return append(wrap(g), wrap(h)...)
 		case M:
-			return append(wrap(g), h...)
+			return append(g, h...)
+		case S:
+			return append(g, wrap(h)...)
 		default:
 			panic(errMsg)
 		}
-	case M:
+	case S:
 		switch h := h.(type) {
-		case S:
-			return append(g, wrap(h)...)
 		case M:
-			return append(g, h...)
+			return append(wrap(g), h...)
+		case S:
+			return append(wrap(g), wrap(h)...)
 		default:
 			panic(errMsg)
 		}
