@@ -144,6 +144,16 @@ func TestGeometrySliceToGeom(t *testing.T) {
 		want       geom.Geometry
 	}{
 		{
+			name:       "empty slice",
+			geometries: []geom.Geometry{},
+			want:       nil,
+		},
+		{
+			name:       "nil slice",
+			geometries: nil,
+			want:       nil,
+		},
+		{
 			name:       "single point",
 			geometries: []geom.Geometry{p1},
 			want:       p1,
@@ -187,14 +197,6 @@ func TestGeometrySliceToGeomPanics(t *testing.T) {
 		name       string
 		geometries []geom.Geometry
 	}{
-		{
-			name:       "empty slice",
-			geometries: []geom.Geometry{},
-		},
-		{
-			name:       "nil slice",
-			geometries: nil,
-		},
 		{
 			name:       "mixed points and linestrings",
 			geometries: []geom.Geometry{geom.Point{1, 2}, geom.LineString{{0, 0}, {1, 1}}},

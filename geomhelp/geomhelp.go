@@ -168,7 +168,7 @@ func wktMustEncodeTruncated(geom geom.Geometry, width uint) string {
 // into the matching (multi)geometry. Mixed geometry types are not allowed.
 func GeometrySliceToGeom(geometries []geom.Geometry) geom.Geometry {
 	if len(geometries) == 0 {
-		panic("Geometry slice with zero geometries encountered")
+		return nil
 	}
 	if len(geometries) == 1 {
 		return geometries[0]
