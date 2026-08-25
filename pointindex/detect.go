@@ -85,15 +85,7 @@ func (ix *PointIndex) GetQBBoxWithBuffer(tmsID tms20.TMID, bufferSize uint) []ti
 		for j := range tileMaxY - tileMinY + 1 {
 			tileX := tileMinX + i
 			tileY := tileMinY + j
-			extent, _ := ix.getQuadrantExtentAndCentroid(
-				tileLevel, tileX, tileY, ix.intExtent)
-
-			tiles = append(tiles, tile.Tile{
-				Extent:      extent,
-				X:           tileX,
-				Y:           tileY,
-				IsContained: false,
-			})
+			tiles = append(tiles, ix.makeTile(tileX, tileY, tileLevel, false))
 		}
 	}
 	return tiles
