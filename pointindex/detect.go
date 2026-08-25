@@ -462,7 +462,8 @@ func (ix *PointIndex) findIntersectingTilesLeft(x, y, tileLevel Level, classific
 // Line trace by looping over segments
 func (ix *PointIndex) lineTraceLine(line geom.LineString, tmsID tms20.TMID, buffer uint) []tile.Tile {
 	tileSet := make(map[tile.Tile]bool)
-	l := levelFromTmsId(tmsID)
+	tileLevel := levelFromTmsId(tmsID)
+	internalPixelLevel := ix.InternalPixelLevelFromTmsID(tmsID)
 
 	register := func(x, y uint, l Level) {
 		tile := ix.makeTile(x, y, l, false)
@@ -471,7 +472,7 @@ func (ix *PointIndex) lineTraceLine(line geom.LineString, tmsID tms20.TMID, buff
 
 	segments, _ := line.AsSegments()
 	for _, segment := range segments {
-		ix.lineTrace(segment, l, ix.internalPixels, buffer, register)
+		ix.lineTrace(segment, tileLevel, internalPixelLevel, buffer, register)
 	}
 
 	return mapslicehelp.MapKeys(tileSet)
