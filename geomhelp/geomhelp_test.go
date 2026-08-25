@@ -130,6 +130,91 @@ func TestMergeGeometriesPanicsOnMismatchedTypes(t *testing.T) {
 	}
 }
 
+func TestGeometrySliceToGeom(t *testing.T) {
+	p1 := geom.Point{1, 2}
+	p2 := geom.Point{3, 4}
+	l1 := geom.LineString{{0, 0}, {1, 1}}
+	l2 := geom.LineString{{2, 2}, {3, 3}}
+	poly1 := geom.Polygon{{{0, 0}, {1, 0}, {1, 1}}}
+	poly2 := geom.Polygon{{{2, 2}, {3, 2}, {3, 3}}}
+
+	tests := []struct {
+		name       string
+		geometries []geom.Geometry
+		want       geom.Geometry
+	}{
+		{
+			name:       "single point",
+			geometries: []geom.Geometry{p1},
+			want:       p1,
+		},
+		{
+			name:       "single linestring",
+			geometries: []geom.Geometry{l1},
+			want:       l1,
+		},
+		{
+			name:       "single polygon",
+			geometries: []geom.Geometry{poly1},
+			want:       poly1,
+		},
+		{
+			name:       "multiple points",
+			geometries: []geom.Geometry{p1, p2},
+			want:       geom.MultiPoint{p1, p2},
+		},
+		{
+			name:       "multiple linestrings",
+			geometries: []geom.Geometry{l1, l2},
+			want:       geom.MultiLineString{l1, l2},
+		},
+		{
+			name:       "multiple polygons",
+			geometries: []geom.Geometry{poly1, poly2},
+			want:       geom.MultiPolygon{poly1, poly2},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GeometrySliceToGeom(tt.geometries)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGeometrySliceToGeomPanics(t *testing.T) {
+	tests := []struct {
+		name       string
+		geometries []geom.Geometry
+	}{
+		{
+			name:       "empty slice",
+			geometries: []geom.Geometry{},
+		},
+		{
+			name:       "nil slice",
+			geometries: nil,
+		},
+		{
+			name:       "mixed points and linestrings",
+			geometries: []geom.Geometry{geom.Point{1, 2}, geom.LineString{{0, 0}, {1, 1}}},
+		},
+		{
+			name:       "mixed linestrings and polygons",
+			geometries: []geom.Geometry{geom.LineString{{0, 0}, {1, 1}}, geom.Polygon{{{0, 0}, {1, 0}, {1, 1}}}},
+		},
+		{
+			name:       "mixed points and polygons",
+			geometries: []geom.Geometry{geom.Point{1, 2}, geom.Polygon{{{0, 0}, {1, 0}, {1, 1}}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Panics(t, func() { GeometrySliceToGeom(tt.geometries) })
+		})
+	}
+}
+
 func TestPointSlice(t *testing.T) {
 	tests := []struct {
 		name string

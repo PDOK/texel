@@ -410,7 +410,7 @@ func TestProcessSingle(t *testing.T) {
 			},
 		},
 		{
-			name:   "multiple tile matrices: independent per tmID, multi-geometry result kept as slice",
+			name:   "multiple tile matrices: independent per tmID, multi-geometry result built as multipolygon",
 			tmIDs:  []tms20.TMID{1, 2},
 			config: Config{EncodeTiles: true, UseLineTrace: false},
 			snapOutput: map[tms20.TMID][]geom.Geometry{
@@ -423,7 +423,7 @@ func TestProcessSingle(t *testing.T) {
 			},
 			want: map[tms20.TMID]SnapResult{
 				1: {Geometry: polyA, Tiles: []tile.Tile{tileA}},
-				2: {Geometry: []geom.Geometry{polyA, polyB}, Tiles: []tile.Tile{tileA, tileB}},
+				2: {Geometry: geom.MultiPolygon{polyA, polyB}, Tiles: []tile.Tile{tileA, tileB}},
 			},
 		},
 	}

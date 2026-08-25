@@ -164,14 +164,50 @@ func wktMustEncodeTruncated(geom geom.Geometry, width uint) string {
 	return truncate.StringWithTail(wkt.MustEncode(geom), width, "...")
 }
 
+// GeometrySliceToGeom converts a slice of points, linestrings or polygons
+// into the matching (multi)geometry. Mixed geometry types are not allowed.
 func GeometrySliceToGeom(geometries []geom.Geometry) geom.Geometry {
 	if len(geometries) == 0 {
-		panic("Multipolygon with zero polygons encountered")
+		panic("Geometry slice with zero geometries encountered")
 	}
 	if len(geometries) == 1 {
 		return geometries[0]
 	}
-	return geometries
+
+	switch geometries[0].(type) {
+	case geom.Point:
+		multiPoint := make(geom.MultiPoint, len(geometries))
+		for i, g := range geometries {
+			p, ok := g.(geom.Point)
+			if !ok {
+				panic("Mixed geometry types are not allowed")
+			}
+			multiPoint[i] = p
+		}
+		return multiPoint
+	case geom.LineString:
+		multiLineString := make(geom.MultiLineString, len(geometries))
+		for i, g := range geometries {
+			l, ok := g.(geom.LineString)
+			if !ok {
+				panic("Mixed geometry types are not allowed")
+			}
+			multiLineString[i] = l
+		}
+		return multiLineString
+	case geom.Polygon:
+		multiPolygon := make(geom.MultiPolygon, len(geometries))
+		for i, g := range geometries {
+			p, ok := g.(geom.Polygon)
+			if !ok {
+				panic("Mixed geometry types are not allowed")
+			}
+			multiPolygon[i] = p
+		}
+		return multiPolygon
+	default:
+		panic("Unknown or unsupported geometry type")
+	}
 }
 
 func PolygonSliceToGeom(polygons []geom.Polygon) geom.Geometry {
