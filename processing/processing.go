@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"slices"
 	"sort"
 	"sync"
 
@@ -219,14 +218,10 @@ func newTileDetector(config Config) tileDetector {
 	// Line tracing: line trace each geometry, append results
 	if config.UseLineTrace {
 		return func(td TDetector, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile {
-			tiles := make([]tile.Tile, 0, len(newGeometries))
+			var tiles []tile.Tile
 			for _, newGeometry := range newGeometries {
-				tiles = append(tiles, td.DetectTilesViaLineTrace(newGeometry, tmsID, config.Buffer)...)
+				tiles = combineTiles(tiles, td.DetectTilesViaLineTrace(newGeometry, tmsID, config.Buffer))
 			}
-			sort.Slice(tiles, func(i int, j int) bool {
-				return tiles[i].X < tiles[j].X || (tiles[i].X == tiles[j].X && tiles[i].Y < tiles[j].Y)
-			})
-			tiles = slices.Compact(tiles)
 			return tiles
 		}
 	}
@@ -314,12 +309,39 @@ func (p *GeometryProcessor) ProcessMulti(multiGeometry []geom.Geometry) map[tms2
 		snapResultPerTileMatrix := p.ProcessSingle(geometry)
 		for tmID, snapResult := range snapResultPerTileMatrix {
 			currentResult := newMultiGeometryPerTileMatrix[tmID]
-			currentResult.Tiles = append(currentResult.Tiles, snapResult.Tiles...)
+			currentResult.Tiles = combineTiles(currentResult.Tiles, snapResult.Tiles)
 			currentResult.Geometry = geomhelp.MergeGeometries(currentResult.Geometry, snapResult.Geometry)
 			newMultiGeometryPerTileMatrix[tmID] = currentResult
 		}
 	}
 	return newMultiGeometryPerTileMatrix
+}
+
+// Combine two slices of tiles. Ensure at most one tile per coordinate in
+// result. If contained in both, IsContained is set to false if it is
+// false in either. IsContained is an optimisation, ot oet true conservatively.
+func combineTiles(a, b []tile.Tile) []tile.Tile {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	combined := make(map[[2]uint]tile.Tile, len(a)+len(b))
+	for _, tiles := range [][]tile.Tile{a, b} {
+		for _, t := range tiles {
+			key := [2]uint{t.X, t.Y}
+			if existing, ok := combined[key]; ok {
+				t.IsContained = existing.IsContained && t.IsContained
+			}
+			combined[key] = t
+		}
+	}
+	result := make([]tile.Tile, 0, len(combined))
+	for _, t := range combined {
+		result = append(result, t)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].X < result[j].X || (result[i].X == result[j].X && result[i].Y < result[j].Y)
+	})
+	return result
 }
 
 type featureForTileMatrixWrapper struct {
