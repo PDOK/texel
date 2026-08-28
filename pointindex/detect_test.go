@@ -15,6 +15,7 @@ import (
 	"github.com/pdok/texel/tms20"
 )
 
+// Note that wantTiles is specified with left-down origin, but makeTile introduces the left-up origin.
 func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
 	type tileCoord struct{ x, y uint }
 	tests := []struct {
@@ -70,13 +71,7 @@ func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
 			l := levelFromTmsId(tt.tmsID)
 			want := make([]tile.Tile, 0, len(tt.wantTiles))
 			for _, tc := range tt.wantTiles {
-				extent, _ := ix.getQuadrantExtentAndCentroid(l, tc.x, tc.y, ix.intExtent)
-				want = append(want, tile.Tile{
-					Extent:      extent,
-					X:           tc.x,
-					Y:           tc.y,
-					IsContained: false,
-				})
+				want = append(want, ix.makeTile(tc.x, tc.y, l, false))
 			}
 
 			got := ix.GetQBBoxWithBuffer(tt.tmsID, tt.bufferSize)

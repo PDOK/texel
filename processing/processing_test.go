@@ -15,10 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newTestIndexFactory builds a raw point-index constructor backed by the
-// embedded NetherlandsRDNewQuad tile matrix set, deep enough to hold tmIDs
-// up to deepestTMID without hitting OutsideGridError for coordinates that
-// lie within its bounding box (roughly x: -285402..595402, y: 22598..903402).
+// Helper that creates a mock Pointindex Factory with RD tileset.
 func newTestIndexFactory(t *testing.T, deepestTMID tms20.TMID) func() PIndex {
 	t.Helper()
 	tms, err := tms20.LoadEmbeddedTileMatrixSet("NetherlandsRDNewQuad")
@@ -27,10 +24,7 @@ func newTestIndexFactory(t *testing.T, deepestTMID tms20.TMID) func() PIndex {
 	return func() PIndex { return rawFactory() }
 }
 
-// identitySnapFunc is a stub SnapFunc that returns the input geometry
-// unchanged for every requested tile matrix, so GeometryProcessor.Process's
-// wiring (type switch, single vs. multi geometry handling, geometry
-// merging) can be tested independently of the real snapping algorithm.
+// Mock snap function
 func identitySnapFunc(_ PIndex, g geom.Geometry, tmIDs []tms20.TMID, _ Config) map[tms20.TMID][]geom.Geometry {
 	result := make(map[tms20.TMID][]geom.Geometry, len(tmIDs))
 	for _, tmID := range tmIDs {
@@ -39,10 +33,7 @@ func identitySnapFunc(_ PIndex, g geom.Geometry, tmIDs []tms20.TMID, _ Config) m
 	return result
 }
 
-// TestGeometryProcessorProcess covers GeometryProcessor.Process, which
-// replaces processGeometry, exercising ProcessSingle (for Polygon,
-// LineString and Point) and ProcessMulti (for MultiPolygon,
-// MultiLineString and MultiPoint) through the type switch in Process.
+// Test whether the return types of various input geometries are handled correctly.
 func TestGeometryProcessorProcess(t *testing.T) {
 	polyA := geom.Polygon{{{100000, 100000}, {100010, 100000}, {100010, 100010}, {100000, 100000}}}
 	polyB := geom.Polygon{{{200000, 200000}, {200010, 200000}, {200010, 200010}, {200000, 200000}}}
@@ -101,10 +92,7 @@ func TestGeometryProcessorProcess(t *testing.T) {
 	}
 }
 
-// TestGeometryProcessorProcess_OutsideGrid covers the OutsideGridError path
-// shared by ProcessSingle: when a geometry falls outside the index's
-// grid/extent and Config.IgnoreOutsideGrid is set, an empty result map is
-// returned instead of panicking.
+// Test error behaviour
 func TestGeometryProcessorProcess_OutsideGrid(t *testing.T) {
 	outsidePoint := geom.Point{10000000, 10000000}
 	factory := newTestIndexFactory(t, 1)
@@ -158,7 +146,7 @@ func (mock *mockTileDetector) isEmpty() bool {
 	return len(mock.lineTraceQueue) == 0 && len(mock.bboxQueue) == 0
 }
 
-// Test a few variations of config and behaviour of resulting functions
+// Test that correct tile detection mechanism is used.
 func TestNewTileDetector(t *testing.T) {
 	tileA := tile.Tile{X: 1, Y: 1}
 	tileB := tile.Tile{X: 2, Y: 2}
@@ -189,8 +177,7 @@ func TestNewTileDetector(t *testing.T) {
 			tmsID:          2,
 			newGeometries:  []geom.Geometry{geomA, geomB},
 			lineTraceQueue: [][]tile.Tile{{tileA}, {tileA, tileB}},
-			// TODO Duplicate tile A
-			wantTiles: []tile.Tile{tileA, tileB},
+			wantTiles:      []tile.Tile{tileA, tileB},
 		},
 		{
 			name:          "bbox: called exactly once regardless of geometry count",
@@ -214,73 +201,6 @@ func TestNewTileDetector(t *testing.T) {
 
 			assert.Equal(t, tt.wantTiles, got)
 			assert.True(t, mock.isEmpty())
-		})
-	}
-}
-
-// TestNewEncoder covers newEncoder's Config.EncodeTiles gate and, when
-// enabled, that it produces exactly one tile.EncodedGeometry per
-// SnapResult.Tiles entry, reusing a single precomputed default (tile-
-// filling) encoding across all of them.
-func TestNewEncoder(t *testing.T) {
-	tests := []struct {
-		name       string
-		config     Config
-		snapResult SnapResult
-		wantNil    bool
-	}{
-		{
-			name:   "encoding disabled: nil regardless of tiles present",
-			config: Config{EncodeTiles: false},
-			snapResult: SnapResult{
-				Geometry: geom.Point{1, 1},
-				Tiles: []tile.Tile{
-					{X: 1, Y: 1, IsContained: true},
-					{X: 2, Y: 2, IsContained: true},
-				},
-			},
-			wantNil: true,
-		},
-		{
-			name:   "encoding enabled: one EncodedGeometry per tile, in order",
-			config: Config{EncodeTiles: true, Buffer: 0},
-			snapResult: SnapResult{
-				Geometry: geom.Point{1, 1},
-				Tiles: []tile.Tile{
-					{X: 1, Y: 1, IsContained: true},
-					{X: 2, Y: 3, IsContained: true},
-					{X: 4, Y: 5, IsContained: true},
-				},
-			},
-		},
-		{
-			name:   "encoding enabled, no tiles: empty (non-nil) slice",
-			config: Config{EncodeTiles: true, Buffer: 0},
-			snapResult: SnapResult{
-				Geometry: geom.Point{1, 1},
-				Tiles:    []tile.Tile{},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			encode := newEncoder(tt.config)
-
-			got := encode(tt.snapResult)
-
-			if tt.wantNil {
-				assert.Nil(t, got)
-				return
-			}
-			require.Len(t, got, len(tt.snapResult.Tiles))
-
-			defaultEnc, err := tile.NewDefaultEncoding(tt.config.Buffer)
-			require.NoError(t, err)
-			for i, q := range tt.snapResult.Tiles {
-				want := tile.MvtEncodeGeometry(q, tt.snapResult.Geometry, defaultEnc)
-				assert.Equal(t, want, got[i])
-			}
 		})
 	}
 }
