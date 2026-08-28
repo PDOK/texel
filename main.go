@@ -11,9 +11,8 @@ import (
 	"syscall"
 
 	"github.com/pdok/texel/config"
+	"github.com/pdok/texel/mapslicehelp"
 	"github.com/pdok/texel/pointindex"
-
-	"github.com/go-spatial/geom"
 
 	"github.com/carlmjohnson/versioninfo"
 
@@ -182,7 +181,7 @@ func main() {
 				gpkgTargets := make(map[int]*gpkg.TargetGeopackage, len(tileMatrixIDs))
 				overwrite := c.Bool(OVERWRITE)
 				pagesize := c.Int(PAGESIZE) // TODO divide by tile matrices count
-				snapConfig := snap.Config{
+				snapConfig := processing.Config{
 					KeepPointsAndLines:  c.Bool(KEEPPOINTSANDLINES),
 					IgnoreOutsideGrid:   c.Bool(IGNOREOUTSIDEGRID),
 					ReverseWindingOrder: c.Bool(REVERSEWINDINGORDER),
@@ -190,6 +189,7 @@ func main() {
 					Buffer:              c.Uint(TILEBUFFER),
 					UseLineTrace:        c.Bool(USELINETRACE),
 				}
+
 				for _, tmID := range tileMatrixIDs {
 					gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize, c.Bool(ENCODETILES))
 					defer gpkgTargets[tmID].Close() // yes, supposed to go here, want to close all at end of func
@@ -299,10 +299,12 @@ func injectSuffixIntoPath(p string) string {
 	return path.Join(dir, name+"_%v"+ext)
 }
 
-func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, snapConfig snap.Config) {
-	processing.ProcessFeatures(source, targets, func(p geom.Polygon, tmIDs []tms20.TMID) map[tms20.TMID]processing.SnapResult {
-		return snap.SnapPolygon(p, tileMatrixSet, tmIDs, snapConfig)
-	}, snapConfig.EncodeTiles, snapConfig.Buffer)
+func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, snapConfig processing.Config) {
+	snapFunction := snap.SnapGeometry
+	deepestTMID := slices.Max(mapslicehelp.MapKeys(targets))
+	rawFactory := pointindex.Factory(tileMatrixSet, deepestTMID)
+	factory := func() processing.PIndex { return rawFactory() }
+	processing.ProcessFeatures(source, targets, snapFunction, factory, snapConfig)
 }
 
 // Construct Layer info from config; init gpkg sources
