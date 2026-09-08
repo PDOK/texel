@@ -37,7 +37,7 @@ func (ix *PointIndex) DetectTilesViaLineTrace(g geom.Geometry, tmsID tms20.TMID,
 	case geom.LineString:
 		return ix.lineTraceLine(g, tmsID, buffer)
 	case geom.Point:
-		return ix.lineTracePoint(g, tmsID, buffer)
+		return ix.GetQBBoxWithBuffer(tmsID, buffer)
 	default:
 		return nil
 
@@ -476,15 +476,6 @@ func (ix *PointIndex) lineTraceLine(line geom.LineString, tmsID tms20.TMID, buff
 	}
 
 	return mapslicehelp.MapKeys(tileSet)
-}
-
-/////////////////////////////
-// Line tracing for points //
-/////////////////////////////
-
-// Line tracing is not applicable, fall back to BBox
-func (ix *PointIndex) lineTracePoint(_ geom.Point, tmsID tms20.TMID, buffer uint) []tile.Tile {
-	return ix.GetQBBoxWithBuffer(tmsID, buffer)
 }
 
 //////////////////////
