@@ -3,6 +3,8 @@ package processing
 // Orchestrating functionality for the mvt command
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"log"
 
@@ -23,6 +25,10 @@ func BuildAndWriteMVTTiles(layers []Layer, zoomlevel uint, target MVTTarget) err
 		data, err := processTile(coord, layers)
 		if err != nil {
 			return fmt.Errorf("building tile (%d, %d): %w", coord.X, coord.Y, err)
+		}
+		data, err = gzipCompress(data)
+		if err != nil {
+			return fmt.Errorf("compressing tile (%d, %d): %w", coord.X, coord.Y, err)
 		}
 		if err := target.WriteTile(coord.X, coord.Y, coord.Z, data); err != nil {
 			return fmt.Errorf("writing tile (%d, %d): %w", coord.X, coord.Y, err)
@@ -104,4 +110,17 @@ func processTile(coord TileCoord, layers []Layer) ([]byte, error) {
 		encLayers = append(encLayers, encLayer)
 	}
 	return tile.BuildEncodeTile(encLayers)
+}
+
+// wrapper around gzip
+func gzipCompress(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := gw.Write(data); err != nil {
+		return nil, fmt.Errorf("writing gzip data: %w", err)
+	}
+	if err := gw.Close(); err != nil {
+		return nil, fmt.Errorf("closing gzip writer: %w", err)
+	}
+	return buf.Bytes(), nil
 }
