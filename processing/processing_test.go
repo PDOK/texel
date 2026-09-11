@@ -346,12 +346,22 @@ func TestProcessSingle(t *testing.T) {
 				2: {Geometry: geom.MultiPolygon{polyA, polyB}, Tiles: []tile.Tile{tileA, tileB}},
 			},
 		},
+		{
+			name:   "nil geometry leaves unset results",
+			tmIDs:  []tms20.TMID{1},
+			config: Config{EncodeTiles: true, UseLineTrace: false},
+			snapOutput: map[tms20.TMID][]geom.Geometry{
+				1: {},
+			},
+			detectTilesResult: map[tms20.TMID][]tile.Tile{},
+			want:              map[tms20.TMID]SnapResult{},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// This counts how often "tileDetect" has been called
-			numDetect := len(tt.tmIDs)
+			numDetect := len(tt.want)
 
 			processor := NewGeometryProcessor(tt.tmIDs, tt.config, createMockSnapFunc(tt.snapOutput), createMockIndexFactory(&numDetect, tt.insertErr, tt.detectTilesResult))
 
