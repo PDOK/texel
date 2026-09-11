@@ -6,27 +6,93 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/pdok/texel/intgeom"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
+	"github.com/pdok/texel/tile"
 	"github.com/pdok/texel/tms20"
 )
 
+// Note that wantTiles is specified with left-down origin, but makeTile introduces the left-up origin.
+func TestPointIndex_GetQBBoxWithBuffer(t *testing.T) {
+	type tileCoord struct{ x, y uint }
+	tests := []struct {
+		name         string
+		tmsID        tms20.TMID
+		tilePixels   uint
+		deepestLevel Level
+		points       [][2]int // Points to be inserted at deepestlevel
+		bufferSize   uint
+		wantTiles    []tileCoord
+	}{
+		{
+			// deepestLevel 4 -> 16x16 pixel grid, tmsID 2 -> 4x4 tiles of 4x4 pixels each.
+			name:       "points all within one tile, no buffer",
+			tmsID:      2,
+			tilePixels: 4,
+			points:     [][2]int{{5, 5}, {6, 6}},
+			bufferSize: 0,
+			wantTiles:  []tileCoord{{1, 1}},
+		},
+		{
+			name:       "point in one tile, buffer expands to multiple tiles",
+			tmsID:      2,
+			tilePixels: 4,
+			points:     [][2]int{{0, 0}},
+			bufferSize: 6,
+			wantTiles:  []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
+		},
+		{
+			name:       "non-square rectangle of tiles",
+			tmsID:      2,
+			tilePixels: 4,
+			points:     [][2]int{{4, 4}, {11, 5}},
+			bufferSize: 0,
+			wantTiles:  []tileCoord{{1, 1}, {2, 1}},
+		},
+		{
+			name:       "points in diagonal tiles, expands to rectangle",
+			tmsID:      2,
+			tilePixels: 4,
+			points:     [][2]int{{3, 3}, {4, 4}},
+			bufferSize: 0,
+			wantTiles:  []tileCoord{{0, 0}, {0, 1}, {1, 0}, {1, 1}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ix := newPointIndex(tt.tmsID, tt.tilePixels, 1, 1.0)
+			for _, p := range tt.points {
+				require.NoError(t, ix.InsertCoord(p[0], p[1]))
+			}
+
+			l := levelFromTmsId(tt.tmsID)
+			want := make([]tile.Tile, 0, len(tt.wantTiles))
+			for _, tc := range tt.wantTiles {
+				want = append(want, ix.makeTile(tc.x, tc.y, l, false))
+			}
+
+			got := ix.GetQBBoxWithBuffer(tt.tmsID, tt.bufferSize)
+			assert.ElementsMatch(t, want, got)
+		})
+	}
+}
+
 // registeredTile records a single call to a RegisterFunc during a test.
 type registeredTile struct {
-	x, y       uint
-	segmentIdx SegmentIdx
+	x, y uint
 }
 
 // Register function for testing
-func recordingRegister(dst *[]registeredTile) RegisterFunc {
-	return func(tileX, tileY uint, l Level, segmentIdx SegmentIdx) {
+func recordingRegister(dst *[]registeredTile) registerFunc {
+	return func(tileX, tileY uint, l Level) {
 		maxCoord := mathhelp.Pow2(l) - 1
 		if tileX > maxCoord || tileY > maxCoord {
 			return
 		}
-		*dst = append(*dst, registeredTile{tileX, tileY, segmentIdx})
+		*dst = append(*dst, registeredTile{tileX, tileY})
 	}
 }
 
@@ -212,7 +278,7 @@ func TestLineTrace_TilesTouched(t *testing.T) {
 			ix := newOffsetPointIndex(tt.deepestLevel, tt.cellSize, tt.originX, tt.originY)
 
 			var recorded []registeredTile
-			ix.lineTrace(tt.line, tt.l, tt.deepestLevel, 0, 0, tt.buffer, recordingRegister(&recorded))
+			ix.lineTrace(tt.line, tt.l, tt.deepestLevel, tt.buffer, recordingRegister(&recorded))
 
 			got := uniqueTileCoords(recorded)
 			assert.Equal(t, tt.want, got)
@@ -533,9 +599,9 @@ func TestPointIndex_classifyNonIntersectingTile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			segments, classification := tt.ix.registerPolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
+			segments, classification := tt.ix.lineTracePolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
 			z := morton.MustToZ(tt.tileX, tt.tileY)
-			got := tt.ix.classifyNonIntersectingTile(z, tt.tileLevel, segments, classification, tt.polygon)
+			got := tt.ix.fillTile(z, tt.tileLevel, segments, classification, tt.polygon)
 			t.Logf("classifyNonIntersectingTile(tile=(%d,%d)) = %v", tt.tileX, tt.tileY, got)
 			assert.Equal(t, tt.want, got)
 		})
@@ -710,8 +776,8 @@ func TestPointIndex_classifyNonIntersectingTiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			targetLevel := Level(tt.tmsID) //nolint:gosec // G115
-			segments, classification := tt.ix.registerPolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
-			tt.ix.classifyNonIntersectingTiles(targetLevel, 0, 0, true, segments, classification, tt.polygon)
+			segments, classification := tt.ix.lineTracePolygonEdges(tt.polygon, tt.tmsID, tt.buffer)
+			tt.ix.fillTiles(targetLevel, 0, 0, true, segments, classification, tt.polygon)
 
 			got := classificationGrid(classification, targetLevel)
 			for l := Level(0); l <= targetLevel; l++ {
