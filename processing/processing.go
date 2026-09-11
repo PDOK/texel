@@ -295,8 +295,11 @@ func (p *GeometryProcessor) ProcessSingle(geometry geom.Geometry) map[tms20.TMID
 	geomsAndTilesPerTileMatrix := make(map[tms20.TMID]SnapResult, len(p.tmIDs))
 	for _, tmsID := range p.tmIDs {
 		newGeometries := newGeometriesPerTileMatrix[tmsID]
-		tiles := p.detectTiles(ix, tmsID, newGeometries)
 		singleGeometry := geomhelp.GeometrySliceToGeom(newGeometries)
+		if singleGeometry == nil {
+			continue
+		}
+		tiles := p.detectTiles(ix, tmsID, newGeometries)
 		geomsAndTilesPerTileMatrix[tmsID] = SnapResult{singleGeometry, tiles}
 	}
 	return geomsAndTilesPerTileMatrix
