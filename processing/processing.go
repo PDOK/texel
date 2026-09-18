@@ -240,9 +240,9 @@ func newTileDetector(config Config) tileDetector {
 }
 
 func filterTilesInClip(tmsID tms20.TMID, clip Clip, tiles []tile.Tile) []tile.Tile {
-	levelDiff := clip.Z - tmsID
+	levelDiff := tmsID - clip.Z
 	if levelDiff < 0 {
-		err := fmt.Errorf("error generating tiles for tms %d, larger than clip level %d", tmsID, clip.Z)
+		err := fmt.Errorf("error generating tiles for tms %d with deeper clip level %d", tmsID, clip.Z)
 		panic(err)
 	}
 	filteredTiles := make([]tile.Tile, 0, len(tiles))
