@@ -228,18 +228,18 @@ func newTileDetector(config Config) tileDetector {
 			for _, newGeometry := range newGeometries {
 				tiles = combineTiles(tiles, td.DetectTilesViaLineTrace(newGeometry, tmsID, config.Buffer))
 			}
-			return tilesWithinLimit(tmsID, config.Clip, tiles)
+			return filterTilesInClip(tmsID, config.Clip, tiles)
 		}
 	}
 
 	// No line tracing: bbox detection
 	return func(td TDetector, tmsID tms20.TMID, _ []geom.Geometry) []tile.Tile {
 		unfilteredTiles := td.GetQBBoxWithBuffer(tmsID, config.Buffer)
-		return tilesWithinLimit(tmsID, config.Clip, unfilteredTiles)
+		return filterTilesInClip(tmsID, config.Clip, unfilteredTiles)
 	}
 }
 
-func tilesWithinLimit(tmsID tms20.TMID, clip Clip, tiles []tile.Tile) []tile.Tile {
+func filterTilesInClip(tmsID tms20.TMID, clip Clip, tiles []tile.Tile) []tile.Tile {
 	levelDiff := clip.Z - tmsID
 	if levelDiff < 0 {
 		err := fmt.Errorf("error generating tiles for tms %d, larger than clip level %d", tmsID, clip.Z)
