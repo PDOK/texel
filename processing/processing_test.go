@@ -146,6 +146,60 @@ func (mock *mockTileDetector) isEmpty() bool {
 	return len(mock.lineTraceQueue) == 0 && len(mock.bboxQueue) == 0
 }
 
+func TestFilterTilesInClip(t *testing.T) {
+	tests := []struct {
+		name  string
+		tmsID tms20.TMID
+		clip  Clip
+		tiles []tile.Tile
+		want  []tile.Tile
+		panic bool
+	}{
+		{
+			name:  "same level: keeps tiles in clip",
+			tmsID: 5,
+			clip:  Clip{Z: 5, X: 2, Y: 3},
+			tiles: []tile.Tile{{X: 2, Y: 3}, {X: 2, Y: 4}, {X: 3, Y: 3}},
+			want:  []tile.Tile{{X: 2, Y: 3}},
+		},
+		{
+			name:  "deeper level: keeps tiles whose parent is in clip",
+			tmsID: 5,
+			clip:  Clip{Z: 3, X: 4, Y: 2},
+			tiles: []tile.Tile{{X: 16, Y: 8}, {X: 17, Y: 9}, {X: 15, Y: 8}},
+			want:  []tile.Tile{{X: 16, Y: 8}, {X: 17, Y: 9}},
+		},
+		{
+			name:  "no tiles in clip: returns empty slice",
+			tmsID: 5,
+			clip:  Clip{Z: 5, X: 2, Y: 3},
+			tiles: []tile.Tile{{X: 1, Y: 3}, {X: 2, Y: 4}},
+			want:  []tile.Tile{},
+		},
+		{
+			name:  "tile matrix level below clip: panics",
+			tmsID: 4,
+			clip:  Clip{Z: 5, X: 2, Y: 3},
+			tiles: []tile.Tile{{X: 2, Y: 3}},
+			panic: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.panic {
+				assert.Panics(t, func() {
+					filterTilesInClip(tt.tmsID, tt.clip, tt.tiles)
+				})
+				return
+			}
+
+			got := filterTilesInClip(tt.tmsID, tt.clip, tt.tiles)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // Test that correct tile detection mechanism is used.
 func TestNewTileDetector(t *testing.T) {
 	tileA := tile.Tile{X: 1, Y: 1}
