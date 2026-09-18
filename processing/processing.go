@@ -232,6 +232,23 @@ func newTileDetector(config Config) tileDetector {
 	}
 }
 
+func tilesWithinLimit(tmsID tms20.TMID, z int, x, y uint, tiles []tile.Tile) []tile.Tile {
+	levelDiff := z - tmsID
+	if levelDiff < 0 {
+		err := fmt.Errorf("error generating tiles for tms %d, larger than clip level %d", tmsID, z)
+		panic(err)
+	}
+	filteredTiles := make([]tile.Tile, 0, len(tiles))
+	for _, tile := range tiles {
+		parentX := tile.X >> levelDiff
+		parentY := tile.Y >> levelDiff
+		if x == parentX && y == parentY {
+			filteredTiles = append(filteredTiles, tile)
+		}
+	}
+	return filteredTiles
+}
+
 // Build encoding function based on geometry.
 // This involves checking whether encoding is enabled at all,
 // and creating the default tile for tile-filling polygons
