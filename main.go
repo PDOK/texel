@@ -162,87 +162,7 @@ func main() {
 					EnvVars:  []string{strcase.ToScreamingSnake(CLIP)},
 				},
 			},
-			Action: func(c *cli.Context) error {
-				tileMatrixSet, err := tms20.LoadEmbeddedTileMatrixSet(c.String(TILEMATRIXSET))
-				if err != nil {
-					return err
-				}
-				var tileMatrixIDs []int
-				err = json.Unmarshal([]byte(c.String(TILEMATRICES)), &tileMatrixIDs)
-				if err != nil {
-					return err
-				}
-				if err = validateTileMatrixSet(tileMatrixSet, tileMatrixIDs); err != nil {
-					return err
-				}
-
-				var clip []int
-				err = json.Unmarshal([]byte(c.String(CLIP)), &clip)
-				if err != nil {
-					return err
-				}
-				if len(clip) != 3 {
-					return fmt.Errorf("error: clip must have exactly three values, got %d", len(clip))
-				}
-
-				_, err = os.Stat(c.String(SOURCE))
-				if os.IsNotExist(err) {
-					log.Fatalf("error opening source GeoPackage: %s", err)
-				}
-
-				source := gpkg.SourceGeopackage{}
-				source.Init(c.String(SOURCE))
-				defer source.Close()
-
-				targetPathFmt := injectSuffixIntoPath(c.String(TARGET))
-
-				gpkgTargets := make(map[int]*gpkg.TargetGeopackage, len(tileMatrixIDs))
-				overwrite := c.Bool(OVERWRITE)
-				pagesize := c.Int(PAGESIZE) // TODO divide by tile matrices count
-				snapConfig := processing.Config{
-					KeepPointsAndLines:  c.Bool(KEEPPOINTSANDLINES),
-					IgnoreOutsideGrid:   c.Bool(IGNOREOUTSIDEGRID),
-					ReverseWindingOrder: c.Bool(REVERSEWINDINGORDER),
-					EncodeTiles:         c.Bool(ENCODETILES),
-					Buffer:              c.Uint(TILEBUFFER),
-					UseLineTrace:        c.Bool(USELINETRACE),
-					Clip:                processing.Clip{Z: clip[0], X: uint(clip[1]), Y: uint(clip[2])}, //nolint: gosec // G115
-				}
-
-				for _, tmID := range tileMatrixIDs {
-					gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize, c.Bool(ENCODETILES))
-					defer gpkgTargets[tmID].Close() // yes, supposed to go here, want to close all at end of func
-				}
-
-				tables := source.GetTableInfo()
-				for _, target := range gpkgTargets {
-					err = target.CreateTables(tables)
-					if err != nil {
-						log.Fatalf("error initialization the target GeoPackage: %s", err)
-					}
-				}
-
-				log.Println("=== start snapping ===")
-
-				// need a copied map because of type difference processing.Target vs gpkg.TargetGeopackage
-				targets := make(map[int]processing.Target, len(gpkgTargets))
-				for tmID, target := range gpkgTargets {
-					targets[tmID] = target
-				}
-				// Process the tables sequentially
-				for _, table := range tables {
-					log.Printf("  snapping %s", table.Name)
-					for _, target := range gpkgTargets {
-						source.Table = table
-						target.Table = table
-					}
-					processBySnapping(source, targets, tileMatrixSet, snapConfig)
-					log.Printf("  finished %s", table.Name)
-				}
-
-				log.Println("=== done snapping ===")
-				return nil
-			},
+			Action: runSnap,
 		},
 		{
 			Name:  "mvt",
@@ -282,6 +202,90 @@ func main() {
 	}
 }
 
+func runSnap(c *cli.Context) error {
+	tileMatrixSet, err := tms20.LoadEmbeddedTileMatrixSet(c.String(TILEMATRIXSET))
+	if err != nil {
+		return err
+	}
+	var tileMatrixIDs []int
+	err = json.Unmarshal([]byte(c.String(TILEMATRICES)), &tileMatrixIDs)
+	if err != nil {
+		return err
+	}
+	if err = validateTileMatrixSet(tileMatrixSet, tileMatrixIDs); err != nil {
+		return err
+	}
+
+	_, err = os.Stat(c.String(SOURCE))
+	if os.IsNotExist(err) {
+		log.Fatalf("error opening source GeoPackage: %s", err)
+	}
+
+	clip, err := readClip(c.String(CLIP))
+	if err != nil {
+		return err
+	}
+
+	source := gpkg.SourceGeopackage{}
+	source.Init(c.String(SOURCE))
+	defer source.Close()
+
+	targetPathFmt := injectSuffixIntoPath(c.String(TARGET))
+
+	gpkgTargets := make(map[int]*gpkg.TargetGeopackage, len(tileMatrixIDs))
+	overwrite := c.Bool(OVERWRITE)
+	pagesize := c.Int(PAGESIZE) // TODO divide by tile matrices count
+	snapConfig := processing.Config{
+		KeepPointsAndLines:  c.Bool(KEEPPOINTSANDLINES),
+		IgnoreOutsideGrid:   c.Bool(IGNOREOUTSIDEGRID),
+		ReverseWindingOrder: c.Bool(REVERSEWINDINGORDER),
+		EncodeTiles:         c.Bool(ENCODETILES),
+		Buffer:              c.Uint(TILEBUFFER),
+		UseLineTrace:        c.Bool(USELINETRACE),
+		Clip:                processing.Clip{Z: clip[0], X: uint(clip[1]), Y: uint(clip[2])}, //nolint: gosec // G115
+	}
+
+	for _, tmID := range tileMatrixIDs {
+		gpkgTargets[tmID] = initGPKGTarget(targetPathFmt, tmID, overwrite, pagesize, c.Bool(ENCODETILES))
+		defer gpkgTargets[tmID].Close() // yes, supposed to go here, want to close all at end of func
+	}
+
+	tables := source.GetTableInfo()
+	for _, target := range gpkgTargets {
+		err = target.CreateTables(tables)
+		if err != nil {
+			return fmt.Errorf("error initialization the target GeoPackage: %w", err)
+		}
+	}
+
+	log.Println("=== start snapping ===")
+	processSnapTables(tables, source, gpkgTargets, snapConfig, tileMatrixSet)
+	log.Println("=== done snapping ===")
+
+	return nil
+}
+
+// Loop over tables, then loop over targets, and process
+func processSnapTables(tables []gpkg.Table, source gpkg.SourceGeopackage, gpkgTargets map[int]*gpkg.TargetGeopackage, snapConfig processing.Config, tileMatrixSet tms20.TileMatrixSet) {
+
+	// need a copied map because of type difference processing.Target vs gpkg.TargetGeopackage
+	targets := make(map[int]processing.Target, len(gpkgTargets))
+	for tmID, target := range gpkgTargets {
+		targets[tmID] = target
+	}
+
+	// Process the tables sequentially
+	for _, table := range tables {
+		log.Printf("  snapping %s", table.Name)
+		for _, target := range gpkgTargets {
+			source.Table = table
+			target.Table = table
+		}
+		processBySnapping(source, targets, tileMatrixSet, snapConfig)
+		log.Printf("  finished %s", table.Name)
+	}
+}
+
 func validateTileMatrixSet(tms tms20.TileMatrixSet, tileMatrixIDs []tms20.TMID) error {
 	deepestTMID := slices.Max(tileMatrixIDs)
 	stats, deviationInUnits, deviationInPixels, err := pointindex.DeviationStats(tms, deepestTMID)
@@ -316,6 +320,18 @@ func injectSuffixIntoPath(p string) string {
 	ext := path.Ext(file)
 	name := file[:len(file)-len(ext)]
 	return path.Join(dir, name+"_%v"+ext)
+}
+
+func readClip(clipString string) ([]int, error) {
+	var clip []int
+	err := json.Unmarshal([]byte(clipString), &clip)
+	if err != nil {
+		return nil, err
+	}
+	if len(clip) != 3 {
+		return nil, fmt.Errorf("error: clip must have exactly three values, got %d", len(clip))
+	}
+	return clip, nil
 }
 
 func processBySnapping(source processing.Source, targets map[tms20.TMID]processing.Target, tileMatrixSet tms20.TileMatrixSet, snapConfig processing.Config) {
