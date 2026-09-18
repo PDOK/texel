@@ -38,6 +38,7 @@ const (
 	ENCODETILES         string = `encodetiles`
 	TILEBUFFER          string = `tilebuffer`
 	USELINETRACE        string = `uselinetrace`
+	CLIP                string = `clip`
 
 	MVTCONFIG  string = `config`
 	MVTOUTDIR  string = `mvtOutDir`
@@ -152,6 +153,14 @@ func main() {
 					Required: false,
 					EnvVars:  []string{strcase.ToScreamingSnake(USELINETRACE)},
 				},
+				&cli.StringFlag{
+					Name:     CLIP,
+					Aliases:  []string{"c"},
+					Usage:    "Specify clip as \"[z,x,y]\", which denotes a quadrant in the target grid. Only encode geometries for tiles within this clip. Default: entire grid.",
+					Value:    "[0,0,0]",
+					Required: false,
+					EnvVars:  []string{strcase.ToScreamingSnake(CLIP)},
+				},
 			},
 			Action: func(c *cli.Context) error {
 				tileMatrixSet, err := tms20.LoadEmbeddedTileMatrixSet(c.String(TILEMATRIXSET))
@@ -165,6 +174,15 @@ func main() {
 				}
 				if err = validateTileMatrixSet(tileMatrixSet, tileMatrixIDs); err != nil {
 					return err
+				}
+
+				var clip []int
+				err = json.Unmarshal([]byte(c.String(CLIP)), &clip)
+				if err != nil {
+					return err
+				}
+				if len(clip) != 3 {
+					return fmt.Errorf("error: clip must have exactly three values, got %d", len(clip))
 				}
 
 				_, err = os.Stat(c.String(SOURCE))
@@ -188,6 +206,7 @@ func main() {
 					EncodeTiles:         c.Bool(ENCODETILES),
 					Buffer:              c.Uint(TILEBUFFER),
 					UseLineTrace:        c.Bool(USELINETRACE),
+					Clip:                processing.Clip{Z: clip[0], X: uint(clip[1]), Y: uint(clip[2])}, //nolint: gosec // G115
 				}
 
 				for _, tmID := range tileMatrixIDs {

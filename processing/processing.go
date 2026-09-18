@@ -27,6 +27,12 @@ type Config struct {
 	Buffer uint
 	// Decide whether to use lineTrace or BBox for tile detection
 	UseLineTrace bool
+	Clip         Clip
+}
+
+type Clip struct {
+	Z    int
+	X, Y uint
 }
 
 //////////////////////////
@@ -222,27 +228,28 @@ func newTileDetector(config Config) tileDetector {
 			for _, newGeometry := range newGeometries {
 				tiles = combineTiles(tiles, td.DetectTilesViaLineTrace(newGeometry, tmsID, config.Buffer))
 			}
-			return tiles
+			return tilesWithinLimit(tmsID, config.Clip, tiles)
 		}
 	}
 
 	// No line tracing: bbox detection
 	return func(td TDetector, tmsID tms20.TMID, _ []geom.Geometry) []tile.Tile {
-		return td.GetQBBoxWithBuffer(tmsID, config.Buffer)
+		unfilteredTiles := td.GetQBBoxWithBuffer(tmsID, config.Buffer)
+		return tilesWithinLimit(tmsID, config.Clip, unfilteredTiles)
 	}
 }
 
-func tilesWithinLimit(tmsID tms20.TMID, z int, x, y uint, tiles []tile.Tile) []tile.Tile {
-	levelDiff := z - tmsID
+func tilesWithinLimit(tmsID tms20.TMID, clip Clip, tiles []tile.Tile) []tile.Tile {
+	levelDiff := clip.Z - tmsID
 	if levelDiff < 0 {
-		err := fmt.Errorf("error generating tiles for tms %d, larger than clip level %d", tmsID, z)
+		err := fmt.Errorf("error generating tiles for tms %d, larger than clip level %d", tmsID, clip.Z)
 		panic(err)
 	}
 	filteredTiles := make([]tile.Tile, 0, len(tiles))
 	for _, tile := range tiles {
 		parentX := tile.X >> levelDiff
 		parentY := tile.Y >> levelDiff
-		if x == parentX && y == parentY {
+		if clip.X == parentX && clip.Y == parentY {
 			filteredTiles = append(filteredTiles, tile)
 		}
 	}
