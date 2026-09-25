@@ -6,11 +6,13 @@ package tile
 // - Added `const debug = false` which is usually present in another file.
 // - Addressed linter issues
 // - Removed `context` parameter.
+// - Changed float->int conversion from truncation to floor/ceiling
 
 import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 
 	"github.com/go-spatial/geom"
 	vectorTile "github.com/go-spatial/geom/encoding/mvt/vector_tile"
@@ -99,7 +101,9 @@ func NewCursor() *cursor { //nolint:revive
 // GetDeltaPointAndUpdate returns the delta of for the given point from the current
 // cursor position
 func (c *cursor) GetDeltaPointAndUpdate(p geom.Point) (dx, dy int64) {
-	delta := c.moveCursorPoints([2]int64{int64(p.X()), int64(p.Y())})
+	intX := int64(math.Floor(p.X()))
+	intY := int64(math.Ceil(p.Y()))
+	delta := c.moveCursorPoints([2]int64{intX, intY})
 	return delta[0][0], delta[0][1]
 }
 
@@ -159,7 +163,8 @@ func (c *cursor) encodeLinearRing(order winding.Order, wo winding.Winding, ring 
 	iring := make([][2]int64, len(ring))
 	for i := range iring {
 		// the process of truncating the float can cause the winding order to flip!
-		iring[i][0], iring[i][1] = int64(ring[i][0]), int64(ring[i][1])
+		iring[i][0] = int64(math.Floor(ring[i][0]))
+		iring[i][1] = int64(math.Ceil(ring[i][1]))
 	}
 	ringWinding := order.OfInt64Points(iring...)
 
