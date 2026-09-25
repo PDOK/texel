@@ -148,8 +148,10 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				deepestLevel: 0,
-				deepestSize:  mathhelp.Pow2(0),
+				deepestLevel:   0,
+				deepestSize:    mathhelp.Pow2(0),
+				tilePixels:     256,
+				internalPixels: 16,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(0)),
 				quadrants: map[Level]map[morton.Z]Quadrant{0: {0: Quadrant{
@@ -167,8 +169,10 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 1.0, 1.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{0.5, 0.5}),
 				},
-				deepestLevel: 1,
-				deepestSize:  mathhelp.Pow2(1),
+				deepestLevel:   1,
+				deepestSize:    mathhelp.Pow2(1),
+				tilePixels:     256,
+				internalPixels: 16,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(1.0) / intgeom.M(mathhelp.Pow2(1)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -193,8 +197,10 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 4.0, 4.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{2.0, 2.0}),
 				},
-				deepestLevel: 3,
-				deepestSize:  mathhelp.Pow2(3),
+				deepestLevel:   3,
+				deepestSize:    mathhelp.Pow2(3),
+				tilePixels:     256,
+				internalPixels: 16,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(4.0) / intgeom.M(mathhelp.Pow2(3)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -230,8 +236,10 @@ func TestPointIndex_InsertPoint(t *testing.T) {
 					intExtent:   intgeom.FromGeomExtent(geom.Extent{0.0, 0.0, 16.0, 16.0}),
 					intCentroid: intgeom.FromGeomPoint(geom.Point{8.0, 8.0}),
 				},
-				deepestLevel: 5,
-				deepestSize:  mathhelp.Pow2(5),
+				deepestLevel:   5,
+				deepestSize:    mathhelp.Pow2(5),
+				tilePixels:     256,
+				internalPixels: 16,
 				//nolint:gosec // G115
 				deepestRes: intgeom.FromGeomOrd(16.0) / intgeom.M(mathhelp.Pow2(5)),
 				quadrants: map[Level]map[morton.Z]Quadrant{
@@ -473,7 +481,7 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ix := tt.ix
 			poly := tt.poly
-			err := ix.InsertPolygon(poly)
+			err := ix.InsertGeometry(poly)
 			require.NoError(t, err)
 			levels := tt.levels
 			if levels == nil {
@@ -509,6 +517,17 @@ func TestPointIndex_lineIntersects(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "diagonally opposed line between non-inclusive points",
+			// This test is fragile and depends on floating-point rounding
+			extent: intgeom.Extent{
+				0o0000000, 0o0000000, 10000000, 10000000,
+			},
+			line: intgeom.Line{
+				{0o0000000, 10000000}, {10000000, 0o0000000},
+			},
+			want: false, // TODO This is an undesired outcome
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -532,12 +551,34 @@ func newSimplePointIndex(deepestLevel Level, cellSize float64) *PointIndex {
 		deepestLevel: deepestLevel,
 		deepestSize:  deepestSize,
 		//nolint:gosec // G115
-		deepestRes:  intExtent.XSpan() / int64(deepestSize),
-		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
-		hitOnce:     make(map[morton.Z]map[intgeom.Point][]int, 0),
-		hitMultiple: make(map[morton.Z]map[intgeom.Point][]int, 0),
+		deepestRes:     intExtent.XSpan() / int64(deepestSize),
+		quadrants:      make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
+		hitOnce:        make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple:    make(map[morton.Z]map[intgeom.Point][]int, 0),
+		tilePixels:     256,
+		internalPixels: 16,
 	}
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, ix.intExtent)
+	return &ix
+}
+
+func newPointIndex(deepestTMID tms20.TMID, tilePixels, internalPixels uint, cellSize float64) *PointIndex {
+	ix := PointIndex{
+		hitOnce:        make(map[morton.Z]map[intgeom.Point][]int, 0),
+		hitMultiple:    make(map[morton.Z]map[intgeom.Point][]int, 0),
+		tilePixels:     tilePixels,
+		internalPixels: internalPixels,
+	}
+	deepestLevel := ix.InternalPixelLevelFromTmsID(deepestTMID)
+	ix.deepestLevel = deepestLevel
+	ix.deepestSize = mathhelp.Pow2(deepestLevel)
+	span := cellSize * float64(ix.deepestSize)
+	intExtent := intgeom.Extent{0.0, 0.0, intgeom.FromGeomOrd(span), intgeom.FromGeomOrd(span)}
+	ix.Quadrant = Quadrant{
+		intExtent: intExtent,
+	}
+	ix.deepestRes = intExtent.XSpan() / int64(ix.deepestSize) //nolint:gosec // G115
+	ix.quadrants = make(map[Level]map[morton.Z]Quadrant, deepestLevel+1)
 	return &ix
 }
 
