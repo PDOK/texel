@@ -418,6 +418,9 @@ func runMVT(configPath, outDir string, zoomlevel uint) error {
 	if err != nil {
 		return err
 	}
+	if len(rawConfig.Tileset) != 1 {
+		return fmt.Errorf("texel mvt config needs exactly one tileset configured, found: %d", len(rawConfig.Tileset))
+	}
 
 	layers, closeSources := buildLayers(zoomlevel, rawConfig)
 	defer closeSources()
