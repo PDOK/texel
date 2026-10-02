@@ -21,6 +21,7 @@ import (
 
 	"github.com/iancoleman/strcase"
 	"github.com/pdok/texel/processing/gpkg"
+	"github.com/pdok/texel/processing/writetile"
 	"github.com/pdok/texel/snap"
 	"github.com/urfave/cli/v2"
 )
@@ -41,7 +42,6 @@ const (
 	CLIP                string = `clip`
 
 	MVTCONFIG  string = `config`
-	MVTOUTDIR  string = `mvtOutDir`
 	TILEMATRIX string = `tilematrix`
 )
 
@@ -175,13 +175,6 @@ func main() {
 					Required: true,
 					EnvVars:  []string{strcase.ToScreamingSnake(MVTCONFIG)},
 				},
-				&cli.StringFlag{
-					Name:     MVTOUTDIR,
-					Aliases:  []string{"o"},
-					Usage:    "Directory to write the generated <Z>/<tileX>/<tileY>.mvt files to",
-					Required: true,
-					EnvVars:  []string{strcase.ToScreamingSnake(MVTOUTDIR)},
-				},
 				&cli.UintFlag{
 					Name:     TILEMATRIX,
 					Aliases:  []string{"z"},
@@ -191,7 +184,7 @@ func main() {
 				},
 			},
 			Action: func(c *cli.Context) error {
-				return runMVT(c.String(MVTCONFIG), c.String(MVTOUTDIR), c.Uint(TILEMATRIX))
+				return runMVT(c.String(MVTCONFIG), c.Uint(TILEMATRIX))
 			},
 		},
 	}
@@ -409,7 +402,7 @@ func initMvtSource(rawLayer config.LayerConfig, dataSourceDicationary map[string
 
 // runMVT wires the config, layers and target together to build
 // and write the MVT tiles for the requested zoomlevel.
-func runMVT(configPath, outDir string, zoomlevel uint) error {
+func runMVT(configPath string, zoomlevel uint) error {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return fmt.Errorf("config file does not exist: %s", configPath)
 	}
@@ -425,7 +418,10 @@ func runMVT(configPath, outDir string, zoomlevel uint) error {
 	layers, closeSources := buildLayers(zoomlevel, rawConfig)
 	defer closeSources()
 
-	mvtTarget := gpkg.MVTFileTarget{OutDir: outDir}
+	mvtTarget, err := writetile.NewTileWriter(rawConfig)
+	if err != nil {
+		return err
+	}
 
-	return processing.BuildAndWriteMVTTiles(layers, zoomlevel, &mvtTarget)
+	return processing.BuildAndWriteMVTTiles(layers, zoomlevel, mvtTarget)
 }

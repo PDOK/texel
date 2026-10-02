@@ -38,20 +38,18 @@ type FileConfig struct {
 	Base string `toml:"base"`
 }
 
-type S3Config struct {
-	Endpoint  string `toml:"endpoint"`
-	Bucket    string `toml:"bucket"`
-	AccessKey string `toml:"access_key"`
-	SecretKey string `toml:"secret_key"`
-	Region    string `toml:"region"`
-	KeyPrefix string `toml:"key_prefix"`
-}
+// In case S3 will be needed in the future, these are the old `t_rex` configs.
+// type S3Config struct {
+// 	Endpoint  string `toml:"endpoint"`
+// 	Bucket    string `toml:"bucket"`
+// 	AccessKey string `toml:"access_key"`
+// 	SecretKey string `toml:"secret_key"`
+// 	Region    string `toml:"region"`
+// 	KeyPrefix string `toml:"key_prefix"`
+// }
 
-// CacheConfig mirrors the `[cache]` table, including its nested
-// `[cache.file]`, `[cache.s3]` and `[cache.azure]` sub-tables.
 type CacheConfig struct {
 	File  *FileConfig  `toml:"file"`
-	S3    *S3Config    `toml:"s3"`
 	Azure *AzureConfig `toml:"azure"`
 }
 
