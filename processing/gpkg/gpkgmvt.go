@@ -5,9 +5,6 @@ package gpkg
 import (
 	"encoding/binary"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -235,24 +232,4 @@ func (source MVTSourceGeopackage) getColNames() []string {
 		colNames[i] = col.name
 	}
 	return colNames
-}
-
-// MVTFileTarget writes built MVT tiles to <OutDir>/<tileX>/<tileY>.mvt.
-type MVTFileTarget struct {
-	OutDir string
-}
-
-// WriteTile writes one tile's serialized bytes to <OutDir>/<tileX>/<tileY>.mvt,
-// creating directories as needed.
-func (t *MVTFileTarget) WriteTile(x, y, z uint, data []byte) error {
-	dir := filepath.Join(t.OutDir, strconv.FormatUint(uint64(z), 10), strconv.FormatUint(uint64(x), 10))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating tile directory %s: %w", dir, err)
-	}
-
-	path := filepath.Join(dir, strconv.FormatUint(uint64(y), 10)+".pbf")
-	if err := os.WriteFile(path, data, 0o644); err != nil { //nolint:gosec // G306 tile output does not need restrictive permissions
-		return fmt.Errorf("writing tile file %s: %w", path, err)
-	}
-	return nil
 }
