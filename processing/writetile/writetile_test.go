@@ -9,23 +9,104 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/pdok/texel/config"
+	"github.com/pdok/texel/processing"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeTileTarget struct {
 	name  string
-	calls *[]string
+	calls *[]tileWriteCall
 	err   error
 }
 
-func (f fakeTileTarget) WriteTile(_, _, _ uint, _ []byte) error {
-	*f.calls = append(*f.calls, f.name)
+type tileWriteCall struct {
+	name string
+	x    uint
+	y    uint
+	z    uint
+	data []byte
+}
+
+func (f fakeTileTarget) WriteTile(x, y, z uint, data []byte) error {
+	*f.calls = append(*f.calls, tileWriteCall{
+		name: f.name,
+		x:    x,
+		y:    y,
+		z:    z,
+		data: append([]byte(nil), data...),
+	})
 	return f.err
 }
 
-func TestNewTileWriterRequiresOutputTarget(t *testing.T) {
-	if _, err := NewTileWriter(config.TomlConfig{}); err == nil {
-		t.Fatal("NewTileWriter() error = nil, want an error when no target is configured")
+func TestNewTileWriter(t *testing.T) {
+	tests := []struct {
+		name               string
+		targetConstructors []targetConstructor
+		conf               config.TomlConfig
+		wantErr            bool
+		numConf            int
+	}{
+		{
+			name:               "no constructors",
+			targetConstructors: []targetConstructor{},
+			conf:               config.TomlConfig{},
+			wantErr:            true,
+		},
+		{
+			name: "several constructors, some nil",
+			targetConstructors: []targetConstructor{
+				func(config.TomlConfig) (processing.MVTTarget, error) {
+					return fakeTileTarget{name: "first", calls: nil}, nil
+				},
+				func(config.TomlConfig) (processing.MVTTarget, error) {
+					return nil, nil
+				},
+				func(config.TomlConfig) (processing.MVTTarget, error) {
+					return fakeTileTarget{name: "second", calls: nil}, nil
+				},
+			},
+			conf:    config.TomlConfig{},
+			wantErr: false,
+			numConf: 2,
+		},
+		{
+			name: "only nil constructors",
+			targetConstructors: []targetConstructor{
+				func(config.TomlConfig) (processing.MVTTarget, error) {
+					return nil, nil
+				},
+				func(config.TomlConfig) (processing.MVTTarget, error) {
+					return nil, nil
+				},
+			},
+			conf:    config.TomlConfig{},
+			wantErr: true,
+		},
+		{
+			name: "error during construction",
+			targetConstructors: []targetConstructor{
+				func(config.TomlConfig) (processing.MVTTarget, error) {
+					return nil, nil
+				},
+				func(config.TomlConfig) (processing.MVTTarget, error) {
+					return nil, errors.New("error")
+				},
+			},
+			conf:    config.TomlConfig{},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writer, err := newTileWriter(tt.conf, tt.targetConstructors)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, writer.targets, tt.numConf)
+		})
 	}
 }
 
