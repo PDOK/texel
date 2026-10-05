@@ -146,7 +146,7 @@ func newMVTBlobClient(connectionString, container string) (blobUploader, error) 
 func buildPrefix(conf config.TomlConfig) string {
 	return path.Join(
 		strings.Trim(conf.Cache.Azure.PrefixKey, "/"),
-		conf.Tileset[0].Name,
+		conf.Tileset.Name,
 	)
 }
 
@@ -193,7 +193,7 @@ func NewMVTFileTarget(conf config.TomlConfig) (*MVTFileTarget, error) {
 	}
 
 	base := conf.Cache.File.Base
-	outDir := filepath.Join(base, conf.Tileset[0].Name)
+	outDir := filepath.Join(base, conf.Tileset.Name)
 
 	err := os.MkdirAll(outDir, 0o775)
 	if err != nil {

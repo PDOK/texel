@@ -260,7 +260,6 @@ func runSnap(c *cli.Context) error {
 
 // Loop over tables, then loop over targets, and process
 func processSnapTables(tables []gpkg.Table, source gpkg.SourceGeopackage, gpkgTargets map[int]*gpkg.TargetGeopackage, snapConfig processing.Config, tileMatrixSet tms20.TileMatrixSet) {
-
 	// need a copied map because of type difference processing.Target vs gpkg.TargetGeopackage
 	targets := make(map[int]processing.Target, len(gpkgTargets))
 	for tmID, target := range gpkgTargets {
@@ -346,31 +345,27 @@ func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func(
 	dataSourceDictionary := processing.DatasourceToDictionary(rawConfig.DataSource)
 	layers := make([]processing.Layer, 0)
 	sources := make(map[string]initedSource)
-	for _, tileset := range rawConfig.Tileset {
-		if z < tileset.MinZoom || z > tileset.MaxZoom {
+	tileset := rawConfig.Tileset
+	for _, rawLayer := range tileset.Layer {
+		if z < rawLayer.MinZoom || z > rawLayer.MaxZoom {
 			continue
 		}
-		for _, rawLayer := range tileset.Layer {
-			if z < rawLayer.MinZoom || z > rawLayer.MaxZoom {
-				continue
-			}
-			// Only init gpkg sources once
-			if _, present := sources[rawLayer.DataSource]; !present {
-				source, tableMap := initMvtSource(rawLayer, dataSourceDictionary)
-				sources[rawLayer.DataSource] = initedSource{source, tableMap}
-			}
-			initedSource := sources[rawLayer.DataSource]
-			table, present := initedSource.tables[rawLayer.TableName]
-			if !present {
-				err := fmt.Errorf("layer %s requires table %s in datasource %s; not found", rawLayer.Name, rawLayer.TableName, rawLayer.DataSource)
-				panic(err)
-			}
-			// Pair gpkg handle with layer table
-			source := initedSource.source
-			source.Table = table
-			layer := processing.BuildLayer(rawLayer.Name, source)
-			layers = append(layers, layer)
+		// Only init gpkg sources once
+		if _, present := sources[rawLayer.DataSource]; !present {
+			source, tableMap := initMvtSource(rawLayer, dataSourceDictionary)
+			sources[rawLayer.DataSource] = initedSource{source, tableMap}
 		}
+		initedSource := sources[rawLayer.DataSource]
+		table, present := initedSource.tables[rawLayer.TableName]
+		if !present {
+			err := fmt.Errorf("layer %s requires table %s in datasource %s; not found", rawLayer.Name, rawLayer.TableName, rawLayer.DataSource)
+			panic(err)
+		}
+		// Pair gpkg handle with layer table
+		source := initedSource.source
+		source.Table = table
+		layer := processing.BuildLayer(rawLayer.Name, source)
+		layers = append(layers, layer)
 	}
 	closeSources := func() {
 		for _, s := range sources {
@@ -411,8 +406,8 @@ func runMVT(configPath string, zoomlevel uint) error {
 	if err != nil {
 		return err
 	}
-	if len(rawConfig.Tileset) != 1 {
-		return fmt.Errorf("texel mvt config needs exactly one tileset configured, found: %d", len(rawConfig.Tileset))
+	if rawConfig.Tileset == nil {
+		return errors.New("no tileset found in TOML config")
 	}
 
 	layers, closeSources := buildLayers(zoomlevel, rawConfig)

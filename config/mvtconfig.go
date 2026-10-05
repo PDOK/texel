@@ -57,7 +57,7 @@ type CacheConfig struct {
 // e.g. example/NetherlandsRDNewQuad.toml.
 type TomlConfig struct {
 	DataSource []DataSource `toml:"datasource"`
-	Tileset    []Tileset    `toml:"tileset"`
+	Tileset    *Tileset     `toml:"tileset"`
 	Cache      CacheConfig  `toml:"cache"`
 }
 

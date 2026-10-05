@@ -124,7 +124,7 @@ func TestBuildPrefix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			conf := config.TomlConfig{
-				Tileset: []config.Tileset{{Name: "NetherlandsRDNewQuad"}},
+				Tileset: &config.Tileset{Name: "NetherlandsRDNewQuad"},
 				Cache: config.CacheConfig{
 					Azure: &config.AzureConfig{PrefixKey: tt.prefixKey},
 				},
@@ -206,7 +206,7 @@ func TestMVTFileTargetWritesTileUnderConfiguredBase(t *testing.T) {
 	data := []byte("tile bytes")
 	base := t.TempDir()
 	conf := config.TomlConfig{
-		Tileset: []config.Tileset{{Name: tilesetName}},
+		Tileset: &config.Tileset{Name: tilesetName},
 		Cache: config.CacheConfig{
 			File: &config.FileConfig{Base: base},
 		},
