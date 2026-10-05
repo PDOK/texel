@@ -20,22 +20,28 @@ type TileWriter struct {
 	targets []processing.MVTTarget
 }
 
-func NewTileWriter(conf config.TomlConfig) (*TileWriter, error) {
-	var targets []processing.MVTTarget
-	if conf.Cache.Azure != nil {
-		at, err := NewMVTAzureTarget(conf)
-		if err != nil {
-			return nil, err
-		}
-		targets = append(targets, at)
-	}
+// Using constructor injection
+// This should return `nil` if required config is not present
+type targetConstructor func(config.TomlConfig) (processing.MVTTarget, error)
 
-	if conf.Cache.File != nil {
-		ft, err := NewMVTFileTarget(conf)
+func NewTileWriter(conf config.TomlConfig) (*TileWriter, error) {
+	return newTileWriter(conf, []targetConstructor{
+		// Wrapper to convert concrete return type to interface
+		adaptConstructor(NewMVTAzureTarget),
+		adaptConstructor(NewMVTFileTarget),
+	})
+}
+
+func newTileWriter(conf config.TomlConfig, factories []targetConstructor) (*TileWriter, error) {
+	var targets []processing.MVTTarget
+	for _, factory := range factories {
+		ft, err := factory(conf)
 		if err != nil {
 			return nil, err
 		}
-		targets = append(targets, ft)
+		if ft != nil {
+			targets = append(targets, ft)
+		}
 	}
 
 	if len(targets) == 0 {
@@ -57,6 +63,23 @@ func (t *TileWriter) WriteTile(x, y, z uint, data []byte) error {
 	}
 
 	return nil
+}
+
+// Adapt target constructor to return interface
+// Here P is an interface to a pointer of type T that implements MVTTarget
+func adaptConstructor[T any, P interface {
+	*T
+	processing.MVTTarget
+},
+](constructor func(config.TomlConfig) (P, error)) targetConstructor {
+	return func(conf config.TomlConfig) (processing.MVTTarget, error) {
+		target, err := constructor(conf)
+		// Converting to interface requires a nil check
+		if err != nil || target == nil {
+			return nil, err
+		}
+		return target, nil
+	}
 }
 
 ////////////////////
@@ -87,6 +110,10 @@ type MVTAzureTarget struct {
 }
 
 func NewMVTAzureTarget(conf config.TomlConfig) (*MVTAzureTarget, error) {
+	if conf.Cache.Azure == nil {
+		return nil, nil
+	}
+
 	connString := conf.Cache.Azure.ConnectionString
 	container := conf.Cache.Azure.Container
 
@@ -161,6 +188,10 @@ type MVTFileTarget struct {
 }
 
 func NewMVTFileTarget(conf config.TomlConfig) (*MVTFileTarget, error) {
+	if conf.Cache.File == nil {
+		return nil, nil
+	}
+
 	base := conf.Cache.File.Base
 	outDir := filepath.Join(base, conf.Tileset[0].Name)
 
@@ -174,7 +205,7 @@ func NewMVTFileTarget(conf config.TomlConfig) (*MVTFileTarget, error) {
 	}, nil
 }
 
-// WriteTile writes one tile's serialized bytes to <OutDir>/<tileX>/<tileY>.mvt,
+// WriteTile writes one tile's serialized bytes to <OutDir>/<tileX>/<tileY>.pbf
 // creating directories as needed.
 func (t *MVTFileTarget) WriteTile(x, y, z uint, data []byte) error {
 	dir := filepath.Join(t.OutDir, strconv.FormatUint(uint64(z), 10), strconv.FormatUint(uint64(x), 10))

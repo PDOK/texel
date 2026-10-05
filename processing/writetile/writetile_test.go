@@ -138,7 +138,8 @@ func TestMVTFileTargetWritesTileUnderConfiguredBase(t *testing.T) {
 	want := filepath.Join(base, tilesetName)
 	assert.Equal(t, want, target.OutDir)
 
-	if err := target.WriteTile(3, 4, 12, data); err != nil {
+	err = target.WriteTile(3, 4, 12, data)
+	if err != nil {
 		t.Fatal(err)
 	}
 
