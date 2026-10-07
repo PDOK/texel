@@ -22,10 +22,8 @@ type LayerConfig struct {
 // Tileset mirrors a `[[Tileset]]` array-of-tables entry, including its
 // nested `[[Tileset.layer]]` entries.
 type Tileset struct {
-	Name    string        `toml:"name"`
-	MinZoom uint          `toml:"minzoom"`
-	MaxZoom uint          `toml:"maxzoom"`
-	Layer   []LayerConfig `toml:"layer"`
+	Name  string        `toml:"name"`
+	Layer []LayerConfig `toml:"layer"`
 }
 
 type AzureConfig struct {
