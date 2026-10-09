@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 
 	"github.com/BurntSushi/toml"
 )
@@ -22,10 +24,8 @@ type LayerConfig struct {
 // Tileset mirrors a `[[Tileset]]` array-of-tables entry, including its
 // nested `[[Tileset.layer]]` entries.
 type Tileset struct {
-	Name    string        `toml:"name"`
-	MinZoom uint          `toml:"minzoom"`
-	MaxZoom uint          `toml:"maxzoom"`
-	Layer   []LayerConfig `toml:"layer"`
+	Name  string        `toml:"name"`
+	Layer []LayerConfig `toml:"layer"`
 }
 
 type AzureConfig struct {
@@ -61,11 +61,40 @@ type TomlConfig struct {
 	Cache      CacheConfig  `toml:"cache"`
 }
 
-// ParseMVTConfig reads an mvt config toml file and returns the resulting
-// TomlConfig.
+// Replace {{env.NAME}} by value of environment variable NAME. Inserted
+// verbatim. Unset variables result in an error.
+func substituteEnv(s string) (string, error) {
+	envPlaceholder := regexp.MustCompile(
+		`\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}`)
+
+	var missing []string
+	out := envPlaceholder.ReplaceAllStringFunc(s, func(m string) string {
+		name := envPlaceholder.FindStringSubmatch(m)[1]
+		val, ok := os.LookupEnv(name)
+		if !ok {
+			missing = append(missing, name)
+		}
+		return val
+	})
+	if len(missing) > 0 {
+		return "", fmt.Errorf("unset environment variables: %v", missing)
+	}
+	return out, nil
+}
+
+// ParseMVTConfig reads an mvt config toml file, substitutes {{env.NAME}}
+// placeholders and returns the resulting TomlConfig.
 func ParseMVTConfig(path string) (TomlConfig, error) {
 	var cfg TomlConfig
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return TomlConfig{}, fmt.Errorf("reading mvt config %q: %w", path, err)
+	}
+	text, err := substituteEnv(string(raw))
+	if err != nil {
+		return TomlConfig{}, fmt.Errorf("mvt config %q: %w", path, err)
+	}
+	if _, err := toml.Decode(text, &cfg); err != nil {
 		return TomlConfig{}, fmt.Errorf("decoding mvt config %q: %w", path, err)
 	}
 	return cfg, nil
