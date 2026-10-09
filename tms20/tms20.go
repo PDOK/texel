@@ -659,7 +659,7 @@ func (tms *TileMatrixSet) Size(zoom uint) (*slippy.Tile, bool) {
 	if !ok {
 		return nil, false
 	}
-	return slippy.NewTile(zoom, tm.MatrixWidth, tm.MatrixHeight), true
+	return &slippy.Tile{Z: slippy.Zoom(zoom), X: tm.MatrixWidth, Y: tm.MatrixHeight}, true
 }
 
 func (tms *TileMatrixSet) FromNative(zoom uint, pt geom.Point) (*slippy.Tile, bool) {
@@ -710,7 +710,7 @@ func (tms *TileMatrixSet) FromNative(zoom uint, pt geom.Point) (*slippy.Tile, bo
 		return nil, false
 	}
 
-	return slippy.NewTile(zoom, ux, uy), true
+	return &slippy.Tile{Z: slippy.Zoom(zoom), X: ux, Y: uy}, true
 }
 
 func (tms *TileMatrixSet) ToNative(tile *slippy.Tile) (geom.Point, bool) {
