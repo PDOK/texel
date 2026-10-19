@@ -358,14 +358,14 @@ func buildLayers(z uint, rawConfig config.TomlConfig) ([]processing.Layer, func(
 		initedSource := sources[rawLayer.DataSource]
 		table, present := initedSource.tables[rawLayer.TableName]
 		if !present {
-			err := fmt.Errorf("layer %s requires table %s in datasource %s; not found", rawLayer.Name, rawLayer.TableName, rawLayer.DataSource)
-			panic(err)
+			log.Printf("table %s not found in datasource %s; skipping layer %s\n", rawLayer.TableName, rawLayer.DataSource, rawLayer.Name)
+		} else {
+			// Pair gpkg handle with layer table
+			source := initedSource.source
+			source.Table = table
+			layer := processing.BuildLayer(rawLayer.Name, source)
+			layers = append(layers, layer)
 		}
-		// Pair gpkg handle with layer table
-		source := initedSource.source
-		source.Table = table
-		layer := processing.BuildLayer(rawLayer.Name, source)
-		layers = append(layers, layer)
 	}
 	closeSources := func() {
 		for _, s := range sources {
