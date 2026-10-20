@@ -1,90 +1,80 @@
-// Package processing takes care of the logistics around reading and writing to a Target.
-// Not the processing operation(s) itself.
 package processing
 
+// Orchestrating logic around processing the snap command.
+
 import (
+	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 
+	"github.com/pdok/texel/geomhelp"
+	"github.com/pdok/texel/pointindex"
+	"github.com/pdok/texel/tile"
 	"github.com/pdok/texel/tms20"
 
 	"github.com/go-spatial/geom"
 )
 
-// readFeatures reads the features from the given Geopackage table
-// and decodes the WKB geometry to a geom.Polygon
-func readFeaturesFromSource(source Source, features chan<- Feature) {
-	source.ReadFeatures(features)
+type Config struct {
+	KeepPointsAndLines  bool
+	IgnoreOutsideGrid   bool
+	ReverseWindingOrder bool
+	EncodeTiles         bool
+	// Buffer is the number of internal pixels that tiles get
+	// inflated for detecting which geometries lie on them
+	Buffer uint
+	// Decide whether to use lineTrace or BBox for tile detection
+	UseLineTrace bool
+	Clip         Clip
 }
 
-// processFeatures processes the geometries in the features with the given function
-func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTileMatrix, tmIDs []tms20.TMID, f processPolygonFunc) {
-	var preCount, postCount, nonPolygonCount, multiPolygonCount uint64
-	for {
-		feature, hasMore := <-featuresIn
-		if !hasMore {
-			break
-		}
-		preCount++
-		switch feature.Geometry().(type) {
-		case geom.Polygon:
-			polygon := feature.Geometry().(geom.Polygon)
-			newPolygonsPerTileMatrix := f(polygon, tmIDs)
-			if len(newPolygonsPerTileMatrix) > 0 {
-				postCount++
-			}
-			for tmID, newPolygons := range newPolygonsPerTileMatrix {
-				var newGeometry geom.Geometry
-				if len(newPolygons) == 0 { // should never happen
-					panic(fmt.Errorf("no new polygon for level %v", tmID))
-				}
-				if len(newPolygons) == 1 {
-					newGeometry = newPolygons[0]
-				} else {
-					// TODO polygons are combined into multipolygons, for now here
-					// later, processPolygonFunc could return abstract geometry(s) if also lines/points are returned
-					newGeometry = polygonsToMulti(newPolygons)
-				}
-				featuresOut <- wrapFeatureForTileMatrix(feature, tmID, newGeometry)
-			}
-		case geom.MultiPolygon:
-			multiPolygon := feature.Geometry().(geom.MultiPolygon)
-			newMultiPolygonPerTileMatrix := processMultiPolygon(multiPolygon, tmIDs, f)
-			if len(newMultiPolygonPerTileMatrix) > 0 {
-				postCount++
-			}
-			for tmID, newMultiPolygon := range newMultiPolygonPerTileMatrix {
-				featuresOut <- wrapFeatureForTileMatrix(feature, tmID, newMultiPolygon)
-			}
-		default:
-			postCount++
-			nonPolygonCount++
-			for _, tmID := range tmIDs {
-				featuresOut <- wrapFeatureForTileMatrix(feature, tmID, nil)
-			}
-		}
-	}
-	close(featuresOut)
+type Clip struct {
+	Z    int
+	X, Y uint
+}
 
-	log.Printf("    total features: %d", preCount)
-	log.Printf("      non-polygons: %d", nonPolygonCount)
-	if preCount != nonPolygonCount {
-		log.Printf("     multipolygons: %d", multiPolygonCount)
+//////////////////////////
+// Channel manipulation //
+//////////////////////////
+
+// Entry point for processing. Initialize channels and create processor.
+// Then kickstart processing.
+// Closing channels is the responsibility of functions supplying them.
+func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f SnapFunc, newIndex func() PIndex, config Config) {
+	featuresBefore := make(chan Feature)
+	featuresAfter := make(chan FeatureForTileMatrix)
+	tileMatrixIDs := make([]tms20.TMID, 0, len(targets))
+	for tmID := range targets {
+		tileMatrixIDs = append(tileMatrixIDs, tmID)
 	}
-	log.Printf("              kept: %d", postCount)
+
+	//  Initialize geometry processor
+	processor := NewGeometryProcessor(tileMatrixIDs, config, f, newIndex)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		writeFeaturesToTargets(featuresAfter, targets)
+	}()
+	go processFeatures(featuresBefore, featuresAfter, processor)
+	go source.ReadFeatures(featuresBefore)
+
+	wg.Wait()
 }
 
 // writeFeatures collects the processed features by the processFeatures and
 // creates a WKB binary from the geometry
 // The collected feature array, based on the pagesize, is then passed to the writeFeaturesArray
 func writeFeaturesToTargets(featuresForTileMatrices <-chan FeatureForTileMatrix, targets map[int]Target) {
-	targetChannels := make(map[int]chan<- Feature)
+	targetChannels := make(map[int]chan<- FeatureForTileMatrix)
 	wg := sync.WaitGroup{}
 
 	// create a channel and start a goroutine per tile matrix target
 	for tmID, target := range targets {
-		targetChannel := make(chan Feature)
+		targetChannel := make(chan FeatureForTileMatrix)
 		targetChannels[tmID] = targetChannel
 		wg.Add(1)
 		go func(target Target) {
@@ -115,47 +105,276 @@ func writeFeaturesToTargets(featuresForTileMatrices <-chan FeatureForTileMatrix,
 	wg.Wait()
 }
 
-// processMultiPolygon will split itself into the separated polygons that will be processed before building a new MULTIPOLYGON
-func processMultiPolygon(multiPolygon geom.MultiPolygon, tileMatrixIDs []tms20.TMID, f processPolygonFunc) map[tms20.TMID]geom.MultiPolygon {
-	newMultiPolygonPerTileMatrix := make(map[tms20.TMID]geom.MultiPolygon, len(tileMatrixIDs))
-	for _, polygon := range multiPolygon {
-		newPolygonsPerTileMatrix := f(polygon, tileMatrixIDs)
-		for tmID, newPolygons := range newPolygonsPerTileMatrix {
-			for _, newPolygon := range newPolygons {
-				// if the processing results in multiple polygons, they are just added to the single resulting multipoly
-				newMultiPolygonPerTileMatrix[tmID] = append(newMultiPolygonPerTileMatrix[tmID], newPolygon)
-			}
+// Read inputs from channel and call the processor on them. Results wired to output channel.
+// Also keep track of statistics.
+func processFeatures(featuresIn <-chan Feature, featuresOut chan<- FeatureForTileMatrix, processor *GeometryProcessor) {
+	stats := initStats()
+	for {
+		feature, hasMore := <-featuresIn
+		if !hasMore {
+			break
 		}
+		stats.preCount++
+		geometry := feature.Geometry()
+		stats.countGeometry(geometry)
+		newGeometriesPerTileMatrix := processor.Process(geometry)
+
+		if len(newGeometriesPerTileMatrix) > 0 {
+			stats.postCount++
+		}
+		for tmID, snapResult := range newGeometriesPerTileMatrix {
+			encGeoms := processor.encode(snapResult)
+			featuresOut <- wrapFeatureForTileMatrix(feature, tmID, snapResult.Geometry, encGeoms)
+		}
+
 	}
-	return newMultiPolygonPerTileMatrix
+	close(featuresOut)
+
+	log.Printf("    total features: %d", stats.preCount)
+	log.Printf("      non-polygons: %d", stats.nonPolygonCount)
+	if stats.preCount != stats.nonPolygonCount {
+		log.Printf("     multipolygons: %d", stats.multiPolygonCount)
+	}
+	log.Printf("              kept: %d", stats.postCount)
 }
 
-type processPolygonFunc func(p geom.Polygon, tileMatrixIDs []tms20.TMID) map[tms20.TMID][]geom.Polygon
+// Statistics //
 
-// ProcessFeatures applies the processing function/operation to each Target.
-func ProcessFeatures(source Source, targets map[tms20.TMID]Target, f processPolygonFunc) {
-	featuresBefore := make(chan Feature)
-	featuresAfter := make(chan FeatureForTileMatrix)
-	tileMatrixIDs := make([]tms20.TMID, 0, len(targets))
-	for tmID := range targets {
-		tileMatrixIDs = append(tileMatrixIDs, tmID)
+type countStats struct {
+	preCount          uint64
+	postCount         uint64
+	nonPolygonCount   uint64
+	multiPolygonCount uint64
+}
+
+func initStats() countStats {
+	return countStats{0, 0, 0, 0}
+}
+
+func (stats *countStats) countGeometry(g geom.Geometry) {
+	switch g.(type) {
+	case geom.MultiPolygon:
+		stats.nonPolygonCount++
+	case geom.Polygon:
+	default:
+		stats.nonPolygonCount++
+	}
+}
+
+/////////////////////////////////
+// Geometry Processor Creation //
+/////////////////////////////////
+
+// Abstract data needed for processing.
+type GeometryProcessor struct {
+	tmIDs       []tms20.TMID
+	newIndex    IndexFactory
+	snap        func(ix PIndex, g geom.Geometry) map[tms20.TMID][]geom.Geometry
+	detectTiles tileDetector
+	encode      func(SnapResult) []tile.EncodedGeometry
+}
+
+// Abstract tile detector
+type tileDetector func(ix TDetector, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile
+
+// Abstract pointindex creator. Is implied to insert geometry in index
+type IndexFactory func(geometry geom.Geometry) (PIndex, error)
+
+type SnapFunc func(ix PIndex, g geom.Geometry, tmsIDs []tms20.TMID, config Config) map[tms20.TMID][]geom.Geometry
+
+// Initialize GeometryProcessor
+// Essentially turns configuration into functionality
+func NewGeometryProcessor(tmIDs []tms20.TMID, config Config, f SnapFunc, newIndex func() PIndex) *GeometryProcessor {
+	return &GeometryProcessor{
+		tmIDs:    tmIDs,
+		newIndex: newIndexFactory(newIndex, config.IgnoreOutsideGrid),
+		snap: func(ix PIndex, g geom.Geometry) map[tms20.TMID][]geom.Geometry {
+			return f(ix, g, tmIDs, config)
+		},
+		detectTiles: newTileDetector(config),
+		encode:      newEncoder(config),
+	}
+}
+
+// Create index and inserts geometry.
+// Depending on configuration, will panic or skip when polygon is outside bounds
+func newIndexFactory(newIndex func() PIndex, ignoreOutsideGrid bool) IndexFactory {
+	return func(geometry geom.Geometry) (PIndex, error) {
+		ix := newIndex()
+		err := ix.InsertGeometry(geometry)
+		if err == nil {
+			return ix, nil
+		}
+		outsideGridErr := new(pointindex.OutsideGridError)
+		if errors.As(err, outsideGridErr) && ignoreOutsideGrid {
+			log.Println("[WARNING] skipping geometry because: " + err.Error())
+			return nil, nil
+		}
+		return nil, err
+	}
+}
+
+// Create tile detection function based on configuration
+func newTileDetector(config Config) tileDetector {
+	// No encoding: do not detect tiles
+	if !config.EncodeTiles {
+		return func(_ TDetector, _ tms20.TMID, _ []geom.Geometry) []tile.Tile { return nil }
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		writeFeaturesToTargets(featuresAfter, targets)
-	}()
-	go processFeatures(featuresBefore, featuresAfter, tileMatrixIDs, f)
-	go readFeaturesFromSource(source, featuresBefore)
+	// Line tracing: line trace each geometry, append results
+	if config.UseLineTrace {
+		return func(td TDetector, tmsID tms20.TMID, newGeometries []geom.Geometry) []tile.Tile {
+			var tiles []tile.Tile
+			for _, newGeometry := range newGeometries {
+				tiles = combineTiles(tiles, td.DetectTilesViaLineTrace(newGeometry, tmsID, config.Buffer))
+			}
+			return filterTilesInClip(tmsID, config.Clip, tiles)
+		}
+	}
 
-	wg.Wait()
+	// No line tracing: bbox detection
+	return func(td TDetector, tmsID tms20.TMID, _ []geom.Geometry) []tile.Tile {
+		unfilteredTiles := td.GetQBBoxWithBuffer(tmsID, config.Buffer)
+		return filterTilesInClip(tmsID, config.Clip, unfilteredTiles)
+	}
+}
+
+func filterTilesInClip(tmsID tms20.TMID, clip Clip, tiles []tile.Tile) []tile.Tile {
+	levelDiff := tmsID - clip.Z
+	if levelDiff < 0 {
+		err := fmt.Errorf("error generating tiles for tms %d with deeper clip level %d", tmsID, clip.Z)
+		panic(err)
+	}
+	filteredTiles := make([]tile.Tile, 0, len(tiles))
+	for _, tile := range tiles {
+		parentX := tile.X >> levelDiff
+		parentY := tile.Y >> levelDiff
+		if clip.X == parentX && clip.Y == parentY {
+			filteredTiles = append(filteredTiles, tile)
+		}
+	}
+	return filteredTiles
+}
+
+// Build encoding function based on geometry.
+// This involves checking whether encoding is enabled at all,
+// and creating the default tile for tile-filling polygons
+func newEncoder(config Config) func(SnapResult) []tile.EncodedGeometry {
+	if !config.EncodeTiles {
+		return func(SnapResult) []tile.EncodedGeometry { return nil }
+	}
+
+	// Create tile-filling geometry (reused across polygons)
+	defaultEnc, err := tile.NewDefaultEncoding(config.Buffer)
+	if err != nil {
+		panic(err)
+	}
+
+	return func(s SnapResult) []tile.EncodedGeometry {
+		encGeoms := make([]tile.EncodedGeometry, len(s.Tiles))
+		orig := s.Geometry
+		for i, q := range s.Tiles {
+			encGeoms[i] = tile.MvtEncodeGeometry(q, orig, defaultEnc)
+		}
+		return encGeoms
+	}
+}
+
+/////////////////////////
+// Geometry processing //
+/////////////////////////
+
+// Process a geometry. Distinguish between single- and multigeometries.
+// ProcessSingleGeometry does the actual processing.
+func (p *GeometryProcessor) Process(geometry geom.Geometry) map[tms20.TMID]SnapResult {
+	switch geometry := geometry.(type) {
+	case geom.Polygon, geom.LineString, geom.Point:
+		return p.ProcessSingle(geometry)
+	case geom.MultiPolygon, geom.MultiLineString, geom.MultiPoint:
+		return p.ProcessMulti(geomhelp.MultiGeometryToSlice(geometry))
+	default:
+		newGeometriesPerTileMatrix := make(map[tms20.TMID]SnapResult, len(p.tmIDs))
+		for _, tmID := range p.tmIDs {
+			newGeometriesPerTileMatrix[tmID] = SnapResult{nil, nil}
+		}
+		return newGeometriesPerTileMatrix
+	}
+}
+
+// Process a single geometry (no multigeometries).
+func (p *GeometryProcessor) ProcessSingle(geometry geom.Geometry) map[tms20.TMID]SnapResult {
+	ix, err := p.newIndex(geometry)
+	// Unknown error
+	if err != nil {
+		panic(err)
+	}
+	// Polygon should be skipped
+	if ix == nil {
+		return make(map[tms20.TMID]SnapResult)
+	}
+
+	newGeometriesPerTileMatrix := p.snap(ix, geometry)
+
+	// Create tiles and merge geometries
+	geomsAndTilesPerTileMatrix := make(map[tms20.TMID]SnapResult, len(p.tmIDs))
+	for _, tmsID := range p.tmIDs {
+		newGeometries := newGeometriesPerTileMatrix[tmsID]
+		singleGeometry := geomhelp.GeometrySliceToGeom(newGeometries)
+		if singleGeometry == nil {
+			continue
+		}
+		tiles := p.detectTiles(ix, tmsID, newGeometries)
+		geomsAndTilesPerTileMatrix[tmsID] = SnapResult{singleGeometry, tiles}
+	}
+	return geomsAndTilesPerTileMatrix
+}
+
+// Process a multigeometry by processing each individual geometry and merging the results
+func (p *GeometryProcessor) ProcessMulti(multiGeometry []geom.Geometry) map[tms20.TMID]SnapResult {
+	newMultiGeometryPerTileMatrix := make(map[tms20.TMID]SnapResult, len(p.tmIDs))
+	for _, geometry := range multiGeometry {
+		snapResultPerTileMatrix := p.ProcessSingle(geometry)
+		for tmID, snapResult := range snapResultPerTileMatrix {
+			currentResult := newMultiGeometryPerTileMatrix[tmID]
+			currentResult.Tiles = combineTiles(currentResult.Tiles, snapResult.Tiles)
+			currentResult.Geometry = geomhelp.MergeGeometries(currentResult.Geometry, snapResult.Geometry)
+			newMultiGeometryPerTileMatrix[tmID] = currentResult
+		}
+	}
+	return newMultiGeometryPerTileMatrix
+}
+
+// Combine two slices of tiles. Ensure at most one tile per coordinate in
+// result. If contained in both, IsContained is set to false if it is
+// false in either. IsContained is an optimisation, ot oet true conservatively.
+func combineTiles(a, b []tile.Tile) []tile.Tile {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	combined := make(map[[2]uint]tile.Tile, len(a)+len(b))
+	for _, tiles := range [][]tile.Tile{a, b} {
+		for _, t := range tiles {
+			key := [2]uint{t.X, t.Y}
+			if existing, ok := combined[key]; ok {
+				t.IsContained = existing.IsContained && t.IsContained
+			}
+			combined[key] = t
+		}
+	}
+	result := make([]tile.Tile, 0, len(combined))
+	for _, t := range combined {
+		result = append(result, t)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].X < result[j].X || (result[i].X == result[j].X && result[i].Y < result[j].Y)
+	})
+	return result
 }
 
 type featureForTileMatrixWrapper struct {
 	wrapped      Feature
 	newGeometry  geom.Geometry
+	encodedGeoms []tile.EncodedGeometry
 	tileMatrixID int
 }
 
@@ -174,19 +393,15 @@ func (f *featureForTileMatrixWrapper) TileMatrixID() int {
 	return f.tileMatrixID
 }
 
-func wrapFeatureForTileMatrix(feature Feature, tileMatrixID int, newGeometry geom.Geometry) FeatureForTileMatrix {
+func (f *featureForTileMatrixWrapper) EncodedGeoms() []tile.EncodedGeometry {
+	return f.encodedGeoms
+}
+
+func wrapFeatureForTileMatrix(feature Feature, tileMatrixID int, newGeometry geom.Geometry, encGeoms []tile.EncodedGeometry) FeatureForTileMatrix {
 	return &featureForTileMatrixWrapper{
 		wrapped:      feature,
 		newGeometry:  newGeometry,
 		tileMatrixID: tileMatrixID,
+		encodedGeoms: encGeoms,
 	}
-}
-
-func polygonsToMulti(polygons []geom.Polygon) geom.MultiPolygon {
-	l := len(polygons)
-	multiPolygon := make(geom.MultiPolygon, l)
-	for i := range l {
-		multiPolygon[i] = polygons[i]
-	}
-	return multiPolygon
 }

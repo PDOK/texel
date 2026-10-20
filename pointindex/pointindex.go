@@ -11,6 +11,7 @@ import (
 	"github.com/go-spatial/geom/encoding/wkt"
 	"golang.org/x/exp/maps" //nolint:exptostd
 
+	"github.com/pdok/texel/geomhelp"
 	"github.com/pdok/texel/mathhelp"
 	"github.com/pdok/texel/morton"
 	"github.com/pdok/texel/tms20"
@@ -42,6 +43,14 @@ type Quadrant struct {
 	intCentroid intgeom.Point
 }
 
+func (q *Quadrant) Extent() geom.Extent {
+	return q.intExtent.ToGeomExtent()
+}
+
+func (q *Quadrant) Coords() (uint, uint) {
+	return morton.FromZ(q.z)
+}
+
 // PointIndex is a pointcloud annex quadtree to enable snapping lines to a grid accounting for those points.
 // Quadrants:
 //
@@ -66,20 +75,25 @@ type PointIndex struct {
 	Quadrant
 	deepestLevel Level
 	// Number of quadrants (in one direction) on the deepest level (= 2 ^ deepestLevel)
-	deepestSize uint
-	deepestRes  intgeom.M
-	quadrants   map[Level]map[morton.Z]Quadrant
-	hitOnce     map[Level]map[intgeom.Point][]int
-	hitMultiple map[Level]map[intgeom.Point][]int
+	deepestSize    uint
+	deepestRes     intgeom.M
+	quadrants      map[Level]map[morton.Z]Quadrant
+	hitOnce        map[Level]map[intgeom.Point][]int
+	hitMultiple    map[Level]map[intgeom.Point][]int
+	tilePixels     uint
+	internalPixels uint
 }
 
-type Level = uint
-type Q = int // quadrant index (0, 1, 2 or 3)
+type (
+	Level = uint
+	Q     = int // quadrant index (0, 1, 2 or 3)
+)
 
 func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) (*PointIndex, error) {
 	// assuming IsQuadTree was tested before
 	rootTM := tileMatrixSet.TileMatrices[0]
-	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
+	tilePixels := rootTM.TileWidth
+	levelDiff := uint(math.Log2(float64(tilePixels))) + uint(math.Log2(float64(VectorTileInternalPixelResolution)))
 	//nolint:gosec // G115
 	deepestLevel := uint(deepestTMID) + levelDiff
 	bottomLeft, topRight, err := tileMatrixSet.MatrixBoundingBox(0)
@@ -95,8 +109,10 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 			intExtent: intExtent,
 			z:         0,
 		},
-		deepestLevel: deepestLevel,
-		deepestSize:  deepestSize,
+		tilePixels:     tilePixels,
+		internalPixels: VectorTileInternalPixelResolution,
+		deepestLevel:   deepestLevel,
+		deepestSize:    deepestSize,
 		//nolint:gosec // G115
 		deepestRes:  intExtent.XSpan() / int64(deepestSize),
 		quadrants:   make(map[Level]map[morton.Z]Quadrant, deepestLevel+1),
@@ -106,6 +122,35 @@ func FromTileMatrixSet(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID
 	_, ix.intCentroid = ix.getQuadrantExtentAndCentroid(0, 0, 0, intExtent)
 
 	return &ix, nil
+}
+
+func Factory(tileMatrixSet tms20.TileMatrixSet, deepestTMID tms20.TMID) func() *PointIndex {
+	factory := func() *PointIndex {
+		ix, err := FromTileMatrixSet(tileMatrixSet, deepestTMID)
+		if err != nil {
+			panic(err)
+		}
+		return ix
+	}
+	return factory
+}
+
+// Insert all points of a geometry in the pointindex. Multi-geometries not supported
+func (ix *PointIndex) InsertGeometry(geometry geom.Geometry) error {
+	pointSlice := geomhelp.PointSlice(geometry)
+	// Initialize the map
+	for level := range ix.deepestLevel + 1 {
+		if ix.quadrants[level] == nil {
+			ix.quadrants[level] = make(map[morton.Z]Quadrant, len(pointSlice))
+		}
+	}
+	// Insert points
+	for _, point := range pointSlice {
+		if err := ix.InsertPoint(point); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // InsertPolygon inserts all points from a Polygon

@@ -1,7 +1,6 @@
 package snap
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/go-spatial/geom"
 	"github.com/pdok/texel/intgeom"
+	"github.com/pdok/texel/processing"
 	"github.com/pdok/texel/tms20"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 )
@@ -29,64 +29,36 @@ const (
 
 type IsOuter = bool
 
-type Config struct {
-	KeepPointsAndLines  bool
-	IgnoreOutsideGrid   bool
-	ReverseWindingOrder bool
-}
-
-// SnapPolygon snaps polygons' points to a tile's internal pixel grid
-// and adds points to lines to prevent intersections.
-//
 //nolint:revive
-func SnapPolygon(polygon geom.Polygon, tileMatrixSet tms20.TileMatrixSet, tmIDs []tms20.TMID, config Config) map[tms20.TMID][]geom.Polygon {
-	deepestID := slices.Max(tmIDs)
-	ix, err := pointindex.FromTileMatrixSet(tileMatrixSet, deepestID)
-	if err != nil {
-		panic(err) // TODO let processing.processPolygonFunc return err
-	}
-	tmIDsByLevels := tileMatrixIDsByLevels(tileMatrixSet, tmIDs)
-	levels := make([]pointindex.Level, 0, len(tmIDsByLevels))
-	for level := range tmIDsByLevels {
-		levels = append(levels, level)
-	}
-
-	err = ix.InsertPolygon(polygon)
-	if err != nil {
-		outsideGridErr := new(pointindex.OutsideGridError)
-		if errors.As(err, outsideGridErr) && config.IgnoreOutsideGrid {
-			log.Println("[WARNING] skipping polygon because: " + err.Error())
-			return make(map[tms20.TMID][]geom.Polygon)
-		} else {
-			panic(err)
-		}
-	}
-
-	newPolygonsPerLevel := addPointsAndSnap(ix, polygon, levels, config)
-
-	newPolygonsPerTileMatrixID := make(map[tms20.TMID][]geom.Polygon, len(newPolygonsPerLevel))
-	for level, newPolygons := range newPolygonsPerLevel {
-		newPolygonsPerTileMatrixID[tmIDsByLevels[level]] = newPolygons
-	}
-
-	return newPolygonsPerTileMatrixID
-}
-
-func tileMatrixIDsByLevels(tms tms20.TileMatrixSet, tmIDs []tms20.TMID) map[pointindex.Level]tms20.TMID {
-	rootTM := tms.TileMatrices[0]
-	levelDiff := uint(math.Log2(float64(rootTM.TileWidth))) + uint(math.Log2(float64(pointindex.VectorTileInternalPixelResolution)))
-	tmIDsByLevels := make(map[pointindex.Level]tms20.TMID, len(tmIDs))
+func SnapGeometry(ix processing.PIndex, geometry geom.Geometry, tmIDs []tms20.TMID, config processing.Config) map[tms20.TMID][]geom.Geometry {
+	levels := make([]pointindex.Level, 0, len(tmIDs))
 	for _, tmID := range tmIDs {
-		// assuming 2^(tmID) = tm.MatrixWidth = tm.MatrixHeight
-		//nolint:gosec // G115
-		level := uint(tmID) + levelDiff
-		tmIDsByLevels[level] = tmID
+		levels = append(levels, ix.InternalPixelLevelFromTmsID(tmID))
 	}
-	return tmIDsByLevels
+	switch geometry := geometry.(type) {
+	case geom.Polygon:
+		snappedPolygons := addPointsAndSnap(ix, geometry, levels, config)
+		result := make(map[tms20.TMID][]geom.Geometry, len(snappedPolygons))
+		for i, TMID := range tmIDs {
+			polygons := snappedPolygons[levels[i]]
+			geoms := make([]geom.Geometry, 0, len(polygons))
+			for _, polygon := range polygons {
+				geoms = append(geoms, polygon)
+			}
+			result[TMID] = geoms
+		}
+		return result
+	default:
+		result := make(map[tms20.TMID][]geom.Geometry, len(tmIDs))
+		for _, tmID := range tmIDs {
+			result[tmID] = []geom.Geometry{geometry}
+		}
+		return result
+	}
 }
 
 //nolint:cyclop
-func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []pointindex.Level, config Config) map[pointindex.Level][]geom.Polygon {
+func addPointsAndSnap(ix processing.PIndex, polygon geom.Polygon, levels []pointindex.Level, config processing.Config) map[pointindex.Level][]geom.Polygon {
 	levelMap := mapslicehelp.AsKeys(levels)
 	newOuters := make(map[pointindex.Level][][][2]float64, len(levels))
 	newInners := make(map[pointindex.Level][][][2]float64, len(levels))
@@ -154,7 +126,7 @@ func addPointsAndSnap(ix *pointindex.PointIndex, polygon geom.Polygon, levels []
 	return geomhelp.FloatPolygonsToGeomPolygonsForAllKeys(newPolygons)
 }
 
-func reverseWindingOrderIfConfigured(polygons [][][][2]float64, config Config) {
+func reverseWindingOrderIfConfigured(polygons [][][][2]float64, config processing.Config) {
 	if !config.ReverseWindingOrder {
 		return
 	}
