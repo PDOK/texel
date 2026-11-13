@@ -395,7 +395,11 @@ func isHitMultiple(hitMultiple map[intgeom.Point][]int, vertex [2]float64, ringI
 		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] + 1, intVertex[yAx]}], ringIdx) || // fuzzy search
 		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] - 1, intVertex[yAx]}], ringIdx) ||
 		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx], intVertex[yAx] + 1}], ringIdx) ||
-		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx], intVertex[yAx] - 1}], ringIdx)
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx], intVertex[yAx] - 1}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] + 1, intVertex[yAx] + 1}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] + 1, intVertex[yAx] - 1}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] - 1, intVertex[yAx] + 1}], ringIdx) ||
+		slices.Contains(hitMultiple[intgeom.Point{intVertex[xAx] - 1, intVertex[yAx] - 1}], ringIdx)
 }
 
 // split ring into multiple rings at any point where the ring goes through the point more than once
