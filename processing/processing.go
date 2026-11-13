@@ -271,10 +271,14 @@ func newEncoder(config Config) func(SnapResult) []tile.EncodedGeometry {
 	}
 
 	return func(s SnapResult) []tile.EncodedGeometry {
-		encGeoms := make([]tile.EncodedGeometry, len(s.Tiles))
+		encGeoms := make([]tile.EncodedGeometry, 0, len(s.Tiles))
 		orig := s.Geometry
-		for i, q := range s.Tiles {
-			encGeoms[i] = tile.MvtEncodeGeometry(q, orig, defaultEnc)
+		for _, q := range s.Tiles {
+			encodedGeometry := tile.MvtEncodeGeometry(q, orig, defaultEnc)
+			if len(encodedGeometry.Encoding) == 0 {
+				continue
+			}
+			encGeoms = append(encGeoms, encodedGeometry)
 		}
 		return encGeoms
 	}
