@@ -1,28 +1,15 @@
 package gpkg
 
+// This file defines general geopackage-related infrastructure shared by both
+// the `snap` and `mvt` flows.
+
 import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
-	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/gpkg"
-	"github.com/pdok/texel/processing"
 )
-
-type featureGPKG struct {
-	columns  []any
-	geometry geom.Geometry
-}
-
-func (f featureGPKG) Columns() []any {
-	return f.columns
-}
-
-func (f featureGPKG) Geometry() geom.Geometry {
-	return f.geometry
-}
 
 type column struct {
 	cid       int
@@ -33,6 +20,7 @@ type column struct {
 	pk        int
 }
 
+// Abstraction of geometry table in a gpkg
 type Table struct {
 	Name    string
 	columns []column
@@ -41,7 +29,11 @@ type Table struct {
 	srs     gpkg.SpatialReferenceSystem
 }
 
-// geometryTypeFromString returns the numeric value of a gometry string
+// Name of associated table of a geometry table.
+func (t Table) EncodedName() string {
+	return t.Name + "_encoded"
+}
+
 func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
 	switch strings.ToUpper(geometrytype) {
 	case "GEOMETRY":
@@ -65,90 +57,21 @@ func geometryTypeFromString(geometrytype string) gpkg.GeometryType {
 	}
 }
 
-//nolint:recvcheck // TODO double check this
-type SourceGeopackage struct {
-	Table  Table
-	handle *gpkg.Handle
+// Custom wrapper for gpkg.Handle. To be embedded in other structs
+type geopackageHandle struct{ handle *gpkg.Handle }
+
+func (gH *geopackageHandle) Init(file string) {
+	gH.handle = openGeopackage(file)
 }
 
-func (source *SourceGeopackage) Init(file string) {
-	source.handle = openGeopackage(file)
+func (gH *geopackageHandle) Close() {
+	gH.handle.Close()
 }
 
-func (source SourceGeopackage) Close() {
-	source.handle.Close()
-}
-
-//nolint:funlen,cyclop
-func (source SourceGeopackage) ReadFeatures(features chan<- processing.Feature) {
-
-	rows, err := source.handle.Query(source.Table.selectSQL())
-	if err != nil {
-		log.Fatalf("err during closing rows: %s", err)
-	}
-
-	cols, err := rows.Columns()
-	if err != nil {
-		log.Fatalf("error reading the columns: %s", err)
-	}
-
-	for rows.Next() {
-		vals := make([]any, len(cols))
-		valPtrs := make([]any, len(cols))
-		for i := range cols {
-			valPtrs[i] = &vals[i]
-		}
-
-		if err = rows.Scan(valPtrs...); err != nil {
-			log.Fatalf("err reading row values: %v", err)
-		}
-		var f featureGPKG
-		var c []any
-
-		for i, colName := range cols {
-			switch colName {
-			case source.Table.gcolumn:
-				wkbgeom, err := gpkg.DecodeGeometry(vals[i].([]byte))
-				if err != nil {
-					log.Fatalf("error decoding the geometry: %s", err)
-				}
-				f.geometry = wkbgeom.Geometry
-			default:
-				switch v := vals[i].(type) {
-				case []uint8:
-					asBytes := make([]byte, len(v))
-					copy(asBytes, v)
-					c = append(c, string(asBytes))
-				case int64:
-					c = append(c, v)
-				case float64:
-					c = append(c, v)
-				case time.Time:
-					c = append(c, v.Format(time.RFC3339))
-				case string:
-					c = append(c, v)
-				case nil:
-					c = append(c, v)
-				default:
-					log.Fatalf("unexpected type for sqlite column data: %v: %T", cols[i], v)
-				}
-			}
-			f.columns = c
-		}
-		ff := &f
-		features <- ff
-	}
-	err = rows.Err()
-	if err != nil {
-		log.Fatal(err)
-	}
-	close(features)
-	defer rows.Close()
-}
-
-func (source SourceGeopackage) GetTableInfo() []Table {
+// Generate []Table slice for looping over.
+func (gH *geopackageHandle) GetTableInfo() []Table {
 	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns;`
-	rows, err := source.handle.Query(query)
+	rows, err := gH.handle.Query(query)
 	if err != nil {
 		log.Fatalf("error during closing rows: %v - %v", query, err)
 	}
@@ -163,114 +86,14 @@ func (source SourceGeopackage) GetTableInfo() []Table {
 			log.Fatalf("error retrieving the source table information: %s", err)
 		}
 
-		t.columns = getTableColumns(source.handle, t.Name)
+		t.columns = gH.getTableColumns(t.Name)
 		t.gtype = geometryTypeFromString(gtype)
-		t.srs = getSpatialReferenceSystem(source.handle, srsID)
+		t.srs = gH.getSpatialReferenceSystem(srsID)
 
 		tables = append(tables, t)
 	}
 	defer rows.Close()
 	return tables
-}
-
-type TargetGeopackage struct {
-	Table    Table
-	pagesize int
-	handle   *gpkg.Handle
-}
-
-func (target *TargetGeopackage) Init(file string, pagesize int) {
-	target.pagesize = pagesize
-	target.handle = openGeopackage(file)
-}
-
-func (target *TargetGeopackage) Close() {
-	target.handle.Close()
-}
-
-func (target *TargetGeopackage) CreateTables(tables []Table) error {
-	for _, table := range tables {
-		err := target.handle.UpdateSRS(table.srs)
-		if err != nil {
-			return err
-		}
-
-		err = buildTable(target.handle, table)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (target *TargetGeopackage) WriteFeatures(inFeatures <-chan processing.Feature) {
-	var features []processing.Feature
-
-	for {
-		feature, hasMore := <-inFeatures
-		if !hasMore {
-			target.writeFeatures(features)
-			break
-		}
-		features = append(features, feature)
-
-		if len(features)%target.pagesize == 0 {
-			target.writeFeatures(features)
-			features = nil
-		}
-	}
-}
-
-func (target *TargetGeopackage) writeFeatures(features []processing.Feature) {
-	tx, err := target.handle.Begin()
-	if err != nil {
-		log.Fatalf("Could not start a transaction: %s", err)
-	}
-
-	stmt, err := tx.Prepare(target.Table.insertSQL())
-	if err != nil {
-		log.Fatalf("Could not prepare a statement: %s", err)
-	}
-
-	var ext *geom.Extent
-
-	for _, f := range features {
-		//nolint:gosec // G115
-		sb, err := gpkg.NewBinary(int32(target.Table.srs.ID), f.Geometry())
-		if err != nil {
-			log.Fatalf("Could not create a binary geometry: %s", err)
-		}
-
-		data := f.Columns()
-		data = append(data, sb)
-
-		_, err = stmt.Exec(data...)
-		if err != nil {
-			var fid any = "unknown"
-			if len(data) > 0 {
-				fid = data[0]
-			}
-			log.Fatalf("Could not get a result summary from the prepared statement for fid %s: %s", fid, err)
-		}
-
-		if ext == nil {
-			ext, err = geom.NewExtentFromGeometry(f.Geometry())
-			if err != nil {
-				ext = nil
-				log.Println("Failed to create new extent:", err)
-				continue
-			}
-		} else {
-			_ = ext.AddGeometry(f.Geometry())
-		}
-	}
-	stmt.Close()
-	_ = tx.Commit()
-
-	err = target.handle.UpdateGeometryExtent(target.Table.Name, ext)
-	if err != nil {
-		log.Fatalln("Failed to update new extent:", err)
-	}
 }
 
 func openGeopackage(file string) *gpkg.Handle {
@@ -281,60 +104,12 @@ func openGeopackage(file string) *gpkg.Handle {
 	return handle
 }
 
-// createSQL creates a CREATE statement on the given table and column information
-// used for creating feature tables in the target Geopackage
-func (t Table) createSQL() string {
-	create := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%v"`, t.Name)
-	var columnparts []string //nolint:prealloc
-	for _, column := range t.columns {
-		columnpart := column.name + ` ` + column.ctype
-		if column.notnull == 1 {
-			columnpart += ` NOT NULL`
-		}
-		if column.pk == 1 {
-			columnpart += ` PRIMARY KEY`
-		}
-
-		columnparts = append(columnparts, columnpart)
-	}
-
-	query := create + `(` + strings.Join(columnparts, `, `) + `);`
-	return query
-}
-
-// selectSQL build a SELECT statement based on the table and columns
-// used for reading the source features
-func (t Table) selectSQL() string {
-	var csql []string //nolint:prealloc
-	for _, c := range t.columns {
-		csql = append(csql, c.name)
-	}
-	query := `SELECT ` + strings.Join(csql, `,`) + ` FROM "` + t.Name + `";`
-	return query
-}
-
-// insertSQL used for writing the features
-// build the INSERT statement based on the table and columns
-func (t Table) insertSQL() string {
-	var csql, vsql []string
-	for _, c := range t.columns {
-		if c.name != t.gcolumn {
-			csql = append(csql, c.name)
-			vsql = append(vsql, `?`)
-		}
-	}
-	csql = append(csql, t.gcolumn)
-	vsql = append(vsql, `?`)
-	query := `INSERT INTO "` + t.Name + `"(` + strings.Join(csql, `,`) + `) VALUES(` + strings.Join(vsql, `,`) + `)`
-	return query
-}
-
 // getSpatialReferenceSystem extracts this based on the given SRS id
-func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSystem {
+func (gH *geopackageHandle) getSpatialReferenceSystem(id int) gpkg.SpatialReferenceSystem {
 	var srs gpkg.SpatialReferenceSystem
 	query := `SELECT srs_name, srs_id, organization, organization_coordsys_id, definition, description FROM gpkg_spatial_ref_sys WHERE srs_id = %v;`
 
-	row := h.QueryRow(fmt.Sprintf(query, id))
+	row := gH.handle.QueryRow(fmt.Sprintf(query, id))
 	var description *string
 	_ = row.Scan(&srs.Name, &srs.ID, &srs.Organization, &srs.OrganizationCoordsysID, &srs.Definition, &description)
 	if description != nil {
@@ -345,11 +120,10 @@ func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSyst
 }
 
 // getTableColumns collects the column information of a given table
-func getTableColumns(h *gpkg.Handle, table string) []column {
+func (gH *geopackageHandle) getTableColumns(table string) []column {
 	var columns []column
 	query := `PRAGMA table_info('%v');`
-	rows, err := h.Query(fmt.Sprintf(query, table))
-
+	rows, err := gH.handle.Query(fmt.Sprintf(query, table))
 	if err != nil {
 		log.Fatalf("err during closing rows: %v - %v", query, err)
 	}
@@ -364,31 +138,4 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 	}
 	defer rows.Close()
 	return columns
-}
-
-// buildTable creates a given destination table with the necessary gpkg_ information
-func buildTable(h *gpkg.Handle, t Table) error {
-	query := t.createSQL()
-	_, err := h.Exec(query)
-	if err != nil {
-		log.Fatalf("error building table in target GeoPackage: %s", err)
-	}
-
-	err = h.AddGeometryTable(gpkg.TableDescription{
-		Name:          t.Name,
-		ShortName:     t.Name,
-		Description:   t.Name,
-		GeometryField: t.gcolumn,
-		GeometryType:  t.gtype,
-		//nolint:gosec // G115
-		SRS: int32(t.srs.ID),
-		//
-		Z: gpkg.Prohibited,
-		M: gpkg.Prohibited,
-	})
-	if err != nil {
-		log.Println("error adding geometry table in target GeoPackage:", err)
-		return err
-	}
-	return nil
 }

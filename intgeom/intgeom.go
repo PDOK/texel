@@ -56,7 +56,7 @@ func FromGeomOrd(o float64) M {
 // TODO implement this with integers
 func SegmentIntersect(l1, l2 Line) ([2]int64, bool) {
 	intersection, intersects := planar.SegmentIntersect(l1.ToGeomLine(), l2.ToGeomLine())
-	intIntersection := [2]int64{FromGeomOrd(intersection[0]), FromGeomOrd(intersection[0])}
+	intIntersection := [2]int64{FromGeomOrd(intersection[0]), FromGeomOrd(intersection[1])}
 	return intIntersection, intersects
 }
 
