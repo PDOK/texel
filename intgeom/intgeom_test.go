@@ -461,7 +461,6 @@ func TestIntgeom_LineIntersects_old(t *testing.T) {
 		},
 		{
 			name: "diagonally opposed line between non-inclusive points",
-			// This test is fragile and depends on floating-point rounding
 			extent: Extent{
 				0o0000000, 0o0000000, 10000000, 10000000,
 			},
