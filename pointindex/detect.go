@@ -30,6 +30,9 @@ const (
 // Tile detection functions //
 //////////////////////////////
 
+// Detect on which tiles a geometry lies by tracing along its edges. We assume
+// that the entire polygon is contained within the pointindex.
+
 func (ix *PointIndex) DetectTilesViaLineTrace(g geom.Geometry, tmsID tms20.TMID, buffer uint) []tile.Tile {
 	switch g := g.(type) {
 	case geom.Polygon:
@@ -226,7 +229,7 @@ func tileIntersectsLine(line intgeom.Line, extent intgeom.Extent, buffer intgeom
 		extent.MaxY() + buffer,
 	}
 
-	return lineIntersects(line, bufferedExtent)
+	return bufferedExtent.IntersectsLine(line)
 }
 
 ///////////////////////////////
@@ -342,6 +345,8 @@ func (ix *PointIndex) fillTiles(tileLevel, currentLevel Level, currentZ morton.Z
 			continue
 		}
 		if containsAll {
+			// This next line (and the "containsAll" logic in general) assumes that the
+			// entire polygon lies within the grid.
 			classification[nextLevel][child] = ClassificationOutside
 		} else {
 			childAtTileLevel := child << ((tileLevel - nextLevel) * 2)
