@@ -435,3 +435,46 @@ func TestIntgeom_IntersectsLine(t *testing.T) {
 		})
 	}
 }
+
+// LineIntersects replaces an old function, for completeness the old tests have
+// been included here
+func TestIntgeom_LineIntersects_old(t *testing.T) {
+	tests := []struct {
+		name   string
+		extent Extent
+		line   Line
+		want   bool
+	}{
+		{
+			name: "false positive with naive integer intersect implementation",
+			extent: Extent{
+				135196160000000,
+				516981760000000,
+				135202880000000,
+				516988480000000,
+			},
+			line: Line{
+				{135201147999999, 516929654000000},
+				{135145991000000, 516996354000000},
+			},
+			want: false,
+		},
+		{
+			name: "diagonally opposed line between non-inclusive points",
+			// This test is fragile and depends on floating-point rounding
+			extent: Extent{
+				0o0000000, 0o0000000, 10000000, 10000000,
+			},
+			line: Line{
+				{0o0000000, 10000000}, {10000000, 0o0000000},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.extent.IntersectsLine(tt.line)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
