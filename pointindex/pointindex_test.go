@@ -13,7 +13,6 @@ import (
 
 	"github.com/pdok/texel/tms20"
 
-	"github.com/go-spatial/geom/encoding/wkt"
 	"github.com/pdok/texel/intgeom"
 
 	"github.com/go-spatial/geom"
@@ -491,50 +490,6 @@ func TestPointIndex_SnapClosestPoints(t *testing.T) {
 			if !assert.Equal(t, tt.want, got) {
 				ix.ToWkt(os.Stdout)
 				t.Errorf("SnapClosestPoints() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestPointIndex_lineIntersects(t *testing.T) {
-	tests := []struct {
-		name   string
-		extent intgeom.Extent
-		line   intgeom.Line
-		want   bool
-	}{
-		{
-			name: "false positive with naive integer intersect implementation",
-			extent: intgeom.Extent{
-				135196160000000,
-				516981760000000,
-				135202880000000,
-				516988480000000,
-			},
-			line: intgeom.Line{
-				{135201147999999, 516929654000000},
-				{135145991000000, 516996354000000},
-			},
-			want: false,
-		},
-		{
-			name: "diagonally opposed line between non-inclusive points",
-			// This test is fragile and depends on floating-point rounding
-			extent: intgeom.Extent{
-				0o0000000, 0o0000000, 10000000, 10000000,
-			},
-			line: intgeom.Line{
-				{0o0000000, 10000000}, {10000000, 0o0000000},
-			},
-			want: false, // TODO This is an undesired outcome
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := lineIntersects(tt.line, tt.extent)
-			if tt.want != got {
-				t.Logf("extent = %v", wkt.MustEncode(tt.extent.ToGeomExtent()))
-				t.Errorf("lineIntersects(%v) = %v, want %v", wkt.MustEncode(tt.line.ToGeomLine()), got, tt.want)
 			}
 		})
 	}

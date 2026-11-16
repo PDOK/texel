@@ -21,8 +21,6 @@ import (
 	"math/bits"
 	"strconv"
 	"strings"
-
-	"github.com/go-spatial/geom/planar"
 )
 
 const (
@@ -50,17 +48,6 @@ func FromGeomOrd(o float64) M {
 	return int64(o * math.Pow(10, Precision))
 }
 
-// SegmentIntersect will find the intersection point (x,y) between two lines if
-// there is one. Ok will be true if it found an intersection point and if the
-// point is on both lines.
-// ref: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Given_two_points_on_each_line
-// TODO implement this with integers
-func SegmentIntersect(l1, l2 Line) ([2]int64, bool) {
-	intersection, intersects := planar.SegmentIntersect(l1.ToGeomLine(), l2.ToGeomLine())
-	intIntersection := [2]int64{FromGeomOrd(intersection[0]), FromGeomOrd(intersection[1])}
-	return intIntersection, intersects
-}
-
 func PrintWithDecimals(o M, n uint) string {
 	s := fmt.Sprintf("%0"+strconv.Itoa(Precision+1)+"d", o)
 	l := len(s)
@@ -79,10 +66,9 @@ func PrintWithDecimals(o M, n uint) string {
 // Liang-Barsky intersect //
 ////////////////////////////
 
-
 // We use a variant of the Liang-Barsky algorithm (https://en.wikipedia.org/wiki/Liang%E2%80%93Barsky_algorithm)
 // to determine whether a line intersects an extent. The idea is to abuse the
-// fact that an extent is a square, which allows us to solve a problem in the 
+// fact that an extent is a square, which allows us to solve a problem in the
 // x- and y- coordinate frame separately.
 //
 // To be specific: Suppose we have a line (P0, P1). Parameterize this line as
@@ -102,12 +88,12 @@ func PrintWithDecimals(o M, n uint) string {
 // maximal values of t alluded to above. The "intersect" function models the
 // idea that conditions have to be true at the same time. Aside from the x- and
 // y-coordinate conditions, we have a condition that t needs to lie between 0
-// and 1, i.e., the point needs to lie on the interior of the line. We also 
+// and 1, i.e., the point needs to lie on the interior of the line. We also
 // have a Rational type, which is needed since we divide integers and require
 // exactness. Here, 128-bit arithmetic is involved: our coordinates are large
 // enough that multiplying them does not fit in an int64.
 //
-// The reason this algorithm is relatively efficient in terms of speed and 
+// The reason this algorithm is relatively efficient in terms of speed and
 // intersection logic is that we do not compute the intersection point, we just
 // check if one exists.
 

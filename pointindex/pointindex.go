@@ -25,8 +25,6 @@ const (
 )
 
 const (
-	xAx = 0
-	yAx = 1
 	// left        = 0b00
 	right = 0b01
 	// bottom      = 0b00
@@ -303,7 +301,7 @@ func (ix *PointIndex) getQuadrantExtentAndCentroid(level Level, x, y uint, intRo
 }
 
 func (ix *PointIndex) snapClosestPoints(intLine intgeom.Line, levelMap map[Level]any) map[Level][]Quadrant {
-	if len(levelMap) == 0 || !lineIntersects(intLine, ix.intExtent) {
+	if len(levelMap) == 0 || !ix.intExtent.IntersectsLine(intLine) {
 		return nil
 	}
 	quadrantsIntersectedPerLevel := make(map[Level][]Quadrant, len(levelMap))
@@ -409,7 +407,7 @@ func findIntersectingQuadrants(intLine intgeom.Line, quadrants map[Q]Quadrant, p
 		if !hasPoints {
 			continue
 		}
-		if quadrantToCheck.certain || lineIntersects(intLine, quadrant.intExtent) {
+		if quadrantToCheck.certain || quadrant.intExtent.IntersectsLine(intLine) {
 			found = append(found, quadrantToCheck.i)
 			if quadrantToCheck.mutex {
 				mutexed = true
@@ -468,42 +466,6 @@ func adjacentQuadrantY(quadrantI int) int {
 	return quadrantI ^ 0b10
 }
 
-// lineIntersects tests whether a line intersects with an extent.
-// TODO this can probably be faster by reusing the edges for the other three quadrants and/or only testing relevant edges (hints)
-func lineIntersects(intLine intgeom.Line, intExtent intgeom.Extent) bool {
-	// First see if a point is inside (cheap test).
-	pt1IsInsideQuadrant := containsPoint(intLine[0], intExtent)
-	pt2IsInsideQuadrant := containsPoint(intLine[1], intExtent)
-	if pt1IsInsideQuadrant || pt2IsInsideQuadrant {
-		return true
-	}
-
-	for edgeI, intEdge := range intExtent.Edges(nil) {
-		intersection, intersects := intgeom.SegmentIntersect(intLine, intEdge)
-		// Checking for intersection cq crossing is not enough. The right and top edges are exclusive.
-		// So there are exceptions ...:
-		if intersects { //nolint:nestif
-			if isExclusiveEdge(edgeI) {
-				if intLine[0] == intersection || intLine[1] == intersection {
-					// The tip of a line coming from the outside touches the (exclusive) edge.
-					continue
-				}
-			} else {
-				// The tip of a line coming from the outside touches the exclusive tip of an inclusive edge.
-				exclusivePoint := getExclusiveTip(edgeI, intEdge)
-				if intLine[0] == exclusivePoint || intLine[1] == exclusivePoint {
-					continue
-				}
-			}
-			return true
-		} else if !isExclusiveEdge(edgeI) && lineOverlapsInclusiveEdge(intLine, edgeI, intEdge) {
-			// No intersection but overlap on an inclusive edge.
-			return true
-		}
-	}
-	return false
-}
-
 func checkPointHits(ix *PointIndex, vertex intgeom.Point, ringID int, level uint) {
 	levelHitOnce := ix.hitOnce[level]
 	levelHitMultiple := ix.hitMultiple[level]
@@ -519,49 +481,6 @@ func checkPointHits(ix *PointIndex, vertex intgeom.Point, ringID int, level uint
 		// first hit of this point by any ring
 		levelHitOnce[vertex] = append(levelHitOnce[vertex], ringID)
 	}
-}
-
-func isExclusiveEdge(edgeI int) bool {
-	i := edgeI % 4
-	return i == 1 || i == 2
-}
-
-// getExclusiveTip returns the tip point of an inclusive edge that is not-inclusive
-func getExclusiveTip(edgeI int, edge intgeom.Line) intgeom.Point {
-	i := edgeI % 4
-	switch i {
-	case 0:
-		return edge[1]
-	case 3:
-		return edge[0]
-	}
-	panic(fmt.Sprintf("not an inclusive edge: %v", edgeI))
-}
-
-// lineOverlapsInclusiveEdge helps to check if a line overlaps an inclusive edge (excluding the exclusive tip)
-func lineOverlapsInclusiveEdge(intLine intgeom.Line, edgeI int, intEdge intgeom.Line) bool {
-	var constAx, varAx int
-	switch {
-	case intEdge[0][xAx] == intEdge[1][xAx]:
-		constAx = xAx
-		varAx = yAx
-	case intEdge[0][yAx] == intEdge[1][yAx]:
-		constAx = yAx
-		varAx = xAx
-	default:
-		panic(fmt.Sprintf("not a straight edge: %v", intEdge))
-	}
-	eConstOrd := intEdge[0][constAx]
-	if intLine[0][constAx] != eConstOrd || intLine[1][constAx] != eConstOrd {
-		return false // not a straight line and/or not on same line as the edge, so no overlap
-	}
-	eOrd1 := intEdge[0][varAx]
-	eOrd2 := intEdge[1][varAx]
-
-	exclusiveTip := getExclusiveTip(edgeI, intEdge)
-	lOrd1 := intLine[0][varAx]
-	lOrd2 := intLine[1][varAx]
-	return lOrd1 != lOrd2 && (mathhelp.IBetweenInc(lOrd1, eOrd1, eOrd2) && intLine[0] != exclusiveTip || mathhelp.IBetweenInc(lOrd2, eOrd1, eOrd2) && intLine[1] != exclusiveTip)
 }
 
 func oneIfRight(quadrantI int) int {
